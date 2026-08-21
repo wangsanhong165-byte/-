@@ -78,6 +78,7 @@ class RuntimeEventHandler:
 
     def disable_proactive_push(self) -> None:
         self.runtime.unregister_proactive_handler(self._on_proactive_reply)
+        self._set_user_input_active(False)
         if self._active_task and not self._active_task.done():
             self._active_task.cancel()
 
@@ -102,6 +103,7 @@ class RuntimeEventHandler:
             self._audio_turn_id = event.turn_id or ""
             self._audio_session_id = event.session_id
             self._active_turn_id = self._audio_turn_id
+            self._set_user_input_active(True)
             return []
 
         if event_type == "user.audio.chunk":
@@ -120,6 +122,7 @@ class RuntimeEventHandler:
             audio = self._audio_to_wav()
             self._clear_audio()
             if not audio:
+                self._set_user_input_active(False)
                 return [error_envelope(
                     "empty_audio",
                     "Audio turn completed without samples",
@@ -195,6 +198,8 @@ class RuntimeEventHandler:
             return await self._run_turn(turn_input)
         finally:
             self._active_turn_id = ""
+            if turn_input.audio:
+                self._set_user_input_active(False)
 
     async def _run_turn_and_push(self, turn_input: TurnInput) -> None:
         try:
@@ -208,6 +213,8 @@ class RuntimeEventHandler:
             if self._active_turn_id == turn_input.turn_id:
                 self._active_turn_id = ""
             self._active_task = None
+            if turn_input.audio:
+                self._set_user_input_active(False)
 
     async def _run_turn(self, turn_input: TurnInput) -> list[RuntimeResponse]:
         emitter = self.emitter_factory()
@@ -291,12 +298,23 @@ class RuntimeEventHandler:
         if self._active_task is None:
             self._active_turn_id = ""
 
+    def _set_user_input_active(self, active: bool) -> None:
+        setter = getattr(self.runtime, "set_user_input_active", None)
+        if callable(setter):
+            setter(active)
+
     async def _cancel_turn(self, event: EventEnvelope) -> list[RuntimeResponse]:
         if self._active_turn_id and event.turn_id != self._active_turn_id:
             return [self._stale_turn(event)]
         self._clear_audio()
         if self._active_task and not self._active_task.done():
-            self._active_task.cancel()
+            active_task = self._active_task
+            active_task.cancel()
+            try:
+                await active_task
+            except asyncio.CancelledError:
+                pass
+        self._set_user_input_active(False)
         self._active_turn_id = ""
         reason = getattr(event.payload, "reason", "cancelled")
         return [

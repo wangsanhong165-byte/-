@@ -9,6 +9,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import logging
@@ -56,6 +57,7 @@ class CharacterRuntime:
         self._initiative_queue = InitiativeQueue()
         self._turn_lock = None
         self._runtime_idle = True
+        self._user_input_active = False
         self._active_turn: CharacterTurn | None = None
         self._last_prompt_snapshot: dict[str, Any] | None = None
         self._initiative_task: Any = None  # asyncio Task for draining
@@ -334,6 +336,12 @@ class CharacterRuntime:
         if handler in self._proactive_handlers:
             self._proactive_handlers.remove(handler)
 
+    def set_user_input_active(self, active: bool) -> None:
+        """Block proactive dispatch while the user is recording or listening."""
+        self._user_input_active = bool(active)
+        if active and self.initiative_checker is not None:
+            self.initiative_checker.touch()
+
     def _start_initiative_drain(self):
         """Schedule the initiative drain loop on the current event loop.
 
@@ -362,7 +370,7 @@ class CharacterRuntime:
         while True:
             await asyncio.sleep(0.5)
             candidate = self._initiative_queue.pop_next(
-                runtime_idle=self._runtime_idle
+                runtime_idle=self._runtime_idle and not self._user_input_active
             )
             if candidate is None:
                 continue
@@ -665,6 +673,9 @@ class CharacterRuntime:
 
         try:
             turn = await self.pipeline.run(turn)
+        except asyncio.CancelledError:
+            self.character_self.rollback_turn()
+            raise
         except Exception:
             self.character_self.rollback_turn()
             raise

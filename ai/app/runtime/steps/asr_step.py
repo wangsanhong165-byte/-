@@ -13,4 +13,10 @@ class ASRStep(Step):
     async def run(self, ctx: CharacterTurn) -> None:
         if ctx.event.type == EventType.SPEECH_RECEIVED:
             audio = ctx.event.payload.get("audio", b"")
-            ctx.user_text = await self.asr.transcribe(audio)
+            ctx.user_text = (await self.asr.transcribe(audio)).strip()
+            if not ctx.user_text:
+                ctx.fail(
+                    "asr.empty_transcript",
+                    "No speech was recognized from the recorded audio",
+                    retryable=True,
+                )

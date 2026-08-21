@@ -34,6 +34,7 @@ from app.runtime.event import Event, EventType
 from app.runtime.pipeline import Pipeline, Step
 from app.runtime.character_turn import CharacterTurn, TurnInput, TurnOrigin
 from app.runtime.runtime import CharacterRuntime
+from app.runtime.initiative import InitiativeCandidate
 
 
 def _turn_input(event: Event) -> TurnInput:
@@ -78,6 +79,30 @@ class BrokenStep(Step):
     """Step that raises an exception."""
     async def run(self, ctx: CharacterTurn) -> None:
         raise RuntimeError("broken")
+
+
+class CancelFirstTurnStep(Step):
+    """Block the first turn until cancelled, then complete later turns."""
+
+    def __init__(self):
+        import asyncio
+
+        self.started = asyncio.Event()
+        self.calls = 0
+
+    async def run(self, ctx: CharacterTurn) -> None:
+        import asyncio
+
+        self.calls += 1
+        if self.calls == 1:
+            self.started.set()
+            await asyncio.Event().wait()
+        ctx.reply_text = "recovered"
+
+
+class EmptyASR:
+    async def transcribe(self, _audio: bytes) -> str:
+        return "   "
 
 
 # ── Helpers ────────────────────────────────────────────────
@@ -175,6 +200,83 @@ class TestCharacterRuntime(unittest.TestCase):
                       {"audio": audio_bytes, "sample_rate": 16000}, source="test")
         ctx = _run(self.runtime.handle_turn(_turn_input(event)))
         self.assertIsNotNone(ctx)
+
+    def test_cancelled_turn_does_not_break_the_next_turn(self):
+        """A user interruption must release the turn transaction completely."""
+
+        async def scenario():
+            step = CancelFirstTurnStep()
+            self.runtime.pipeline = Pipeline().add(step)
+
+            cancelled = asyncio.create_task(
+                self.runtime.handle_turn(TurnInput(text="cancel me"))
+            )
+            await step.started.wait()
+            cancelled.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await cancelled
+
+            return await self.runtime.handle_turn(TurnInput(text="next turn"))
+
+        import asyncio
+
+        result = asyncio.run(scenario())
+        self.assertEqual(result.phase.value, "completed")
+        self.assertEqual(result.reply_text, "recovered")
+
+    def test_empty_asr_transcript_stops_before_decision(self):
+        """Silence must not reach decision, tools, TTS, or memory save."""
+        from app.runtime.steps.asr_step import ASRStep
+
+        decision = TrackingStep("decision")
+        self.runtime.pipeline = Pipeline().add(ASRStep(EmptyASR())).add(decision)
+
+        result = _run(self.runtime.handle_turn(TurnInput(audio=b"RIFF-silence")))
+
+        self.assertIsNotNone(result.error)
+        self.assertEqual(result.error.code, "asr.empty_transcript")
+        self.assertEqual(decision.order, [])
+
+    def test_recording_defers_queued_initiative_until_user_input_releases(self):
+        """A queued proactive turn must not speak over an active recording."""
+
+        async def scenario():
+            delivered = asyncio.Event()
+
+            async def on_proactive(_turn):
+                delivered.set()
+
+            self.runtime.register_proactive_handler(on_proactive)
+            self.runtime.set_user_input_active(True)
+            self.runtime._initiative_queue.enqueue(
+                InitiativeCandidate.create(
+                    source="test",
+                    topic="hello",
+                    priority=1.0,
+                    freshness=1.0,
+                    ttl_seconds=10.0,
+                    payload={
+                        "prompt": "Say hello briefly",
+                        "initiative": {"intent": "idle_chat", "topic": "hello"},
+                    },
+                )
+            )
+            drain = self.runtime._start_initiative_drain()
+            await asyncio.sleep(0.65)
+            blocked_while_recording = not delivered.is_set()
+
+            self.runtime.set_user_input_active(False)
+            await asyncio.wait_for(delivered.wait(), timeout=3.0)
+
+            if drain is not None:
+                drain.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await drain
+            return blocked_while_recording
+
+        import asyncio
+
+        self.assertTrue(asyncio.run(scenario()))
 
     def test_providers_available(self):
         """All expected providers should be initialized."""

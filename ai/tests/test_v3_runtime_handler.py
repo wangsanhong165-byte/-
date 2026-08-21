@@ -42,6 +42,28 @@ class RuntimeProbe:
         return turn
 
 
+class CancellableRuntimeProbe:
+    def __init__(self):
+        self.started = asyncio.Event()
+        self.cancelled = asyncio.Event()
+
+    async def handle_turn(self, turn_input: TurnInput, **_kwargs) -> CharacterTurn:
+        self.started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            self.cancelled.set()
+
+
+class InputActivityRuntimeProbe(RuntimeProbe):
+    def __init__(self):
+        super().__init__()
+        self.input_activity: list[bool] = []
+
+    def set_user_input_active(self, active: bool) -> None:
+        self.input_activity.append(active)
+
+
 def test_text_event_reaches_domain_with_session_and_turn_identity() -> None:
     runtime = RuntimeProbe()
     handler = RuntimeEventHandler(runtime=runtime)
@@ -122,6 +144,49 @@ def test_cancel_clears_audio_and_emits_canonical_cancel_events() -> None:
         "tts.cancelled",
         "turn.cancelled",
     ]
+
+
+def test_cancel_ack_waits_until_the_runtime_turn_has_stopped() -> None:
+    runtime = CancellableRuntimeProbe()
+    pushed = []
+
+    async def capture(response):
+        pushed.append(response)
+
+    async def scenario():
+        handler = RuntimeEventHandler(runtime=runtime, send_event=capture)
+        await handler.handle_event(event("user.text", {"text": "hello"}))
+        await runtime.started.wait()
+        responses = await handler.handle_event(
+            event("turn.cancelled", {"reason": "user_interrupt"})
+        )
+        return responses, runtime.cancelled.is_set()
+
+    responses, stopped = asyncio.run(scenario())
+
+    assert stopped is True
+    assert [response.event_type for response in responses] == [
+        "tts.cancelled",
+        "turn.cancelled",
+    ]
+
+
+def test_audio_recording_blocks_initiative_until_cancelled() -> None:
+    runtime = InputActivityRuntimeProbe()
+    handler = RuntimeEventHandler(runtime=runtime)
+
+    async def scenario():
+        await handler.handle_event(event(
+            "user.audio.started",
+            {"sampleRate": 16000, "channels": 1, "format": "pcm_f32"},
+        ))
+        await handler.handle_event(
+            event("user.audio.cancelled", {"reason": "user_cancelled"})
+        )
+
+    asyncio.run(scenario())
+
+    assert runtime.input_activity == [True, False]
 
 
 def test_management_event_is_routed_without_v2_inbound_message() -> None:

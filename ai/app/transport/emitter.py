@@ -94,7 +94,13 @@ class TransportEmitter:
 
     def emit_completion(self, turn: CharacterTurn) -> list[DomainEvent]:
         if turn.error:
-            return [
+            events: list[DomainEvent] = []
+            if turn.error.code.startswith("asr."):
+                events.append(self._event(turn, "asr.failed", {
+                    "code": turn.error.code,
+                    "message": turn.error.message,
+                }))
+            events.extend([
                 self._event(turn, "turn.failed", {
                     "code": turn.error.code,
                     "message": turn.error.message,
@@ -103,7 +109,8 @@ class TransportEmitter:
                     "runtime.status",
                     {"state": "idle", "message": ""},
                 ),
-            ]
+            ])
+            return events
 
         events: list[DomainEvent] = []
         if turn.input.audio:

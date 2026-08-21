@@ -66,6 +66,22 @@ def test_failure_lifecycle_is_error_then_idle():
     assert messages[1].payload.code == "decision.invalid"
 
 
+def test_empty_asr_failure_is_identified_before_the_turn_failure():
+    turn = CharacterTurn(input=TurnInput(audio=b"RIFF-silence"))
+    turn.fail("asr.empty_transcript", "No speech was recognized")
+
+    messages = TransportEmitter().emit(turn)
+
+    assert [message.event_type for message in messages] == [
+        "turn.started",
+        "asr.started",
+        "asr.failed",
+        "turn.failed",
+        "runtime.status",
+    ]
+    assert messages[2].payload.code == "asr.empty_transcript"
+
+
 def test_websocket_pushes_processing_before_runtime_work_starts():
     pushed = []
 

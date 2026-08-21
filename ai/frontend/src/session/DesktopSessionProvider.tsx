@@ -20,6 +20,7 @@ import { CompanionWorkspace } from '../ui/CompanionWorkspace'
 import type { CharacterDescriptor } from '../ui/character-catalog'
 import { requestLive2DModelLoad, synchronizeStartupLive2DModel } from './live2d-switch'
 import { resolveHistoryCommand } from '../conversation/history-command'
+import { assistantPlaceholderForTurn } from './turn-messages'
 import { PermissionDialog } from '../ui/PermissionDialog'
 import {
   normalizeLive2DPerformanceSettings,
@@ -86,6 +87,11 @@ export function DesktopSessionWorkspace() {
     // character state (emotion/intensity) driven by backend CharacterUpdate
     const unsubIntent = eventBus.on('runtime:character.intent', ({ emotion, intensity, behavior }) => {
       actions.setCharacter(emotion, intensity, behavior || emotion)
+    })
+
+    const unsubTurnMessage = eventBus.on('runtime:turn.started', ({ turnId, origin }) => {
+      const placeholder = assistantPlaceholderForTurn(origin, turnId)
+      if (placeholder) actions.addMessage(placeholder)
     })
 
     const unsub3 = eventBus.on('runtime:message', ({ text, reasoning }) => {
@@ -321,7 +327,7 @@ export function DesktopSessionWorkspace() {
       unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6()
       unsub7(); unsub8(); unsub10(); unsub11(); unsub12()
       unsubDiagnostic(); unsubDiagnosticDebug()
-      unsubActivity(); unsubIntent()
+      unsubActivity(); unsubIntent(); unsubTurnMessage()
       unsubAccessoryLoaded(); unsubAccessoryChanged()
       if (diagnosticRun?.stopTimer) clearTimeout(diagnosticRun.stopTimer)
       if (diagnosticRun?.finishTimer) clearTimeout(diagnosticRun.finishTimer)
