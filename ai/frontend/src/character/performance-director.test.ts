@@ -31,6 +31,18 @@ test('speech segments are anchored to actual playback duration', () => {
   assert.equal(director.update()[0]?.emotion, 'playful')
 })
 
+test('staged speech performance does not start before decoded audio playback', () => {
+  let now = 0
+  const director = new PerformanceDirector(() => now, { audioWaitMs: 240 })
+  director.stage(base)
+
+  now = 5_000
+  assert.deepEqual(director.update(), [])
+
+  director.onAudioStart('turn-1', 2_000)
+  assert.equal(director.update()[0]?.turnId, 'turn-1')
+})
+
 test('a newer turn cancels all pending cues from the superseded turn', () => {
   let now = 0
   const director = new PerformanceDirector(() => now)
@@ -60,12 +72,14 @@ test('repeated LLM gestures are suppressed inside the Soullink-style repeat wind
   }
 
   director.stage({ ...base, motionPlan })
+  director.onAudioUnavailable('turn-1')
   now = 300
   const first = director.update()[0]
   assert.ok(first.motionPlan)
 
   now = 1_000
   director.stage({ ...base, turnId: 'turn-2', motionPlan })
+  director.onAudioUnavailable('turn-2')
   now = 1_300
   const repeated = director.update()[0]
   assert.ok(repeated.motionPlan, 'a repeated LLM gesture must degrade to local choreography')
@@ -73,6 +87,7 @@ test('repeated LLM gestures are suppressed inside the Soullink-style repeat wind
 
   now = 7_100
   director.stage({ ...base, turnId: 'turn-3', motionPlan })
+  director.onAudioUnavailable('turn-3')
   now = 7_400
   assert.ok(director.update()[0].motionPlan)
 })
@@ -114,6 +129,7 @@ test('late audio timing does not replay a fallback cue that already fired', () =
     { text: 'first', emotion: 'happy', behavior: 'speak' },
     { text: 'second', emotion: 'surprised', behavior: 'speak' },
   ])
+  director.onAudioUnavailable('turn-1')
 
   now = 260
   assert.equal(director.update()[0]?.emotion, 'happy')
@@ -130,6 +146,7 @@ test('speech gets duration-aware local choreography when the LLM omits motion', 
   let now = 0
   const director = new PerformanceDirector(() => now)
   director.stage(base)
+  director.onAudioUnavailable('turn-1')
   now = 300
   const expressive = director.update()[0]
 
@@ -139,6 +156,7 @@ test('speech gets duration-aware local choreography when the LLM omits motion', 
 
   now = 1_000
   director.stage({ ...base, turnId: 'turn-neutral', emotion: 'neutral' })
+  director.onAudioUnavailable('turn-neutral')
   now = 1_300
   const neutralIntent = director.update()[0]
   // Neutral speech still gets a gentle gesture so speaking never looks frozen.

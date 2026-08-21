@@ -34,6 +34,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--headed", action="store_true")
     parser.add_argument("--browser-executable")
+    parser.add_argument("--expected-model", default="shirone")
+    parser.add_argument("--device-scale-factor", type=float, default=1.0)
     return parser.parse_args()
 
 
@@ -64,6 +66,9 @@ def read_snapshot(page: Any) -> dict[str, Any] | None:
             intentAudit: value.intentAudit || {},
             lipSync: value.lipSync || {},
             values: value.resolvedParameters || {},
+            frame: value.frame || {},
+            devicePixelRatio,
+            subtitle: document.querySelector('.stage-subtitle p')?.textContent || '',
           }));
         }"""
     )
@@ -106,7 +111,10 @@ def main() -> int:
             headless=not args.headed,
             executable_path=resolve_browser_executable(args.browser_executable),
         )
-        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        page = browser.new_page(
+            viewport={"width": 1200, "height": 800},
+            device_scale_factor=args.device_scale_factor,
+        )
         page.goto(args.url, wait_until="networkidle")
         page.wait_for_selector("canvas", timeout=20_000)
         page.wait_for_function("() => Boolean(globalThis.__SOULLINK_RUNTIME_SNAPSHOT__)")
@@ -167,6 +175,25 @@ def main() -> int:
         if (value := finite(sample, "ParamMouthOpenY")) is not None
     ]
     speaking_motion = [sample for sample in speaking if active_ai_motion(sample)]
+    performance_first = next(
+        (
+            float(sample["observedAt"])
+            for sample in turn_samples
+            if active_ai_motion(sample)
+        ),
+        None,
+    )
+    premature_motion = [
+        sample for sample in turn_samples
+        if speaking_first is not None
+        and float(sample["observedAt"]) < speaking_first - 0.15
+        and active_ai_motion(sample)
+    ]
+    speaking_subtitles = {
+        str(sample.get("subtitle") or "").strip()
+        for sample in speaking
+        if str(sample.get("subtitle") or "").strip()
+    }
     later_motion = False
     if speaking and speaking_motion:
         start = float(speaking[0]["observedAt"])
@@ -181,6 +208,14 @@ def main() -> int:
         "speakingSampleCount": len(speaking),
         "speakingStartedAtSeconds": round(speaking_first, 3) if speaking_first is not None else None,
         "speakingEndedAtSeconds": round(speaking_last, 3) if speaking_last is not None else None,
+        "performanceStartedAtSeconds": (
+            round(performance_first, 3) if performance_first is not None else None
+        ),
+        "performanceLeadSeconds": (
+            round(performance_first - speaking_first, 3)
+            if performance_first is not None and speaking_first is not None
+            else None
+        ),
         "completedAtSeconds": round(completed_at, 3) if completed_at is not None else None,
         "expressions": sorted(expressions),
         "maximumMouthOpen": round(max(mouth_values, default=0.0), 5),
@@ -188,11 +223,19 @@ def main() -> int:
         "acceptedMotionSamples": len(accepted),
         "speakingMotionSamples": len(speaking_motion),
         "laterHalfMotionObserved": later_motion,
+        "speakingSubtitleVersions": len(speaking_subtitles),
+        "speakingSubtitleLength": max(map(len, speaking_subtitles), default=0),
+        "devicePixelRatio": (
+            float(samples[-1].get("devicePixelRatio") or 0.0) if samples else 0.0
+        ),
+        "frame": (samples[-1].get("frame") or {}) if samples else {},
     }
     checks = {
-        "correctBenchmarkModel": metrics["model"] == "Design_genius_White",
+        "correctBenchmarkModel": metrics["model"] == args.expected_model,
         "realTurnIntentObserved": len(turn_samples) >= 1,
         "decodedSpeechObserved": len(speaking) >= 4,
+        "performanceStartsWithSpeech": len(premature_motion) == 0,
+        "wholeSubtitleStableDuringSpeech": len(speaking_subtitles) == 1,
         "lipSyncVisible": metrics["maximumMouthOpen"] >= 0.04,
         "semanticMotionAccepted": len(accepted) >= 1,
         "bodyLanguageVisible": metrics["bodySpanDuringSpeaking"] >= 0.08,

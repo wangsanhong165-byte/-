@@ -61,7 +61,6 @@ export class PerformanceDirector {
     this.cues = []
     this.emittedCueCount = 0
     if (this.audio?.turnId === turnId) this.scheduleFromAudio(this.staged, this.audio)
-    else this.scheduleFallback(this.staged)
   }
 
   onAudioStart(turnId: string, durationMs: number): void {
@@ -76,6 +75,12 @@ export class PerformanceDirector {
   onAudioEnd(turnId: string): void {
     if (this.audio?.turnId === turnId) this.audio = null
     if (this.staged?.turnId === turnId) this.cues = []
+  }
+
+  /** Release a staged visual response only after playback is known unavailable. */
+  onAudioUnavailable(turnId: string): void {
+    if (this.staged?.turnId !== turnId || this.audio?.turnId === turnId) return
+    this.scheduleFallback(this.staged)
   }
 
   cancelTurn(turnId: string): void {

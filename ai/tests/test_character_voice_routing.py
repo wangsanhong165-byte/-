@@ -189,4 +189,5 @@ def test_previous_emotion_is_context_not_a_default_for_the_next_turn(tmp_path: P
 
     assert "Previous expression state: shy" in system_text
     assert "do not reuse it by default" in system_text
-    assert "shy and embarrassed require explicit evidence" in system_text
+    assert "shy only for explicit embarrassment or romantic bashfulness" in system_text
+    assert "never copy the previous expression" in system_text

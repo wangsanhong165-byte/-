@@ -517,6 +517,7 @@ export class CharacterController {
           this._turnCompletionTimer = null
           if (!this.audioPlaybackActive && this.stateMachine.isCurrentTurn(turnId)) {
             this.onActivityChange('idle', turnId)
+            this.performanceDirector.onAudioUnavailable(turnId)
           }
         }, 1_000)
       }),
