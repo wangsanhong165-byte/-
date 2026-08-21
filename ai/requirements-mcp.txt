@@ -1,0 +1,3 @@
+# MCP child services run from the managed base Python selected by ServerRegistry.
+mcp-server-time==2026.6.4
+duckduckgo-mcp-server[browser]==0.6.1

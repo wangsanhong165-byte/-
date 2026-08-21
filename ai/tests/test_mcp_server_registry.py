@@ -108,3 +108,13 @@ def test_registry_skips_windows_store_python_alias(tmp_path: Path, monkeypatch):
     assert search_server is not None
     assert Path(time_server.command) == base_python
     assert search_server.env["UV_PYTHON"] == str(base_python)
+
+
+def test_production_search_server_uses_the_managed_python_environment():
+    config_path = Path(__file__).resolve().parents[1] / "config" / "mcp_servers.json"
+    raw = json.loads(config_path.read_text(encoding="utf-8"))
+    search = raw["mcp_servers"]["ddg-search"]
+
+    assert search["command"] == "python"
+    assert search["args"] == ["-m", "duckduckgo_mcp_server.server"]
+    assert search["env"]["DDG_SEARCH_BACKEND"] == "auto"

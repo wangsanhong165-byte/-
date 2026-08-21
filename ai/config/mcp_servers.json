@@ -9,10 +9,14 @@
       ]
     },
     "ddg-search": {
-      "command": "uvx",
+      "command": "python",
       "args": [
-        "duckduckgo-mcp-server"
-      ]
+        "-m",
+        "duckduckgo_mcp_server.server"
+      ],
+      "env": {
+        "DDG_SEARCH_BACKEND": "auto"
+      }
     }
   }
 }
