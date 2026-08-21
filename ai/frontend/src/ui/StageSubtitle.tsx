@@ -1,17 +1,19 @@
 import { useEffect, useState } from 'react'
 
-import { STAGE_SUBTITLE_DURATION_MS, toStageSubtitle } from './stage-subtitle'
+import { stageSubtitleAutoHideDelay, toStageSubtitle } from './stage-subtitle'
 
-export function StageSubtitle({ text }: { text: string }) {
+export function StageSubtitle({ text, speaking = false }: { text: string; speaking?: boolean }) {
   const [visibleText, setVisibleText] = useState('')
 
   useEffect(() => {
     const subtitle = toStageSubtitle(text)
     if (!subtitle) return
     setVisibleText(subtitle)
-    const timer = window.setTimeout(() => setVisibleText(''), STAGE_SUBTITLE_DURATION_MS)
+    const delay = stageSubtitleAutoHideDelay(speaking)
+    if (delay === null) return
+    const timer = window.setTimeout(() => setVisibleText(''), delay)
     return () => window.clearTimeout(timer)
-  }, [text])
+  }, [text, speaking])
 
   return (
     <div className={`stage-subtitle ${visibleText ? 'is-visible' : ''}`} aria-live="polite">

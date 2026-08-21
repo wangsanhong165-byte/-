@@ -10,7 +10,11 @@ import {
   reduceDrawerState,
   type DrawerState,
 } from './workspace-state.ts'
-import { isStageSubtitleVisible, toStageSubtitle } from './stage-subtitle.ts'
+import {
+  isStageSubtitleVisible,
+  stageSubtitleAutoHideDelay,
+  toStageSubtitle,
+} from './stage-subtitle.ts'
 import { resolveHistoryCommand } from '../conversation/history-command.ts'
 import { observeElementResize } from '../character/observe-resize.ts'
 import {
@@ -93,11 +97,16 @@ test('stage subtitle remains visible for 4.5 seconds after the last update', () 
   assert.equal(isStageSubtitleVisible(10_000, 14_500), false)
 })
 
-test('stage subtitle shows only the latest sentence instead of the full reply', () => {
+test('stage subtitle shows the complete reply at once', () => {
   assert.equal(
-    toStageSubtitle('第一句已经说完。现在只显示这一句。'),
-    '现在只显示这一句。',
+    toStageSubtitle('第一句已经说完。现在显示整段回复。'),
+    '第一句已经说完。现在显示整段回复。',
   )
+})
+
+test('stage subtitle does not auto-hide while speech is playing', () => {
+  assert.equal(stageSubtitleAutoHideDelay(true), null)
+  assert.equal(stageSubtitleAutoHideDelay(false), 4500)
 })
 
 test('history loading only completes after a matching command response', () => {

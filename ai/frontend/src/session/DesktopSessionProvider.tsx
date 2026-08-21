@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
-import { useActions, useSelector, selectSettings } from '../core/store'
+import { useActions, useSelector, selectSettings, selectTtsActive } from '../core/store'
 import { eventBus } from '../core/event-bus'
 import { RuntimeAdapter } from '../runtime/adapter'
 import { runtimeWebSocketUrl } from '../runtime/client'
@@ -46,6 +46,7 @@ export function DesktopSessionWorkspace() {
   const [accessoryParts, setAccessoryParts] = useState<Record<string, string>>({})
   const [accessoryState, setAccessoryState] = useState<Record<string, boolean>>({})
   const settings = useSelector(selectSettings)
+  const ttsActive = useSelector(selectTtsActive)
   const settingsRef = useRef(settings)
   settingsRef.current = settings
 
@@ -526,7 +527,8 @@ export function DesktopSessionWorkspace() {
         historyUid={historyUid}
         historyLoading={historyLoading}
         historyRevision={historyRevision}
-        subtitleText={subtitleText}
+      subtitleText={subtitleText}
+      subtitleSpeaking={ttsActive}
         accessoryParts={accessoryParts}
         accessoryState={accessoryState}
         onSend={handleSend}

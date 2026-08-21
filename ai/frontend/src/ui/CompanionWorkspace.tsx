@@ -45,6 +45,7 @@ export interface CompanionWorkspaceProps {
   historyLoading: boolean
   historyRevision: number
   subtitleText: string
+  subtitleSpeaking: boolean
   accessoryParts: Record<string, string>
   accessoryState: Record<string, boolean>
   onSend: (text: string) => void
@@ -126,7 +127,9 @@ export function CompanionWorkspace(props: CompanionWorkspaceProps) {
     <Layout
       characterArea={<CharacterView />}
       background={props.settings.windowMode === 'pet' ? null : <StageBackground settings={props.settings} />}
-      subtitle={props.settings.windowMode === 'pet' ? null : <StageSubtitle text={props.subtitleText} />}
+      subtitle={props.settings.windowMode === 'pet' ? null : (
+        <StageSubtitle text={props.subtitleText} speaking={props.subtitleSpeaking} />
+      )}
       conversationArea={(
         <div className="conversation-dock">
           <ChatView />

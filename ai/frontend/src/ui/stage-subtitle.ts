@@ -1,5 +1,4 @@
 export const STAGE_SUBTITLE_DURATION_MS = 4500
-export const STAGE_SUBTITLE_MAX_LENGTH = 96
 
 export function isStageSubtitleVisible(
   shownAt: number,
@@ -9,12 +8,10 @@ export function isStageSubtitleVisible(
   return now - shownAt < durationMs
 }
 
-export function toStageSubtitle(
-  text: string,
-  maxLength = STAGE_SUBTITLE_MAX_LENGTH,
-): string {
-  const segments = text.trim().match(/[^。！？!?\n]+[。！？!?]?/g) ?? []
-  const latest = segments.at(-1)?.trim() ?? ''
-  if (latest.length <= maxLength) return latest
-  return `…${latest.slice(-(maxLength - 1))}`
+export function stageSubtitleAutoHideDelay(speaking: boolean): number | null {
+  return speaking ? null : STAGE_SUBTITLE_DURATION_MS
+}
+
+export function toStageSubtitle(text: string): string {
+  return text.trim()
 }
