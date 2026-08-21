@@ -33,6 +33,7 @@ class SQLiteMemory(MemoryInterface):
         self._store: Any = store
         self._ticker: Any = None
         self._fallback: list[dict] = []
+        self._fallback_reason = ""
         self._character_registry: Any = None
         self._llm_adapter: Any = None
         if store is None:
@@ -42,6 +43,23 @@ class SQLiteMemory(MemoryInterface):
             except Exception as exc:
                 logger.warning("SQLiteMemory init failed, using in-memory fallback: %s", exc)
                 self._store = None
+                self._fallback_reason = str(exc)
+
+    def diagnostics(self) -> dict[str, Any]:
+        """Expose whether memory is durable instead of hiding fallback mode."""
+        if self._store is None:
+            return {
+                "status": "degraded",
+                "persistent": False,
+                "mode": "memory_fallback",
+                "reason": self._fallback_reason or "SQLite store unavailable",
+            }
+        return {
+            "status": "ready",
+            "persistent": True,
+            "mode": "sqlite",
+            "reason": "",
+        }
 
     def start(self, character_registry: Any = None, llm_provider: Any = None) -> None:
         """Initialize MemoryStore + MemoryTicker + character compiler context.

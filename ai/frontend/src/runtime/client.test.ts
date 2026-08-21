@@ -125,3 +125,23 @@ test('a new connection gets a new sessionId and restarts outbound sequence at on
     globalThis.WebSocket = originalWebSocket
   }
 })
+
+test('client keeps a capped recovery timer after the fast reconnect budget is exhausted', () => {
+  const errors: string[] = []
+  const client = new RuntimeClient('ws://test', {
+    onEvent: () => {},
+    onProtocolError: error => errors.push(error.code),
+  })
+  const internal = client as unknown as {
+    reconnectAttempts: number
+    reconnectTimer: ReturnType<typeof setTimeout> | null
+    scheduleReconnect: () => void
+  }
+  internal.reconnectAttempts = 20
+
+  internal.scheduleReconnect()
+
+  assert.notEqual(internal.reconnectTimer, null)
+  assert.deepEqual(errors, ['MAX_RECONNECT'])
+  client.disconnect()
+})

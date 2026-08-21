@@ -778,6 +778,27 @@ class RuntimeManager:
 
         providers = getattr(self._runtime, "providers", {})
         active_turn = getattr(self._runtime, "_active_turn", None)
+        provider_statuses = []
+        for name, provider in sorted(providers.items()):
+            status = "ready" if provider is not None else "unavailable"
+            detail = ""
+            diagnostics = getattr(provider, "diagnostics", None)
+            if callable(diagnostics):
+                try:
+                    provider_diagnostics = diagnostics()
+                    status = str(provider_diagnostics.get("status", status))
+                    detail = str(provider_diagnostics.get("reason", ""))
+                except Exception as exc:
+                    status = "degraded"
+                    detail = f"diagnostics failed: {exc}"
+            provider_status = {
+                "name": name,
+                "status": status,
+                "adapter": type(provider).__name__ if provider is not None else "",
+            }
+            if detail:
+                provider_status["detail"] = detail
+            provider_statuses.append(provider_status)
         return {
             "readOnly": True,
             "runtime": {
@@ -796,11 +817,7 @@ class RuntimeManager:
                     if active_turn is not None else None
                 ),
             },
-            "providers": [{
-                "name": name,
-                "status": "ready" if provider is not None else "unavailable",
-                "adapter": type(provider).__name__ if provider is not None else "",
-            } for name, provider in sorted(providers.items())],
+            "providers": provider_statuses,
             "retention": {"turnDays": 30, "maximumTurns": 500},
         }
 

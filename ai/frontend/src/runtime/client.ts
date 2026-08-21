@@ -47,6 +47,7 @@ export class RuntimeClient {
   private reconnectMaxDelay = 30000
   private reconnectAttempts = 0
   private reconnectMaxAttempts = 20
+  private reconnectLimitReported = false
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private intentionalClose = false
   private pingTimer: ReturnType<typeof setInterval> | null = null
@@ -78,6 +79,7 @@ export class RuntimeClient {
 
     this.ws.onopen = () => {
       this.reconnectAttempts = 0
+      this.reconnectLimitReported = false
       this.sequenceTracker.reset()
       this.sequenceCounter = 0
       this.seenEventIds.clear()
@@ -286,17 +288,25 @@ export class RuntimeClient {
   private scheduleReconnect(): void {
     if (this.reconnectTimer) return
     if (this.reconnectAttempts >= this.reconnectMaxAttempts) {
-      this.reportProtocolError(
-        'MAX_RECONNECT',
-        'Max reconnect attempts reached',
-      )
-      return
+      if (!this.reconnectLimitReported) {
+        this.reconnectLimitReported = true
+        this.reportProtocolError(
+          'MAX_RECONNECT',
+          'Fast reconnect budget exhausted; continuing slow recovery',
+        )
+      }
     }
     const delay = Math.min(
-      this.reconnectBaseDelay * Math.pow(2, this.reconnectAttempts),
+      this.reconnectBaseDelay * Math.pow(
+        2,
+        Math.min(this.reconnectAttempts, this.reconnectMaxAttempts),
+      ),
       this.reconnectMaxDelay,
     )
-    this.reconnectAttempts += 1
+    this.reconnectAttempts = Math.min(
+      this.reconnectAttempts + 1,
+      this.reconnectMaxAttempts,
+    )
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null
       this.connect()
