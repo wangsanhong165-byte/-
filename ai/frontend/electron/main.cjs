@@ -101,27 +101,32 @@ const stopWindowDrag = () => {
 
 // ── Window creation ──
 
-function createWindow() {
-  mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
-    minWidth: 800,
-    minHeight: 600,
+function createWindow({ transparent = false, bounds = null, assign = true } = {}) {
+  const window = new BrowserWindow({
+    width: bounds?.width || 1200,
+    height: bounds?.height || 800,
+    ...(bounds ? { x: bounds.x, y: bounds.y } : {}),
+    minWidth: transparent ? 1 : 800,
+    minHeight: transparent ? 1 : 600,
     frame: false,
-    transparent: true,
-    backgroundColor: '#00000000',
-    hasShadow: false,
+    transparent,
+    backgroundColor: transparent ? '#00000000' : '#1a2030',
+    hasShadow: !transparent,
     title: 'Monika Companion',
     show: false,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      // A desktop companion must keep animating while another app has focus.
+      // Chromium's default background throttling otherwise collapses the
+      // Live2D loop to single-digit FPS whenever this window is unfocused.
+      backgroundThrottling: false,
       preload: path.join(__dirname, 'preload.cjs'),
     },
   })
 
   // Keep production logs actionable without blocking Electron's main process.
-  mainWindow.webContents.on('console-message', (_event, level, message) => {
+  window.webContents.on('console-message', (_event, level, message) => {
     if (!isDev && level < 2) return
     const prefix = ['', 'LOG', 'WARN', 'ERR'][level] || 'LOG'
     fs.appendFile(
@@ -134,21 +139,61 @@ function createWindow() {
   // Closing the window is a real application exit. The exit path below
   // shuts down the Supervisor and every registered service before Electron
   // terminates, so no tray-only or orphaned backend process remains.
-  mainWindow.on('close', () => {
+  window.on('close', () => {
+    if (window !== mainWindow) return
     if (!forceQuit) {
       forceQuit = true
       app.quit()
     }
   })
 
-  mainWindow.on('closed', () => {
-    mainWindow = null
+  window.on('closed', () => {
+    if (mainWindow === window) mainWindow = null
   })
 
   // Safety net: if the renderer stops sending dragEnd mid-drag (e.g. a
   // renderer crash), stop following the cursor as soon as the window loses
   // focus instead of dragging forever.
-  mainWindow.on('blur', stopWindowDrag)
+  window.on('blur', stopWindowDrag)
+  if (assign) mainWindow = window
+  return window
+}
+
+async function recreateWindowForMode(targetPetMode, targetBounds) {
+  const oldWindow = mainWindow
+  if (!oldWindow || oldWindow.isDestroyed() || !appUrl) return
+
+  const replacement = createWindow({
+    transparent: targetPetMode,
+    bounds: targetBounds,
+    assign: false,
+  })
+  try {
+    await replacement.loadURL(appUrl)
+    if (petMode !== targetPetMode || mainWindow !== oldWindow) {
+      replacement.destroy()
+      return
+    }
+    if (targetPetMode) {
+      replacement.setResizable(false)
+      replacement.setSkipTaskbar(true)
+      replacement.setMenuBarVisibility(false)
+      replacement.setIgnoreMouseEvents(true, { forward: true })
+      replacement.setAlwaysOnTop(true)
+    } else {
+      replacement.setAlwaysOnTop(alwaysOnTop)
+      if (normalWindowState?.maximized) replacement.maximize()
+      if (normalWindowState?.fullScreen) replacement.setFullScreen(true)
+    }
+    mainWindow = replacement
+    replacement.show()
+    oldWindow.destroy()
+  } catch (error) {
+    replacement.destroy()
+    petMode = !targetPetMode
+    console.error(`[Electron] Window mode switch failed: ${error.message}`)
+    oldWindow.show()
+  }
 }
 
 async function loadAppUrl() {
@@ -324,38 +369,20 @@ function setupIPC() {
         maximized,
         fullScreen,
       }
-      if (normalWindowState.fullScreen) mainWindow.setFullScreen(false)
-      if (normalWindowState.maximized) mainWindow.unmaximize()
       const display = screen.getDisplayMatching(bounds)
       const petBounds = getPetBounds(display.workArea)
-      mainWindow.setMinimumSize(
-        1,
-        1,
-      )
-      mainWindow.setBounds(petBounds, true)
-      mainWindow.setResizable(false)
-      mainWindow.setSkipTaskbar(true)
-      mainWindow.setMenuBarVisibility(false)
-      mainWindow.setIgnoreMouseEvents(true, { forward: true })
-      mainWindow.setAlwaysOnTop(true)
       petMode = true
+      void recreateWindowForMode(true, petBounds)
+      return { enabled: true, bounds: petBounds }
     } else if (!enabled && petMode) {
-      mainWindow.setIgnoreMouseEvents(false)
-      mainWindow.setSkipTaskbar(false)
-      mainWindow.setResizable(true)
-      mainWindow.setMenuBarVisibility(true)
-      mainWindow.setMinimumSize(800, 600)
+      let normalBounds = mainWindow.getBounds()
       if (normalWindowState) {
         const display = screen.getDisplayMatching(normalWindowState.bounds)
-        mainWindow.setBounds(
-          fitBoundsToWorkArea(normalWindowState.bounds, display.workArea),
-          true,
-        )
-        if (normalWindowState.maximized) mainWindow.maximize()
-        if (normalWindowState.fullScreen) mainWindow.setFullScreen(true)
+        normalBounds = fitBoundsToWorkArea(normalWindowState.bounds, display.workArea)
       }
-      mainWindow.setAlwaysOnTop(alwaysOnTop)
       petMode = false
+      void recreateWindowForMode(false, normalBounds)
+      return { enabled: false, bounds: normalBounds }
     }
     return { enabled: petMode, bounds: mainWindow.getBounds() }
   })

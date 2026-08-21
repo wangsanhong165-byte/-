@@ -209,3 +209,45 @@ def test_stalled_client_does_not_block_following_control_request(tmp_path: Path)
         assert result["ok"] is True
     finally:
         stalled.close()
+
+
+def test_control_server_survives_a_failed_accept(monkeypatch, tmp_path: Path):
+    """One malformed/aborted pipe handshake must not kill the Supervisor."""
+    handled = Event()
+
+    class Connection:
+        def recv(self):
+            return {
+                "schema_version": 1,
+                "token": server.token,
+                "command": "status",
+                "request_id": "after-failed-accept",
+            }
+
+        def send(self, response):
+            assert response["ok"] is True
+            handled.set()
+            server.running = False
+
+        def close(self):
+            pass
+
+    class Listener:
+        def __init__(self, *_args, **_kwargs):
+            self.attempts = 0
+
+        def accept(self):
+            self.attempts += 1
+            if self.attempts == 1:
+                raise OSError("bad message length")
+            return Connection()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("app.lifecycle.control.Listener", Listener)
+    server = ControlServer(tmp_path, FakeOrchestrator())
+
+    server.serve()
+
+    assert handled.wait(1)

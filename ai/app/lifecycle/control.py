@@ -153,7 +153,16 @@ class ControlServer:
         temporary.replace(record)
         try:
             while self.running:
-                connection = self.listener.accept()
+                try:
+                    connection = self.listener.accept()
+                except OSError:
+                    # A malformed or abandoned named-pipe handshake belongs to
+                    # that client only. Keep the Supervisor available for the
+                    # next valid lifecycle request instead of tearing down the
+                    # whole control plane.
+                    if not self.running:
+                        break
+                    continue
                 Thread(target=self._handle_connection, args=(connection,), daemon=True).start()
         finally:
             self.listener.close()

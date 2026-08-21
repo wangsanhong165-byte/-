@@ -27,6 +27,7 @@ import {
   readModelPerformanceDefaults,
   resolvePersistedLive2DModel,
 } from '../character/Live2DPerformanceSettings'
+import { persistAndApplyWindowMode } from './window-mode-transition'
 
 const WS_URL = runtimeWebSocketUrl(location)
 let idCounter = 0
@@ -401,15 +402,25 @@ export function DesktopSessionWorkspace() {
     } else if (key === 'proactiveIdleTime') {
       client?.sendCommand('set_proactive_idle', { seconds: value })
     } else if (key === 'windowMode') {
-      if (value === 'pet') {
-        document.body.style.cursor = 'default'
-        window.electronAPI?.setPetMode(true)
-      } else {
-        document.body.style.cursor = ''
-        window.electronAPI?.setPetMode(false)
-      }
+      const windowMode = value === 'pet' ? 'pet' : 'window'
+      document.body.style.cursor = windowMode === 'pet' ? 'default' : ''
+      void persistAndApplyWindowMode(settings, windowMode, {
+        async persist(nextSettings) {
+          const response = await fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ settings: nextSettings }),
+          })
+          if (!response.ok) throw new Error(`settings save failed: ${response.status}`)
+        },
+        setPetMode(enabled) {
+          return window.electronAPI?.setPetMode(enabled)
+        },
+      }).catch(error => {
+        actions.setStatusMessage(`窗口模式切换失败：${error instanceof Error ? error.message : String(error)}`)
+      })
     }
-  }, [])
+  }, [actions, settings])
 
   useEffect(() => {
     return window.electronAPI?.onPetExitRequest?.(() => {

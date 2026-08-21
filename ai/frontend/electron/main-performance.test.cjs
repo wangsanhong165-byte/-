@@ -73,7 +73,7 @@ test('startup uses the shared text-ready policy while voice services continue', 
 
 test('renderer console capture never blocks the Electron main process', () => {
   const consoleHandler = sourceBetween(
-    "mainWindow.webContents.on('console-message'",
+    "window.webContents.on('console-message'",
     '// Close',
   )
 
@@ -103,8 +103,8 @@ test('explicit application quit shuts down every registered workspace service', 
 
 test('closing the main window quits the application instead of leaving a tray process', () => {
   const closeHandler = sourceBetween(
-    "mainWindow.on('close'",
-    "mainWindow.on('closed'",
+    "window.on('close'",
+    "window.on('closed'",
   )
 
   assert.doesNotMatch(closeHandler, /event\.preventDefault\(\)/)
@@ -128,10 +128,28 @@ test('bootstrap reads the lifecycle service status field returned by Python', ()
   assert.match(bootstrap, /serviceStatus\(s\) === 'failed'/)
 })
 
-test('pet mode uses a transparent full-work-area window with passthrough controls', () => {
-  assert.match(MAIN_SOURCE, /transparent: true/)
-  assert.match(MAIN_SOURCE, /backgroundColor: '#00000000'/)
-  assert.match(MAIN_SOURCE, /mainWindow\.setSkipTaskbar\(true\)/)
-  assert.match(MAIN_SOURCE, /mainWindow\.setIgnoreMouseEvents\(true, \{ forward: true \}\)/)
+test('normal stage is opaque while pet mode recreates a transparent window', () => {
+  const createWindow = sourceBetween(
+    'function createWindow(',
+    'async function loadAppUrl()',
+  )
+  const modeSwitch = sourceBetween(
+    'async function recreateWindowForMode(',
+    '// ── System tray',
+  )
+
+  assert.match(createWindow, /transparent = false/)
+  assert.match(createWindow, /transparent,/)
+  assert.match(createWindow, /backgroundColor: transparent \? '#00000000' : '#1a2030'/)
+  assert.match(createWindow, /backgroundThrottling: false/)
+  assert.match(modeSwitch, /transparent: targetPetMode/)
+  assert.match(modeSwitch, /replacement\.loadURL\(appUrl\)/)
+  assert.match(modeSwitch, /oldWindow\.destroy\(\)/)
+  assert.match(modeSwitch, /petMode = !targetPetMode/)
+})
+
+test('pet mode uses a full-work-area window with passthrough controls', () => {
+  assert.match(MAIN_SOURCE, /replacement\.setSkipTaskbar\(true\)/)
+  assert.match(MAIN_SOURCE, /replacement\.setIgnoreMouseEvents\(true, \{ forward: true \}\)/)
   assert.match(MAIN_SOURCE, /ipcMain\.on\('pet:setMousePassthrough'/)
 })
