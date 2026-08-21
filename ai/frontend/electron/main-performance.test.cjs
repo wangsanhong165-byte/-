@@ -55,17 +55,20 @@ test('startup refresh is bounded and stable runtime refresh remains on demand', 
   assert.match(statusHandler, /pm\.refresh\(\)/)
 })
 
-test('startup waits for full GPU readiness before loading the actual UI URL', () => {
+test('startup uses the shared text-ready policy while voice services continue', () => {
+  const pollingLoop = sourceBetween(
+    'statusTimer = setInterval',
+    '// Now show the window',
+  )
   const startupGate = sourceBetween(
     'startPromise.then(status => {',
     '  }).catch',
   )
 
-  assert.match(startupGate, /status\?\.availability === 'FULL_READY'/)
-  assert.match(startupGate, /serviceUrl\(status, isDev \? 'frontend' : 'bridge'\)/)
-  assert.match(startupGate, /waitForUrl\(appUrl, \{/)
-  assert.match(startupGate, /timeoutMs: STARTUP_TIMEOUT_MS/)
-  assert.match(startupGate, /shouldStop: \(\) => mainUiLoaded \|\| shutdownStarted/)
+  assert.match(MAIN_SOURCE, /require\('\.\/startup-policy\.cjs'\)/)
+  assert.match(pollingLoop, /beginCompanionLoad\(status\)/)
+  assert.match(startupGate, /beginCompanionLoad\(status\)/)
+  assert.doesNotMatch(startupGate, /availability === 'FULL_READY'/)
 })
 
 test('renderer console capture never blocks the Electron main process', () => {

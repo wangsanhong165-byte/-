@@ -349,16 +349,21 @@ class LifecycleOrchestrator:
         } if self.active_profile else set()
         state_map = {item["name"]: item["status"] for item in services}
         availability = self.manifest.availability(state_map)
-        capabilities = [{
-            "id": capability.name,
-            "display_name": capability.display_name,
-            "minimum_level": capability.minimum_level.value,
-            "state": (
-                "ready"
-                if all(state_map.get(name) in {"ready", "degraded", "failed"} for name in capability.required_services)
-                else "warming"
-            ),
-        } for capability in self.manifest.capabilities.values()]
+        capabilities = []
+        for capability in self.manifest.capabilities.values():
+            required_states = [state_map.get(name) for name in capability.required_services]
+            if any(state == "failed" for state in required_states):
+                capability_state = "failed"
+            elif all(state == "ready" for state in required_states):
+                capability_state = "ready"
+            else:
+                capability_state = "warming"
+            capabilities.append({
+                "id": capability.name,
+                "display_name": capability.display_name,
+                "minimum_level": capability.minimum_level.value,
+                "state": capability_state,
+            })
         return {
             "schema_version": 1,
             "launch_id": self.launch_id,

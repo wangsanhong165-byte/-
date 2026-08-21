@@ -21,6 +21,7 @@ const {
   selectRestorableBounds,
 } = require('./pet-window.cjs')
 const { serviceUrl, waitForUrl } = require('./startup-readiness.cjs')
+const { canEnterCompanion } = require('./startup-policy.cjs')
 const { dialogOptionsFor } = require('./character-asset-dialog.cjs')
 const {
   findWorkshopDirectory,
@@ -78,6 +79,7 @@ let mainUiLoaded = false
 let mainUiLoading = false
 let appLoadRetryTimer = null
 let appUrl = null
+let appReadinessProbe = null
 const allowedWallpaperPaths = new Set()
 
 // Frameless-window drag state (driven over IPC, see setupIPC). Polled from
@@ -175,6 +177,32 @@ async function loadAppUrl() {
     }
     mainWindow.webContents.send('lifecycle:error', `角色界面加载失败：${error.message}`)
   })
+}
+
+function beginCompanionLoad(status) {
+  if (!canEnterCompanion(status)) return false
+  ready = true
+  appUrl = appUrl || EXPLICIT_APP_URL || serviceUrl(status, isDev ? 'frontend' : 'bridge')
+  if (!appUrl || mainUiLoaded || appReadinessProbe) return Boolean(appUrl)
+
+  appReadinessProbe = waitForUrl(appUrl, {
+    intervalMs: APP_READY_POLL_MS,
+    timeoutMs: STARTUP_TIMEOUT_MS,
+    shouldStop: () => mainUiLoaded || shutdownStarted,
+  }).then(available => {
+    if (available === false && !mainUiLoaded && !shutdownStarted) {
+      const message = 'Startup blocked: Bridge UI URL did not become ready'
+      console.error(`[Electron] ${message}`)
+      mainWindow?.webContents.send('lifecycle:error', message)
+      return
+    }
+    if (available === true && !mainUiLoaded && !shutdownStarted) {
+      return loadAppUrl()
+    }
+  }).finally(() => {
+    appReadinessProbe = null
+  })
+  return true
 }
 
 // ── System tray ──
@@ -511,8 +539,7 @@ app.whenReady().then(async () => {
     const status = pm.getStatus()
     if (mainWindow?.isDestroyed?.()) return
     mainWindow?.webContents.send('lifecycle:snapshot', status)
-    // TEXT_READY is sufficient — the UI works for text chat while
-    // voice services continue loading in the background.
+    beginCompanionLoad(status)
   }, 500)
 
   // Now show the window — services are already starting in the background.
@@ -520,36 +547,12 @@ app.whenReady().then(async () => {
   createTray()
 
   startPromise.then(status => {
-    ready = status?.availability === 'FULL_READY'
     mainWindow?.webContents.send('lifecycle:snapshot', status)
-    if (!ready) {
-      const message = `Startup blocked: GPU voice services are not ready (${status?.availability || 'BLOCKED'})`
+    if (!beginCompanionLoad(status)) {
+      const message = `Startup blocked: text services are not ready (${status?.availability || 'BLOCKED'})`
       console.error(`[Electron] ${message}`)
       mainWindow?.webContents.send('lifecycle:error', message)
-      return
     }
-    appUrl = EXPLICIT_APP_URL || serviceUrl(status, isDev ? 'frontend' : 'bridge')
-    if (!appUrl) {
-      const message = 'Startup blocked: lifecycle did not resolve the UI endpoint'
-      console.error(`[Electron] ${message}`)
-      mainWindow?.webContents.send('lifecycle:error', message)
-      return
-    }
-    void waitForUrl(appUrl, {
-      intervalMs: APP_READY_POLL_MS,
-      timeoutMs: STARTUP_TIMEOUT_MS,
-      shouldStop: () => mainUiLoaded || shutdownStarted,
-    }).then(available => {
-      if (available === false && !mainUiLoaded && !shutdownStarted) {
-        const message = 'Startup blocked: Bridge UI URL did not become ready'
-        console.error(`[Electron] ${message}`)
-        mainWindow?.webContents.send('lifecycle:error', message)
-        return
-      }
-      if (available === true && !mainUiLoaded && !shutdownStarted) {
-        void loadAppUrl()
-      }
-    })
   }).catch(err => {
     console.error('[Electron] Failed to start services:', err)
     mainWindow?.webContents.send('lifecycle:error', err.message)

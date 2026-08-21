@@ -10,11 +10,8 @@
  */
 function canEnterCompanion (snapshot) {
   if (!snapshot) return false
-  // FULL_READY and TEXT_READY both unlock the UI.
-  // VOICE_READY without TEXT_READY should not occur in practice,
-  // but BLOCKED means the platform hasn't started yet.
+  // Voice-only readiness cannot support the text-first companion UI.
   return snapshot.availability === 'FULL_READY'
-    || snapshot.availability === 'VOICE_READY'
     || snapshot.availability === 'TEXT_READY'
 }
 

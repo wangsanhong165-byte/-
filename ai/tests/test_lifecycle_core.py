@@ -351,6 +351,38 @@ def test_orchestrator_status_rechecks_processes_after_a_child_exits(tmp_path: Pa
     assert second["services"][0]["status"] == "stopped"
 
 
+def test_orchestrator_capability_is_failed_when_a_required_service_failed(tmp_path: Path):
+    path = tmp_path / "services.json"
+    path.write_text(json.dumps({
+        "_meta": {
+            "capabilities": {
+                "text": {
+                    "minimum_level": "TEXT_READY",
+                    "required_services": ["bridge"],
+                },
+            },
+        },
+        "bridge": {
+            "port": 9528,
+            "health": "/health",
+            "command": {"module": "bridge"},
+            "profiles": ["backend"],
+        },
+    }), encoding="utf-8")
+    orchestrator = LifecycleOrchestrator(tmp_path, ServiceManifest.load(path))
+    orchestrator._failed_services.add("bridge")
+
+    status = orchestrator.status()
+
+    assert status["availability"] == "BLOCKED"
+    assert status["capabilities"] == [{
+        "id": "text",
+        "display_name": "text",
+        "minimum_level": "TEXT_READY",
+        "state": "failed",
+    }]
+
+
 def test_start_repairs_missing_voice_services_from_text_ready_state(tmp_path: Path):
     path = tmp_path / "services.json"
     path.write_text(json.dumps({

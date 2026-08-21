@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Any, Generator
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from openai import OpenAI
 
@@ -174,15 +174,18 @@ def _stream_tokens(request: LLMRequest) -> Generator[str, None, None]:
 # Endpoints
 # ---------------------------------------------------------------------------
 @app.get("/health")
-def health() -> dict[str, Any]:
+def health(response: Response) -> dict[str, Any]:
     key_env = os.environ.get("LLM_API_KEY_ENV", "DEEPSEEK_API_KEY")
+    has_api_key = bool(os.environ.get(key_env) or os.environ.get("LLM_API_KEY"))
+    if not has_api_key:
+        response.status_code = 503
     return {
-        "ok": True,
+        "ok": has_api_key,
         "module": "llm",
         "base_url": os.environ.get("LLM_BASE_URL", "https://api.deepseek.com"),
         "model": os.environ.get("LLM_MODEL", "deepseek-v4-pro"),
         "api_key_env": key_env,
-        "has_api_key": bool(os.environ.get(key_env) or os.environ.get("LLM_API_KEY")),
+        "has_api_key": has_api_key,
         "reasoning_effort": os.environ.get("LLM_REASONING_EFFORT", "high"),
         "thinking_type": os.environ.get("LLM_THINKING_TYPE", "enabled"),
     }

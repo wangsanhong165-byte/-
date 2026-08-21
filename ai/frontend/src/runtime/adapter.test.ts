@@ -138,3 +138,16 @@ test('cancel stops current audio generation', () => {
   assert.equal(stoppedTurn, 'turn-1')
   unsub()
 })
+
+test('lifecycle text and full readiness are exposed as runtime ready', () => {
+  const adapter = new RuntimeEventAdapter()
+  const statuses: string[] = []
+  const unsub = eventBus.on('runtime:status', ({ status }) => statuses.push(status))
+
+  adapter.dispatchLifecycleSnapshot({ availability: 'TEXT_READY' })
+  adapter.dispatchLifecycleSnapshot({ availability: 'FULL_READY' })
+  adapter.dispatchLifecycleSnapshot({ availability: 'VOICE_READY' })
+
+  assert.deepEqual(statuses, ['ready', 'ready', 'degraded'])
+  unsub()
+})

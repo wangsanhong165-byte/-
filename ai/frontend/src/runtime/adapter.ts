@@ -41,7 +41,8 @@ export class RuntimeEventAdapter {
         String(service.status ?? '').toLowerCase(),
       ))
       .map(service => String(service.name ?? ''))
-    if (String(snapshot.availability ?? '').toUpperCase() === 'READY') {
+    const availability = String(snapshot.availability ?? '').toUpperCase()
+    if (['READY', 'TEXT_READY', 'FULL_READY'].includes(availability)) {
       this.dispatch(this.platformEvent('runtime.ready', { services: readyServices }))
     } else {
       this.dispatch(this.platformEvent('runtime.degraded', {
