@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { MotionArbiter, sampleMotionKeyframes, type MotionPreset } from './MotionArbiter.ts'
+import { NativeMotionPlayer } from './live2d/NativeMotionPlayer.ts'
 
 const presets: Record<string, MotionPreset> = {
   nod: {
@@ -186,6 +187,27 @@ test('active motion ownership is exposed per channel instead of suppressing all 
   assert.equal(arbiter.ownsChannel('head'), false)
   assert.equal(arbiter.ownsChannel('gaze'), false)
   assert.deepEqual(arbiter.getActiveChannels(), ['body'])
+})
+
+test('profile-scoped secondary native idle coexists with live head and gaze control', () => {
+  const player = new NativeMotionPlayer()
+  player.register('Idle', {
+    Meta: { Duration: 1, Loop: true },
+    Curves: [{ Target: 'Parameter', Id: 'ParamRibbon', Segments: [0, 0, 0, 1, 1] }],
+  })
+  const arbiter = new MotionArbiter(() => 0)
+  arbiter.setNativeMotionPlayer(
+    player,
+    { idle: 'Idle' },
+    { idle: ['secondary'] },
+  )
+
+  assert.equal(arbiter.request({
+    name: 'idle', owner: 'idle:native', source: 'idle', priority: 10,
+  }), true)
+  assert.equal(arbiter.ownsExclusiveChannel('head'), false)
+  assert.equal(arbiter.ownsExclusiveChannel('gaze'), false)
+  assert.deepEqual(arbiter.getActiveChannels(), ['secondary'])
 })
 
 test('preempted logical motion crossfades out instead of disappearing in one frame', () => {

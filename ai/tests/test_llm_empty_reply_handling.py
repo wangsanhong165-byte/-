@@ -30,11 +30,17 @@ def _fake_adapter_client(create):
     )
 
 
-def _fake_completion(content="", finish_reason="stop"):
+def _fake_completion(
+    content="",
+    finish_reason="stop",
+    *,
+    reasoning_content=None,
+    tool_calls=None,
+):
     message = SimpleNamespace(
         content=content,
-        reasoning_content=None,
-        tool_calls=[],
+        reasoning_content=reasoning_content,
+        tool_calls=tool_calls or [],
     )
     usage = SimpleNamespace(
         prompt_tokens=10,
@@ -109,6 +115,31 @@ def test_adapter_omits_reasoning_effort_when_unset():
     assert "max_tokens" not in captured
 
 
+def test_adapter_preserves_reasoning_content_in_assistant_tool_call_history():
+    """DeepSeek thinking tool continuations must echo the original reasoning."""
+    tool_call = SimpleNamespace(
+        id="call_weather",
+        function=SimpleNamespace(name="get_weather", arguments='{"city":"杭州"}'),
+    )
+
+    def create(**_kwargs):
+        return _fake_completion(
+            content=None,
+            reasoning_content="先查询天气，再组织主动关心。",
+            tool_calls=[tool_call],
+        )
+
+    result = _make_adapter(create).generate(
+        [{"role": "user", "content": "主动关心一下天气"}],
+        tools=[{"type": "function", "function": {"name": "get_weather"}}],
+    )
+
+    assistant = result["_messages"][-1]
+    assert assistant["role"] == "assistant"
+    assert assistant["reasoning_content"] == "先查询天气，再组织主动关心。"
+    assert assistant["tool_calls"][0]["id"] == "call_weather"
+
+
 def test_adapter_resolves_opencode_engine(monkeypatch):
     """LLM_ENGINE=opencode points the adapter at the OpenCode local server."""
     from app.models.http_adapters import OpenAILLMAdapter
@@ -123,6 +154,28 @@ def test_adapter_resolves_opencode_engine(monkeypatch):
     assert adapter._base_url == "http://127.0.0.1:4096/v1"
     assert adapter._model == "opencode"
     assert adapter._api_key == "local"
+
+
+def test_opencode_adapter_sets_compatible_user_agent(monkeypatch):
+    """OpenCode Zen currently requires its compatible client user-agent."""
+    from app.models.http_adapters import OpenAILLMAdapter
+
+    captured = {}
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr("openai.OpenAI", FakeOpenAI)
+    monkeypatch.setenv("LLM_ENGINE", "opencode")
+    monkeypatch.setenv("OPENCODE_BASE_URL", "https://opencode.ai/zen/v1")
+    monkeypatch.setenv("OPENCODE_MODEL", "x-preview-f-free")
+    monkeypatch.setenv("OPENCODE_API_KEY", "test-key")
+
+    OpenAILLMAdapter()
+
+    assert captured["base_url"] == "https://opencode.ai/zen/v1"
+    assert captured["default_headers"]["User-Agent"] == "curl/8.5.0"
 
 
 def test_adapter_defaults_opencode_url(monkeypatch):
@@ -200,6 +253,181 @@ def test_provider_defaults_to_relaxed_max_tokens(monkeypatch):
     assert provider._adapter.kwargs["max_tokens"] == 8192
     assert provider._adapter.kwargs.get("reasoning_effort") is None
     assert response.reply == "hi"
+
+
+def test_provider_extracts_structured_envelope_appended_after_spoken_reply(monkeypatch):
+    """Provider quirks must not leak presentation JSON into subtitles or TTS."""
+    from app.providers.llm.openai_adapter import OpenAILLMProvider
+
+    monkeypatch.delenv("LLM_MAX_TOKENS", raising=False)
+    content = (
+        '好呀，我就在这儿听着呢，你说。  '
+        '{"segments":[{"text":"好呀，我就在这儿听着呢，你说。",'
+        '"emotion":"happy","behavior":"listen"}],'
+        '"tool_calls":[],"final_reply":"好呀，我就在这儿听着呢，你说。"}'
+    )
+
+    class MixedEnvelopeAdapter:
+        model = "deepseek-v4-flash"
+
+        def generate(self, messages, **kwargs):
+            return {
+                "content": content,
+                "reasoning": "",
+                "finish_reason": "stop",
+                "tool_calls": [],
+                "usage": {},
+                "model": self.model,
+            }
+
+    provider = OpenAILLMProvider.__new__(OpenAILLMProvider)
+    provider._adapter = MixedEnvelopeAdapter()
+
+    response = run(provider.generate([{"role": "user", "content": "你在吗"}]))
+
+    assert response.reply == "好呀，我就在这儿听着呢，你说。"
+    assert response.segments == [{
+        "text": "好呀，我就在这儿听着呢，你说。",
+        "emotion": "happy",
+        "behavior": "listen",
+    }]
+    assert "segments" not in response.reply
+    assert "emotion" not in response.reply
+    assert "behavior" not in response.reply
+
+
+def test_mixed_structured_envelope_keeps_motion_plan_out_of_spoken_text():
+    """A recovered protocol tail must still drive Character and never reach TTS."""
+    from app.providers.llm.openai_adapter import OpenAILLMProvider
+    from app.runtime.steps.tts_step import TTSStep
+
+    class MixedEnvelopeAdapter:
+        model = "deepseek-v4-flash"
+
+        def generate(self, messages, **kwargs):
+            return {
+                "content": (
+                    '你好呀。  '
+                    '{"segments":[{"text":"你好呀。","emotion":"happy",'
+                    '"behavior":"wave","attention":"user","energy":0.8,'
+                    '"intensity":0.7,"motionPlan":{"durationMs":1800,'
+                    '"steps":[{"atMs":0,"durationMs":600,'
+                    '"primitive":"nod","intensity":0.5}]}}],'
+                    '"tool_calls":[],"final_reply":"你好呀。"}'
+                ),
+                "tool_calls": [],
+                "usage": {},
+                "model": self.model,
+            }
+
+    class RecordingTTS:
+        def __init__(self):
+            self.texts = []
+
+        async def synthesize(self, text, **kwargs):
+            self.texts.append(text)
+            return b"wav"
+
+    provider = OpenAILLMProvider.__new__(OpenAILLMProvider)
+    provider._adapter = MixedEnvelopeAdapter()
+    response = run(provider.generate([{"role": "user", "content": "你好"}]))
+
+    assert response.reply == "你好呀。"
+    assert response.segments[0]["motionPlan"]["steps"][0]["primitive"] == "nod"
+    assert all(key not in response.reply for key in ("segments", "emotion", "motionPlan"))
+
+    tts = RecordingTTS()
+    ctx = CharacterTurn(input=TurnInput(text="你好"))
+    run(DecisionStep(provider).run(ctx))
+    run(TTSStep(tts).run(ctx))
+
+    assert ctx.reply_text == "你好呀。"
+    assert tts.texts == ["你好呀。"]
+    assert ctx.output.performance.behavior == "wave"
+    assert ctx.output.performance.motion_plan is not None
+    assert ctx.output.performance.motion_plan["steps"][0]["primitive"] == "nod"
+
+
+def test_provider_extracts_markdown_fenced_structured_output():
+    from app.providers.llm.openai_adapter import OpenAILLMProvider
+
+    provider = object.__new__(OpenAILLMProvider)
+    response = provider._normalize({
+        "content": (
+            "```json\n"
+            '{"segments":[{"text":"我在。","emotion":"neutral",'
+            '"behavior":"listen"}],"final_reply":"我在。"}'
+            "\n```"
+        ),
+        "tool_calls": [],
+    }, [])
+
+    assert response.reply == "我在。"
+    assert response.segments[0]["text"] == "我在。"
+
+
+def test_provider_never_speaks_a_malformed_structured_tail():
+    from app.providers.llm.openai_adapter import OpenAILLMProvider
+
+    provider = object.__new__(OpenAILLMProvider)
+    response = provider._normalize({
+        "content": (
+            '好呀，我就在这儿听着呢，你说。  '
+            '{"segments":[{"text":"好呀，我就在这儿听着呢，你说。",'
+            '"emotion":"happy","behavior":"listen",'
+            '"motionPlan":{"durationMs":1800,"steps":}}],'
+            '"tool_calls":[],"final_reply":"好呀，我就在这儿听着呢，你说。"}'
+        ),
+        "tool_calls": [],
+    }, [])
+
+    assert response.reply == "好呀，我就在这儿听着呢，你说。"
+    assert response.segments == []
+    assert "segments" not in response.reply
+    assert "motionPlan" not in response.reply
+
+
+def test_malformed_provider_protocol_never_reaches_turn_subtitle_or_tts():
+    from app.providers.llm.openai_adapter import OpenAILLMProvider
+    from app.runtime.steps.tts_step import TTSStep
+
+    class MixedEnvelopeAdapter:
+        model = "deepseek-v4-flash"
+
+        def generate(self, messages, **kwargs):
+            return {
+                "content": (
+                    '我在听，你继续。  '
+                    '{"segments":[{"text":"我在听，你继续。",'
+                    '"emotion":"neutral","behavior":"listen",'
+                    '"motionPlan":{"durationMs":1200,"steps":}}],'
+                    '"final_reply":"我在听，你继续。"}'
+                ),
+                "tool_calls": [],
+                "usage": {},
+                "model": self.model,
+            }
+
+    class RecordingTTS:
+        def __init__(self):
+            self.texts = []
+
+        async def synthesize(self, text, **kwargs):
+            self.texts.append(text)
+            return b"wav"
+
+    provider = OpenAILLMProvider.__new__(OpenAILLMProvider)
+    provider._adapter = MixedEnvelopeAdapter()
+    tts = RecordingTTS()
+    ctx = CharacterTurn(input=TurnInput(text="你在吗"))
+
+    run(DecisionStep(provider).run(ctx))
+    run(TTSStep(tts).run(ctx))
+
+    assert ctx.reply_text == "我在听，你继续。"
+    assert ctx.segments
+    assert tts.texts == ["我在听，你继续。"]
+    assert all("segments" not in value for value in [ctx.reply_text, *tts.texts])
 
 
 def test_provider_honors_env_max_tokens_and_reasoning_effort(monkeypatch):
@@ -422,25 +650,45 @@ def test_decision_step_repairs_truncated_empty_reply_once():
     assert ctx.reply_text == "fixed"
 
 
-def test_decision_step_recovers_plain_text_presentation_without_a_second_llm_call():
+def test_decision_step_repairs_plain_text_into_structured_performance_once():
     class PlainTextLLM:
         def __init__(self):
             self.calls = []
 
         async def generate(self, messages, **kwargs):
             self.calls.append(kwargs)
-            return LLMResponse(reply="那我眨眨眼给你看。")
+            if len(self.calls) == 1:
+                return LLMResponse(reply="好呀，逗你一下。")
+            return LLMResponse(
+                reply="好呀，逗你一下。",
+                segments=[{
+                    "text": "好呀，逗你一下。",
+                    "emotion": "playful",
+                    "behavior": "speak",
+                    "motionPlan": {
+                        "durationMs": 1200,
+                        "steps": [{
+                            "atMs": 0,
+                            "durationMs": 650,
+                            "primitive": "tilt_left",
+                            "intensity": 0.55,
+                        }],
+                    },
+                }],
+            )
 
     llm = PlainTextLLM()
     ctx = CharacterTurn(input=TurnInput(text="卖个萌吧"))
     run(DecisionStep(llm).run(ctx))
 
-    assert len(llm.calls) == 1
-    assert ctx.reply_text == "这样可以吗？"
+    assert len(llm.calls) == 2
+    assert llm.calls[1]["tools"] is None
+    assert llm.calls[1]["temperature"] == 0
+    assert ctx.reply_text == "好呀，逗你一下。"
     assert ctx.output.performance.emotion == "playful"
     assert ctx.output.performance.behavior == "speak"
-    assert "assistant_reply_semantic_recovered" in ctx.warnings
-    assert "assistant_reply_sanitized" in ctx.warnings
+    assert ctx.output.performance.motion_plan["steps"][0]["primitive"] == "tilt_left"
+    assert "assistant_reply_semantic_recovered" not in ctx.warnings
 
 
 def test_decision_step_falls_back_when_repair_is_also_empty():
@@ -588,8 +836,8 @@ def test_decision_step_fallback_not_written_to_conversation_history():
     assert any(w.startswith("assistant_reply_fallback") for w in ctx.warnings)
 
 
-def test_decision_step_keeps_plain_text_reply_without_a_repair_round_trip():
-    """A usable plain-text reply is locally recovered without added latency.
+def test_decision_step_keeps_original_plain_text_when_structured_repair_fails():
+    """A usable plain-text reply survives one failed structured repair.
 
     When tools are present the adapter stops forcing JSON output, so DeepSeek
     can answer with a single prose sentence. The validator requests one
@@ -609,13 +857,13 @@ def test_decision_step_keeps_plain_text_reply_without_a_repair_round_trip():
     ctx = CharacterTurn(input=TurnInput(text="hi"))
     run(DecisionStep(llm).run(ctx))
 
-    assert llm.calls == 1
+    assert llm.calls == 2
     assert ctx.reply_text == "当然可以，交给我吧。"
     assert "assistant_reply_semantic_recovered" in ctx.warnings
     assert not any(w.startswith("assistant_reply_fallback") for w in ctx.warnings)
 
 
-def test_decision_step_sanitizes_stage_direction_without_repair_latency():
+def test_decision_step_sanitizes_stage_direction_after_failed_repair():
     class NarratedActionLLM:
         def __init__(self):
             self.calls = 0
@@ -630,9 +878,11 @@ def test_decision_step_sanitizes_stage_direction_without_repair_latency():
     ctx = CharacterTurn(input=TurnInput(text="做个哭哭脸吧"))
     run(DecisionStep(llm).run(ctx))
 
-    assert llm.calls == 1
+    assert llm.calls == 2
     assert ctx.reply_text == "呜……你看，我都这么可怜了。"
-    assert ctx.output.performance.emotion == "cry"
+    # Shirone deliberately exposes one supported sad family for both the
+    # semantic ``cry`` request and its native sad replacement expression.
+    assert ctx.output.performance.emotion == "sad"
     assert "assistant_reply_semantic_recovered" in ctx.warnings
     assert "assistant_reply_sanitized" in ctx.warnings
     assert not any(w.startswith("assistant_reply_fallback") for w in ctx.warnings)

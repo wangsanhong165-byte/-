@@ -778,130 +778,142 @@ aside {
   to { opacity: 1; transform: translateX(0); }
 }
 
-/* ── Pet mode ──────────────────────────────────────────────────────── */
-
-.workspace-shell.is-pet-mode,
-.workspace-shell.is-pet-mode .companion-stage,
-.workspace-shell.is-pet-mode canvas {
-  background: transparent !important;
-}
-
-.workspace-shell.is-pet-mode .stage-subtitle {
-  bottom: 18px;
-  width: min(520px, calc(100% - 40px));
-}
-
-.pet-window-controls {
-  position: absolute;
-  z-index: 8;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  opacity: 0.22;
-  transition: opacity 160ms ease;
-}
-
-.pet-window-controls:hover,
-.pet-window-controls:focus-within {
-  opacity: 1;
-}
-
-.pet-drag-handle,
-.pet-window-controls button {
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: var(--r-md);
-  background: rgba(15, 16, 20, 0.76);
-  color: #cbc9d1;
-  font-size: 11px;
-}
-
-.pet-drag-handle {
-  display: grid;
-  place-items: center;
-  cursor: default;
-  user-select: none;
-}
-
-.pet-window-controls button {
-  cursor: pointer;
-}
-
-.pet-window-controls button:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-html:has(.workspace-shell.is-pet-mode),
-html:has(.workspace-shell.is-pet-mode) body,
-html:has(.workspace-shell.is-pet-mode) #root {
+/* Compact desktop-pet surfaces.  Each renderer occupies only its own native
+   BrowserWindow; there is no display-sized transparent canvas between them. */
+html:has(.pet-model-surface),
+html:has(.pet-model-surface) body,
+html:has(.pet-model-surface) #root,
+html:has(.pet-conversation-surface),
+html:has(.pet-conversation-surface) body,
+html:has(.pet-conversation-surface) #root {
   min-width: 0;
   background: transparent !important;
 }
 
-.workspace-shell.is-pet-mode {
-  position: fixed;
-  inset: 0;
-  display: block;
+.pet-model-surface {
+  position: relative;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
-  background: transparent !important;
-}
-
-.workspace-shell.is-pet-mode .companion-stage {
-  position: fixed;
-  inset: 0;
-  overflow: hidden;
-  background: transparent !important;
-}
-
-.workspace-shell.is-pet-mode .character-stage {
-  position: absolute;
-  z-index: 3;
-  overflow: visible;
+  background: transparent;
   cursor: grab;
   touch-action: none;
 }
 
-.workspace-shell.is-pet-mode .character-stage:active {
+.pet-model-surface:active {
   cursor: grabbing;
 }
 
-.workspace-shell.is-pet-mode .character-stage canvas {
+.pet-model-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.pet-model-canvas canvas {
   background: transparent !important;
 }
 
-.pet-conversation-layer {
-  position: absolute;
-  z-index: 10;
-  max-width: calc(100% - 24px);
-  pointer-events: auto;
+.pet-conversation-titlebar button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  color: var(--text-muted);
+  background: transparent;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
 }
 
-.workspace-shell.is-pet-mode .conversation-dock {
-  max-height: 236px;
+.pet-conversation-titlebar button:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.pet-conversation-surface {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 14px;
   background: rgba(25, 31, 45, 0.92);
-  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(18px) saturate(115%);
 }
 
-.workspace-shell.is-pet-mode .conversation-dock .chat-view {
-  max-height: 142px;
+.pet-conversation-titlebar {
+  min-height: 30px;
+  padding: 3px 6px 3px 11px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
 }
 
-.workspace-shell.is-pet-mode .conversation-dock .message-composer {
-  min-height: 48px;
-  padding: 6px 8px 6px 12px;
+.pet-conversation-titlebar:active {
+  cursor: grabbing;
 }
 
-.workspace-shell.is-pet-mode .conversation-dock .message-composer input {
-  height: 34px;
+.pet-conversation-content,
+.pet-conversation-content .conversation-dock {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.pet-conversation-content .chat-view {
+  min-height: 0;
+  flex: 1;
+  padding: 7px 11px 2px;
+}
+
+.pet-conversation-content .message-composer {
+  min-height: 42px;
+  padding: 4px 7px 5px 10px;
+  gap: 4px;
+}
+
+.pet-conversation-content .chat-message {
+  width: 100%;
+  padding: 3px 0 5px;
+}
+
+.pet-conversation-content .message-meta {
+  display: none;
+}
+
+.pet-conversation-content .chat-message p {
+  margin: 0;
+  overflow: hidden;
+  color: rgba(238, 240, 247, 0.94);
+  font-size: 12px;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.pet-conversation-content .message-composer input {
+  height: 32px;
+  padding: 0 7px;
   font-size: 13px;
 }
 
-.workspace-shell.is-pet-mode .conversation-dock .send-button,
-.workspace-shell.is-pet-mode .conversation-dock .composer-action,
-.workspace-shell.is-pet-mode .conversation-dock .interrupt-button {
-  height: 34px;
+.pet-conversation-content .composer-action,
+.pet-conversation-content .send-button,
+.pet-conversation-content .interrupt-button {
+  height: 30px;
+  padding: 0 9px;
 }
 
 /* ── Drawer content: history, settings, panels ─────────────────────── */

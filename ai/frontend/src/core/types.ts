@@ -47,7 +47,6 @@ export interface ChatMessage {
 export interface AudioState {
   isPlaying: boolean
   isQueued: boolean
-  currentVolume: number
 }
 
 // === Emotion Event (from Runtime) ===

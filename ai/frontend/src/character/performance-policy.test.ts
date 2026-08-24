@@ -68,6 +68,64 @@ test('direct interactions always deliver their mapped reaction motion', () => {
   assert.equal(plan.motionProbability, 1)
 })
 
+test('model emotion and context cues reach authored secondary body language', () => {
+  const profile: AvatarCapabilityProfile = {
+    model: 'shirone',
+    expressions: ['neutral', 'playful'],
+    motions: ['ear_flick', 'tail_sweep', 'nod'],
+    sequences: [],
+    parameters: {},
+    bindings: {},
+    semanticMotionMap: {
+      playful: 'ear_flick',
+      excited: 'tail_sweep',
+      agree: 'nod',
+    },
+  }
+  const policy = new CharacterPerformancePolicy()
+  const base = {
+    expression: 'playful',
+    expressionIntensity: 0.7,
+    motionIntensity: 0.6,
+    suppressIdle: false,
+  }
+
+  const playful = policy.evaluate(
+    { emotion: 'playful', behavior: 'speak', intensity: 0.7, energy: 0.6 },
+    base,
+    {},
+    profile,
+  )
+  const excited = policy.evaluate(
+    {
+      emotion: 'neutral',
+      behavior: 'speak',
+      intensity: 0.7,
+      energy: 0.6,
+      contextTags: ['excited'],
+    },
+    { ...base, expression: 'neutral' },
+    {},
+    profile,
+  )
+  const explicitAgreement = policy.evaluate(
+    {
+      emotion: 'playful',
+      behavior: 'agree',
+      intensity: 0.7,
+      energy: 0.6,
+      contextTags: ['excited'],
+    },
+    { ...base, motion: 'nod' },
+    {},
+    profile,
+  )
+
+  assert.equal(playful.motion, 'ear_flick')
+  assert.equal(excited.motion, 'tail_sweep')
+  assert.equal(explicitAgreement.motion, 'nod')
+})
+
 test('an intentional empty emotion mapping selects the built-in semantic preset', () => {
   const profile: AvatarCapabilityProfile = {
     model: 'Design_genius_White',

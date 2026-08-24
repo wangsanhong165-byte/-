@@ -35,6 +35,7 @@ export { ParameterController, expressionTargetForBlend } from './ExpressionParam
 import {
   compileMotionAction,
   compileMotionPlanForModel,
+  normalizeLogicalMotionPresets,
   normalizeMotionActions,
   type MotionActionDefinition,
 } from './MotionAction'
@@ -270,7 +271,11 @@ export class CharacterController {
   }
 
   setNativeMotionPlayer(player: NativeMotionPlayer | null): void {
-    this.motionArbiter.setNativeMotionPlayer(player, this._profile?.motionMap)
+    this.motionArbiter.setNativeMotionPlayer(
+      player,
+      this._profile?.motionMap,
+      this._profile?.nativeMotionChannels,
+    )
     this._nativeMotions = player?.list() ?? []
     this.emitNativeCatalog()
     this.startNativeIdleIfAvailable()
@@ -284,8 +289,13 @@ export class CharacterController {
         return [preset.name.toLowerCase(), preset]
       }),
     )
+    const profilePresets = Object.fromEntries(
+      normalizeLogicalMotionPresets(this._profile?.logicalMotionPresets)
+        .map(preset => [preset.name.toLowerCase(), preset]),
+    )
     this.motionArbiter.setPresets({
       ...this._baseMotionPresets,
+      ...profilePresets,
       ...authoredPresets,
     })
   }
@@ -820,7 +830,6 @@ export class CharacterController {
       owner: 'idle:native',
       source: 'idle',
       priority: 10,
-      channels: ['full'],
       intensity: 0.7,
     })
   }

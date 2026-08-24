@@ -132,24 +132,6 @@ class DecisionStep(Step):
             semantic_context=user_text,
         )
         original_reply = (final_reply or response.reply).strip()
-        plain_semantic_recovery = bool(
-            original_reply
-            and not response.segments
-            and not original_reply.lstrip().startswith(("{", "["))
-            and safe.reply
-            and safe.segments
-        )
-        if not safe.valid and plain_semantic_recovery:
-            # Tool-capable providers commonly return useful prose because JSON
-            # response_format is intentionally disabled while tools are
-            # offered.  The local semantic fallback is bounded, immediate and
-            # renderer-independent, so do not add a second fragile LLM call to
-            # every ordinary turn.  It also strips visible action narration
-            # before TTS while retaining that meaning in the semantic segment.
-            safe.valid = True
-            ctx.warnings.append("assistant_reply_semantic_recovered")
-            if safe.reply != original_reply:
-                ctx.warnings.append("assistant_reply_sanitized")
         if not safe.valid:
             truncated = response.finish_reason == "length"
             invalid_content = original_reply
@@ -197,26 +179,33 @@ class DecisionStep(Step):
                 allowed_emotions=ctx.allowed_emotions,
                 semantic_context=user_text,
             )
-            if not safe.reply and not safe.segments:
-                # The repair failed to produce text. If the model DID reply with
-                # usable plain text (the validator only rejected its shape —
-                # multi-sentence prose when JSON was expected), keep that reply
-                # instead of a generic recovery line. Only a genuinely empty
-                # original falls through to the fallback sentence.
-                if original_reply and not original_reply.lstrip().startswith(("{", "[")):
+            if not safe.valid:
+                # A structured repair is attempted exactly once.  If it still
+                # fails, retain usable prose rather than replacing the spoken
+                # answer with a generic line. Prefer the original reply so a
+                # failed repair cannot rewrite the user's visible answer.
+                repair_reply = str(repair.reply or "").strip()
+                fallback_reply = (
+                    original_reply
+                    if original_reply and not original_reply.lstrip().startswith(("{", "["))
+                    else repair_reply
+                    if repair_reply and not repair_reply.lstrip().startswith(("{", "["))
+                    else ""
+                )
+                if fallback_reply:
                     recovered = ResponseValidator().validate(
-                        original_reply,
+                        fallback_reply,
                         [],
                         allowed_emotions=ctx.allowed_emotions,
                         semantic_context=user_text,
                     )
                     safe = ValidatedResponse(
-                        reply=recovered.reply or original_reply,
+                        reply=recovered.reply or fallback_reply,
                         segments=recovered.segments,
                         valid=True,
                     )
-                    ctx.warnings.append("assistant_reply_recovered")
-                    if recovered.reply != original_reply:
+                    ctx.warnings.append("assistant_reply_semantic_recovered")
+                    if recovered.reply != fallback_reply:
                         ctx.warnings.append("assistant_reply_sanitized")
                 else:
                     fallback = _empty_reply_fallback()
@@ -257,14 +246,6 @@ class DecisionStep(Step):
         ctx.llm_usage = usage_report(accumulated_usage)
         provider_reasoning = (response.reasoning or "").strip()
         ctx.reasoning = "\n\n".join(part for part in (provider_reasoning, tagged_reasoning) if part)
-
-        # Extract segments from the final LLM response
-        segments = interpreted.segments
-        if segments:
-            ctx.segments = segments
-            last_emotion = segments[-1].get("emotion", "")
-            if last_emotion:
-                ctx.emotion = last_emotion
 
         # Add turns to conversation
         conversation = ctx.conversation

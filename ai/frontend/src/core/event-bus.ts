@@ -28,6 +28,17 @@ export interface EventMap {
     'character:parameter_probe': { parameterId?: string; value?: number; clear?: boolean }
     'character:part_probe': { partId?: string; opacity?: number; clear?: boolean }
   'character:viewport_reset': void
+  'character:render_environment_request': void
+  'character:render_environment': {
+    webglVendor: string
+    webglRenderer: string
+    webglVersion: string
+    cssWidth: number
+    cssHeight: number
+    pixelWidth: number
+    pixelHeight: number
+    renderDpr: number
+  }
   'character:native_catalog': { motions: string[]; expressions: string[] }
   'character:model_capability': {
       model: string
@@ -81,8 +92,15 @@ export interface EventMap {
       renderMs: number
       averageIntervalMs: number
       p95IntervalMs: number
+      p99IntervalMs: number
       maxIntervalMs: number
       longFrameCount: number
+      phases: Record<'work' | 'controller' | 'mix' | 'model' | 'render', {
+        averageMs: number
+        p95Ms: number
+        p99Ms: number
+        maxMs: number
+      }>
     }
     activeChannels: string[]
     resolvedParameters: Record<string, number>

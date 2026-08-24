@@ -827,7 +827,9 @@ def test_initial_idle_starts_authored_native_idle_and_looping_motion_stays_alive
     assert "this.motionArbiter.request({" in idle_block
     assert "name: 'idle'" in idle_block
     assert "owner: 'idle:native'" in idle_block
-    assert "channels: ['full']" in idle_block
+    arbiter = (ROOT / "frontend/src/character/MotionArbiter.ts").read_text(encoding="utf-8")
+    assert "this.nativeMotionChannels[name]" in arbiter
+    assert "?? ['full']" in arbiter
     assert "loop: Boolean(json.Meta?.Loop)" in player
     assert "this.elapsed %= motion.duration" in player
 

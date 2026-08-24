@@ -434,17 +434,17 @@ class CharacterRuntime:
             candidate["memory_reason"] = memory_topic["reason"]
             candidate["memory_id"] = memory_topic["memory_id"]
 
-        # Step 3: detect character language for initiative prompt
+        # Step 3: use the same explicit reply language as normal turns.  A
+        # character may expose translated display names without wanting to
+        # speak those languages, so inferring this from persona.name is wrong.
         char = ctx.get("character") or core_state_store.get("character")
         char_lang = "zh"
         if char is not None:
-            name_dict = char.persona.name if hasattr(char, "persona") else {}
-            if name_dict.get("ja"):
-                char_lang = "ja"
-            elif name_dict.get("en"):
-                char_lang = "en"
-            elif name_dict.get("ko"):
-                char_lang = "ko"
+            card = getattr(char, "raw_card", {})
+            if isinstance(card, dict):
+                configured_language = str(card.get("reply_language", "")).strip().lower()
+                if configured_language:
+                    char_lang = configured_language
 
         # Step 3b: get recent conversation summary for context
         recent_summary = ""
@@ -501,28 +501,30 @@ class CharacterRuntime:
             )
         )
 
-        if turn.error or not turn.reply_text:
-            return
+        if not turn.error and turn.reply_text:
+            initiative = turn.initiative
+            memory_id = initiative.get("memory_id")
+            if memory_id is not None:
+                memory_provider = self.providers.get("memory")
+                store = getattr(memory_provider, "_store", None)
+                character = turn.character
+                if store is not None and character is not None:
+                    store.mark_initiative_used(character.id, memory_id)
 
-        initiative = turn.initiative
-        memory_id = initiative.get("memory_id")
-        if memory_id is not None:
-            memory_provider = self.providers.get("memory")
-            store = getattr(memory_provider, "_store", None)
-            character = turn.character
-            if store is not None and character is not None:
-                store.mark_initiative_used(character.id, memory_id)
+            # Track only successful speech in the initiative buffer.  Failed
+            # proactive attempts must remain observable but must not pollute
+            # conversational closure or durable memory policy.
+            from app.core.initiative_buffer import initiative_buffer
+            initiative_buffer.push(turn.reply_text[:80], turn.reply_text)
 
-        # Track in initiative buffer for closure detection
-        from app.core.initiative_buffer import initiative_buffer
-        initiative_buffer.push(turn.reply_text[:80], turn.reply_text)
-
-        # Push to all registered frontend handlers
+        # Push both success and failure through the same typed lifecycle.  The
+        # transport emitter turns failed turns into turn.failed/runtime.idle;
+        # silently returning here previously left the UI looking unresponsive.
         for handler in self._proactive_handlers:
             try:
                 await handler(turn)
             except Exception:
-                pass
+                logger.exception("Proactive response handler failed")
 
     def _init_screen_watcher(self):
         """Initialize ScreenWatcher — background active window monitor.

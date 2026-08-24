@@ -1,5 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const args = new Set(process.argv.slice(2))
 const valueAfter = (flag, fallback) => {
@@ -7,8 +8,9 @@ const valueAfter = (flag, fallback) => {
   return index >= 0 ? process.argv[index + 1] : fallback
 }
 const cwd = process.cwd()
-const modelsRoot = path.resolve(cwd, valueAfter('--models-root', '../models/live2d-models'))
-const profilesRoot = path.resolve(cwd, valueAfter('--profiles-root', '../config/avatar_profiles'))
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const modelsRoot = path.resolve(cwd, valueAfter('--models-root', path.join(projectRoot, 'models/live2d-models')))
+const profilesRoot = path.resolve(cwd, valueAfter('--profiles-root', path.join(projectRoot, 'config/avatar_profiles')))
 
 const readJson = async file => JSON.parse(await readFile(file, 'utf8'))
 const files = await readdir(profilesRoot)
@@ -42,6 +44,15 @@ for (const file of files.filter(name => name.endsWith('.json'))) {
     logical,
     target: typeof binding === 'string' ? binding : binding.target,
   }))
+  const boundLogicalParameters = new Set(bindings.map(binding => binding.logical))
+  const logicalMotionIssues = []
+  for (const preset of profile.logicalMotionPresets ?? []) {
+    for (const keyframe of preset.keyframes ?? []) {
+      if (!boundLogicalParameters.has(keyframe.parameter)) {
+        logicalMotionIssues.push(`${preset.name}: missing binding for ${keyframe.parameter}`)
+      }
+    }
+  }
   const missingBindings = knownParameters.size
     ? bindings.filter(binding => !knownParameters.has(binding.target))
     : []
@@ -62,8 +73,19 @@ for (const file of files.filter(name => name.endsWith('.json'))) {
     item.group?.toLowerCase(),
     item.basename?.toLowerCase(),
   ]).filter(Boolean))
+  const logicalMotionNames = new Set((profile.logicalMotionPresets ?? [])
+    .map(preset => String(preset.name ?? '').toLowerCase())
+    .filter(Boolean))
+  const declaredMotionNames = new Set([
+    ...(profile.motions ?? []).map(name => String(name).toLowerCase()),
+    ...logicalMotionNames,
+    ...nativeMotionAliases,
+  ])
   const invalidMotionMappings = Object.entries(profile.motionMap ?? {})
     .filter(([, target]) => !nativeMotionAliases.has(String(target).toLowerCase()))
+    .map(([semantic, target]) => ({ semantic, target }))
+  const invalidSemanticMotionMappings = Object.entries(profile.semanticMotionMap ?? {})
+    .filter(([, target]) => !declaredMotionNames.has(String(target).toLowerCase()))
     .map(([semantic, target]) => ({ semantic, target }))
   const logicalCapabilities = {
     headControl: ['head.x', 'head.y', 'head.z'],
@@ -129,7 +151,10 @@ for (const file of files.filter(name => name.endsWith('.json'))) {
           .filter(curve => curve.Target === 'Parameter' && typeof curve.Id === 'string')
           .map(curve => curve.Id)
         const naturalChannels = parameterIds.filter(id => /^(ParamAngle|ParamBodyAngle|ParamBreath)/i.test(id))
-        if (parameterIds.length > 0 && naturalChannels.length === 0) {
+        const idleChannels = profile.nativeMotionChannels?.idle ?? []
+        const intentionallySecondary = idleChannels.includes('secondary')
+          || idleChannels.includes('accessory')
+        if (parameterIds.length > 0 && naturalChannels.length === 0 && !intentionallySecondary) {
           idleMotionIssues.push(`idle motion ${idleEntry.file} has effect/expression parameters only: ${parameterIds.join(', ')}`)
         }
       } catch (error) {
@@ -153,6 +178,8 @@ for (const file of files.filter(name => name.endsWith('.json'))) {
     missingBindings,
     capabilityGaps,
     invalidMotionMappings,
+    invalidSemanticMotionMappings,
+    logicalMotionIssues,
     lipSyncIssues,
     profileIssues,
     idleMotionIssues,
@@ -194,6 +221,8 @@ if (args.has('--strict') && reports.some(report =>
   report.missingBindings.length > 0
   || report.capabilityGaps.length > 0
   || report.invalidMotionMappings.length > 0
+  || report.invalidSemanticMotionMappings.length > 0
+  || report.logicalMotionIssues.length > 0
   || report.lipSyncIssues.length > 0
   || report.profileIssues.length > 0
   || report.idleMotionIssues.length > 0)) {

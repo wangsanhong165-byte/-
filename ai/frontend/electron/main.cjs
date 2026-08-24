@@ -16,8 +16,10 @@ const path = require('path')
 const fs = require('fs')
 const { pathToFileURL } = require('url')
 const {
+  DEFAULT_MODEL_SIZE,
   fitBoundsToWorkArea,
   getPetBounds,
+  getPetConversationBounds,
   selectRestorableBounds,
 } = require('./pet-window.cjs')
 const { serviceUrl, waitForUrl } = require('./startup-readiness.cjs')
@@ -50,6 +52,15 @@ const EXPLICIT_APP_URL = isDev ? process.env.VITE_URL : process.env.BRIDGE_URL
 const STARTUP_TIMEOUT_MS = 60_000
 const APP_READY_POLL_MS = 500
 const APP_LOAD_RETRY_MS = 1_000
+const forceHighPerformanceGpu = process.env.SOULLINK_FORCE_HIGH_PERFORMANCE_GPU === '1'
+
+// Keep this opt-in until the same-window A/B probe proves that the discrete
+// adapter improves visible Live2D pacing on the current machine. Electron must
+// receive the switch before app ready; exposing the result below makes the
+// active policy observable instead of silently assuming which GPU Chromium chose.
+if (forceHighPerformanceGpu) {
+  app.commandLine.appendSwitch('force_high_performance_gpu')
+}
 
 // ── State ────────────────────────────────────────────────────────────
 
@@ -67,6 +78,9 @@ if (!hasSingleInstanceLock) {
   })
 }
 let mainWindow = null
+let petConversationWindow = null
+let petSnapshot = null
+let petConversationVisible = false
 let tray = null
 let alwaysOnTop = false
 let petMode = false
@@ -89,6 +103,7 @@ let dragOffset = null
 let dragPollTimer = null
 let dragLastX = null
 let dragLastY = null
+let dragWindow = null
 const stopWindowDrag = () => {
   if (dragPollTimer) {
     clearInterval(dragPollTimer)
@@ -97,6 +112,7 @@ const stopWindowDrag = () => {
   dragOffset = null
   dragLastX = null
   dragLastY = null
+  dragWindow = null
 }
 
 // ── Window creation ──
@@ -117,9 +133,8 @@ function createWindow({ transparent = false, bounds = null, assign = true } = {}
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      // A desktop companion must keep animating while another app has focus.
-      // Chromium's default background throttling otherwise collapses the
-      // Live2D loop to single-digit FPS whenever this window is unfocused.
+      // Keep a visible companion eligible for the display cadence even while
+      // another app has focus. Hidden/minimized throttling is managed below.
       backgroundThrottling: false,
       preload: path.join(__dirname, 'preload.cjs'),
     },
@@ -149,7 +164,19 @@ function createWindow({ transparent = false, bounds = null, assign = true } = {}
 
   window.on('closed', () => {
     if (mainWindow === window) mainWindow = null
+    if (petConversationWindow === window) petConversationWindow = null
   })
+
+  // A visible companion should render at the display cadence even while a
+  // different application has focus. Hidden/minimized windows do not need to
+  // burn GPU time, so permit Chromium throttling only in those two states.
+  const setBackgroundThrottling = allowed => {
+    if (!window.isDestroyed()) window.webContents.setBackgroundThrottling(allowed)
+  }
+  window.on('minimize', () => setBackgroundThrottling(true))
+  window.on('hide', () => setBackgroundThrottling(true))
+  window.on('restore', () => setBackgroundThrottling(false))
+  window.on('show', () => setBackgroundThrottling(false))
 
   // Safety net: if the renderer stops sending dragEnd mid-drag (e.g. a
   // renderer crash), stop following the cursor as soon as the window loses
@@ -159,40 +186,65 @@ function createWindow({ transparent = false, bounds = null, assign = true } = {}
   return window
 }
 
+function withSurfaceQuery(baseUrl, surface) {
+  const target = new URL(baseUrl)
+  target.searchParams.set('surface', surface)
+  return target.toString()
+}
+
+function configurePetSurface(window) {
+  window.setResizable(false)
+  window.setSkipTaskbar(true)
+  window.setMenuBarVisibility(false)
+  window.setAlwaysOnTop(true)
+}
+
 async function recreateWindowForMode(targetPetMode, targetBounds) {
   const oldWindow = mainWindow
   if (!oldWindow || oldWindow.isDestroyed() || !appUrl) return
 
-  const replacement = createWindow({
-    transparent: targetPetMode,
-    bounds: targetBounds,
-    assign: false,
-  })
+  const replacement = createWindow({ transparent: targetPetMode, bounds: targetBounds, assign: false })
+  const display = screen.getDisplayMatching(targetBounds)
+  const conversation = targetPetMode
+    ? createWindow({
+        transparent: true,
+        bounds: getPetConversationBounds(display.workArea),
+        assign: false,
+      })
+    : null
   try {
-    await replacement.loadURL(appUrl)
+    await Promise.all([
+      replacement.loadURL(targetPetMode ? withSurfaceQuery(appUrl, 'pet-model') : appUrl),
+      conversation?.loadURL(withSurfaceQuery(appUrl, 'pet-conversation')),
+    ])
     if (petMode !== targetPetMode || mainWindow !== oldWindow) {
       replacement.destroy()
+      conversation?.destroy()
       return
     }
     if (targetPetMode) {
-      replacement.setResizable(false)
-      replacement.setSkipTaskbar(true)
-      replacement.setMenuBarVisibility(false)
-      replacement.setIgnoreMouseEvents(true, { forward: true })
-      replacement.setAlwaysOnTop(true)
+      configurePetSurface(replacement)
+      configurePetSurface(conversation)
     } else {
       replacement.setAlwaysOnTop(alwaysOnTop)
       if (normalWindowState?.maximized) replacement.maximize()
       if (normalWindowState?.fullScreen) replacement.setFullScreen(true)
     }
     mainWindow = replacement
+    const previousConversation = petConversationWindow
+    petConversationWindow = conversation
     replacement.show()
+    if (petConversationVisible) conversation?.show()
     oldWindow.destroy()
+    previousConversation?.destroy()
+    if (!targetPetMode) petSnapshot = null
   } catch (error) {
     replacement.destroy()
+    conversation?.destroy()
     petMode = !targetPetMode
     console.error(`[Electron] Window mode switch failed: ${error.message}`)
     oldWindow.show()
+    throw error
   }
 }
 
@@ -252,6 +304,59 @@ function beginCompanionLoad(status) {
 
 // ── System tray ──
 
+function showCompanionWindows() {
+  mainWindow?.show()
+  if (petMode && petConversationVisible) petConversationWindow?.show()
+}
+
+function hideCompanionWindows() {
+  mainWindow?.hide()
+  if (petMode) petConversationWindow?.hide()
+}
+
+function refreshTrayMenu() {
+  if (!tray || tray.isDestroyed()) return
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: '显示模型', click: showCompanionWindows },
+    { label: '隐藏模型', click: hideCompanionWindows },
+    {
+      label: petConversationVisible ? '隐藏对话' : '打开对话',
+      enabled: petMode,
+      click: () => {
+        if (!petMode || !petConversationWindow || petConversationWindow.isDestroyed()) return
+        petConversationVisible = !petConversationVisible
+        if (petConversationVisible) {
+          petConversationWindow.show()
+          petConversationWindow.focus()
+        } else {
+          petConversationWindow.hide()
+        }
+        refreshTrayMenu()
+      },
+    },
+    {
+      label: '返回主界面',
+      enabled: petMode,
+      click: () => mainWindow?.webContents.send('pet:exit-request'),
+    },
+    { type: 'separator' },
+    {
+      label: '置顶显示',
+      type: 'checkbox',
+      checked: alwaysOnTop,
+      click: (menuItem) => {
+        alwaysOnTop = menuItem.checked
+        if (mainWindow) mainWindow.setAlwaysOnTop(petMode || alwaysOnTop)
+      },
+    },
+    { type: 'separator' },
+    { label: '退出', click: () => {
+      forceQuit = true
+      app.quit()
+    }},
+  ]))
+}
+
 function createTray() {
   // Try to find an icon, fall back to empty
   let icon
@@ -264,40 +369,54 @@ function createTray() {
 
   tray = new Tray(icon)
   tray.setToolTip('Monika Companion')
-
-  const contextMenu = Menu.buildFromTemplate([
-    { label: '显示窗口', click: () => mainWindow?.show() },
-    { label: '隐藏窗口', click: () => mainWindow?.hide() },
-    {
-      label: '返回舞台模式',
-      click: () => mainWindow?.webContents.send('pet:exit-request'),
-    },
-    { type: 'separator' },
-    {
-      label: '置顶显示',
-      type: 'checkbox',
-      checked: alwaysOnTop,
-      click: (menuItem) => {
-        alwaysOnTop = menuItem.checked
-        if (mainWindow) {
-          mainWindow.setAlwaysOnTop(petMode || alwaysOnTop)
-        }
-      },
-    },
-    { type: 'separator' },
-    { label: '退出', click: () => {
-      forceQuit = true
-      app.quit()
-    }},
-  ])
-
-  tray.setContextMenu(contextMenu)
-  tray.on('double-click', () => mainWindow?.show())
+  refreshTrayMenu()
+  tray.on('double-click', showCompanionWindows)
 }
 
 // ── IPC handlers (window controls) ──
 
 function setupIPC() {
+  ipcMain.handle('performance:getElectronDiagnostics', async () => {
+    const window = mainWindow
+    const liveWindow = Boolean(window && !window.isDestroyed())
+    const bounds = liveWindow ? window.getBounds() : null
+    const display = bounds ? screen.getDisplayMatching(bounds) : screen.getPrimaryDisplay()
+    let gpuInfo = null
+    let gpuInfoError = null
+    try {
+      gpuInfo = await app.getGPUInfo('complete')
+    } catch (error) {
+      gpuInfoError = error instanceof Error ? error.message : String(error)
+    }
+
+    return {
+      capturedAt: new Date().toISOString(),
+      forceHighPerformanceGpu,
+      hardwareAccelerationEnabled: typeof app.isHardwareAccelerationEnabled === 'function'
+        ? app.isHardwareAccelerationEnabled()
+        : null,
+      gpuFeatureStatus: app.getGPUFeatureStatus(),
+      gpuInfo,
+      gpuInfoError,
+      display: display ? {
+        id: display.id,
+        label: display.label,
+        displayFrequency: display.displayFrequency,
+        scaleFactor: display.scaleFactor,
+        size: display.size,
+        workArea: display.workArea,
+      } : null,
+      window: liveWindow ? {
+        visible: window.isVisible(),
+        minimized: window.isMinimized(),
+        focused: window.isFocused(),
+        petMode,
+        bounds,
+        backgroundThrottling: window.webContents.getBackgroundThrottling(),
+      } : null,
+    }
+  })
+
   ipcMain.handle('character:selectAsset', async (_event, kind) => {
     const result = await dialog.showOpenDialog(
       mainWindow,
@@ -352,7 +471,7 @@ function setupIPC() {
     return alwaysOnTop
   })
 
-  ipcMain.handle('window:setPetMode', (_event, enabled) => {
+  ipcMain.handle('window:setPetMode', async (_event, enabled) => {
     if (!mainWindow) return { enabled: false }
     if (enabled && !petMode) {
       const currentBounds = mainWindow.getBounds()
@@ -371,8 +490,10 @@ function setupIPC() {
       }
       const display = screen.getDisplayMatching(bounds)
       const petBounds = getPetBounds(display.workArea)
+      petConversationVisible = false
       petMode = true
-      void recreateWindowForMode(true, petBounds)
+      await recreateWindowForMode(true, petBounds)
+      refreshTrayMenu()
       return { enabled: true, bounds: petBounds }
     } else if (!enabled && petMode) {
       let normalBounds = mainWindow.getBounds()
@@ -381,15 +502,67 @@ function setupIPC() {
         normalBounds = fitBoundsToWorkArea(normalWindowState.bounds, display.workArea)
       }
       petMode = false
-      void recreateWindowForMode(false, normalBounds)
+      await recreateWindowForMode(false, normalBounds)
+      refreshTrayMenu()
       return { enabled: false, bounds: normalBounds }
     }
     return { enabled: petMode, bounds: mainWindow.getBounds() }
   })
 
-  ipcMain.on('pet:setMousePassthrough', (_event, passthrough) => {
-    if (!mainWindow || mainWindow.isDestroyed() || !petMode) return
-    mainWindow.setIgnoreMouseEvents(Boolean(passthrough), { forward: true })
+  // The model renderer remains the only Runtime/WebSocket/audio owner.  The
+  // compact conversation renderer receives a serializable UI snapshot and
+  // sends user commands back through Electron, avoiding a second backend
+  // connection and duplicate TTS/initiative subscriptions.
+  ipcMain.on('pet:publishSnapshot', (event, snapshot) => {
+    if (!petMode || !mainWindow || event.sender !== mainWindow.webContents) return
+    petSnapshot = snapshot
+    if (petConversationWindow && !petConversationWindow.isDestroyed()) {
+      petConversationWindow.webContents.send('pet:snapshot', snapshot)
+    }
+  })
+
+  ipcMain.handle('pet:getSnapshot', () => petSnapshot)
+
+  ipcMain.on('pet:command', (event, command) => {
+    if (
+      !petMode
+      || !mainWindow
+      || mainWindow.isDestroyed()
+      || !petConversationWindow
+      || event.sender !== petConversationWindow.webContents
+    ) return
+    mainWindow.webContents.send('pet:command', command)
+  })
+
+  ipcMain.on('pet:setConversationVisible', (_event, visible) => {
+    if (!petMode || !petConversationWindow || petConversationWindow.isDestroyed()) return
+    petConversationVisible = Boolean(visible)
+    if (petConversationVisible) petConversationWindow.show()
+    else petConversationWindow.hide()
+    refreshTrayMenu()
+  })
+
+  ipcMain.on('pet:resizeModel', (event, scaleFactor) => {
+    if (!petMode || !mainWindow || event.sender !== mainWindow.webContents) return
+    const factor = Number(scaleFactor)
+    if (!Number.isFinite(factor) || factor <= 0) return
+    const bounds = mainWindow.getBounds()
+    const display = screen.getDisplayMatching(bounds)
+    const workArea = display.workArea
+    const aspect = DEFAULT_MODEL_SIZE.height / DEFAULT_MODEL_SIZE.width
+    const minWidth = Math.min(DEFAULT_MODEL_SIZE.width * 0.55, workArea.width)
+    const maxWidth = Math.min(DEFAULT_MODEL_SIZE.width * 1.6, workArea.width)
+    const width = Math.round(Math.max(minWidth, Math.min(maxWidth, bounds.width * factor)))
+    const height = Math.round(Math.min(workArea.height, width * aspect))
+    const cursor = screen.getCursorScreenPoint()
+    const anchorX = Math.max(0, Math.min(1, (cursor.x - bounds.x) / bounds.width))
+    const anchorY = Math.max(0, Math.min(1, (cursor.y - bounds.y) / bounds.height))
+    mainWindow.setBounds(fitBoundsToWorkArea({
+      x: Math.round(cursor.x - anchorX * width),
+      y: Math.round(cursor.y - anchorY * height),
+      width,
+      height,
+    }, workArea))
   })
 
   // ── Window dragging (frameless fallback) ──
@@ -397,13 +570,15 @@ function setupIPC() {
   // renderer drives the move explicitly: it sends dragStart on pointerdown in
   // the title bar and dragEnd on pointerup, and the main process polls the OS
   // cursor position to keep the window glued to it while a drag is active.
-  ipcMain.on('window:dragStart', () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return
-    if (mainWindow.isMaximized() || mainWindow.isFullScreen()) return
+  ipcMain.on('window:dragStart', (event) => {
+    const requestedWindow = BrowserWindow.fromWebContents(event.sender)
+    if (!requestedWindow || requestedWindow.isDestroyed()) return
+    if (requestedWindow.isMaximized() || requestedWindow.isFullScreen()) return
     stopWindowDrag()
+    dragWindow = requestedWindow
     const cursor = screen.getCursorScreenPoint()
-    const [winX, winY] = mainWindow.getPosition()
-    const [winW, winH] = mainWindow.getSize()
+    const [winX, winY] = dragWindow.getPosition()
+    const [winW, winH] = dragWindow.getSize()
     dragOffset = { offsetX: cursor.x - winX, offsetY: cursor.y - winY }
     // setBounds with an explicit size, NOT setPosition: on this Windows host
     // repeated setPosition calls let the DWM ratchet the frameless window's
@@ -411,7 +586,7 @@ function setupIPC() {
     // window visibly grows while being dragged. Pinning the size on every
     // move keeps the window from growing.
     dragPollTimer = setInterval(() => {
-      if (!dragOffset || !mainWindow || mainWindow.isDestroyed()) {
+      if (!dragOffset || !dragWindow || dragWindow.isDestroyed()) {
         stopWindowDrag()
         return
       }
@@ -421,7 +596,7 @@ function setupIPC() {
       if (x === dragLastX && y === dragLastY) return
       dragLastX = x
       dragLastY = y
-      mainWindow.setBounds({ x, y, width: winW, height: winH })
+      dragWindow.setBounds({ x, y, width: winW, height: winH })
     }, 16)
   })
 

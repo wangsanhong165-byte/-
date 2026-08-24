@@ -16,8 +16,9 @@ test('offers separate file and Wallpaper Engine directory pickers', () => {
   assert.ok(wallpaperDialogOptions('file').filters[0].extensions.includes('mp4'))
 })
 
-test('recognizes a downloaded video wallpaper project', () => {
+test('recognizes a downloaded video wallpaper project', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wallpaper-video-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
   fs.writeFileSync(path.join(root, 'project.json'), JSON.stringify({ type: 'video', file: 'loop.mp4' }))
   fs.writeFileSync(path.join(root, 'loop.mp4'), 'video')
 
@@ -32,8 +33,9 @@ test('recognizes a downloaded video wallpaper project', () => {
   })
 })
 
-test('uses a Scene preview as an explicitly labelled static fallback', () => {
+test('uses a Scene preview as an explicitly labelled static fallback', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wallpaper-scene-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
   fs.writeFileSync(path.join(root, 'project.json'), JSON.stringify({ type: 'scene' }))
   fs.writeFileSync(path.join(root, 'preview.jpg'), 'preview')
 
@@ -44,8 +46,9 @@ test('uses a Scene preview as an explicitly labelled static fallback', () => {
   assert.match(result.warning, /静态预览/)
 })
 
-test('rejects unsupported projects without playable media', () => {
+test('rejects unsupported projects without playable media', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wallpaper-web-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
   fs.writeFileSync(path.join(root, 'project.json'), JSON.stringify({ type: 'web', file: 'index.html' }))
   fs.writeFileSync(path.join(root, 'index.html'), '<html></html>')
 
@@ -55,9 +58,11 @@ test('rejects unsupported projects without playable media', () => {
   assert.match(result.message, /Scene\/Web/)
 })
 
-test('scans Steam libraryfolders.vdf for a non-default library', () => {
+test('scans Steam libraryfolders.vdf for a non-default library', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'steam-root-'))
   const library = fs.mkdtempSync(path.join(os.tmpdir(), 'steam-library-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  t.after(() => fs.rmSync(library, { recursive: true, force: true }))
   const workshop = path.join(library, 'steamapps', 'workshop', 'content', '431960')
   fs.mkdirSync(workshop, { recursive: true })
   fs.mkdirSync(path.join(root, 'steamapps'), { recursive: true })

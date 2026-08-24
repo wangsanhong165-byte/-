@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "sources": {
+    "language": {
+      "mode": "default",
+      "content": ""
+    },
+    "persona": {
+      "mode": "default",
+      "content": ""
+    },
+    "memory_summary": {
+      "mode": "default",
+      "content": ""
+    },
+    "relevant_memory": {
+      "mode": "default",
+      "content": ""
+    },
+    "emotion": {
+      "mode": "default",
+      "content": ""
+    },
+    "character_state": {
+      "mode": "default",
+      "content": ""
+    },
+    "output_protocol": {
+      "mode": "default",
+      "content": ""
+    }
+  }
+}

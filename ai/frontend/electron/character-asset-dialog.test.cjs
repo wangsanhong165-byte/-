@@ -16,8 +16,9 @@ test('uses a directory picker for Live2D and constrained file pickers for voice 
   assert.throws(() => dialogOptionsFor('unknown'), /unsupported character asset kind/)
 })
 
-test('opens the picker in the conventional in-repo directory for each asset kind', () => {
+test('opens the picker in the conventional in-repo directory for each asset kind', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'char-asset-dialog-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
   const live2d = path.join(root, 'models', 'live2d-models')
   const model = path.join(root, 'config', 'characters', 'monika', 'model')
   fs.mkdirSync(live2d, { recursive: true })
@@ -32,8 +33,9 @@ test('opens the picker in the conventional in-repo directory for each asset kind
   assert.equal(dialogOptionsFor('vits_model', root).defaultPath, model)
 })
 
-test('omits defaultPath when the conventional directory is missing or root is unknown', () => {
+test('omits defaultPath when the conventional directory is missing or root is unknown', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'char-asset-dialog-empty-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
   assert.equal(dialogOptionsFor('live2d_directory', root).defaultPath, undefined)
   assert.equal(dialogOptionsFor('reference_audio').defaultPath, undefined)
 })

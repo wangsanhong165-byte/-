@@ -65,6 +65,7 @@ export class AudioPlayer {
   private audioContext: AudioContext | null = null
   private currentSource: AudioBufferSourceNode | null = null
   private analyserNode: AnalyserNode | null = null
+  private analyserBuffer: Uint8Array | null = null
   private handlers: AudioPlaybackHandler = {}
   private animFrameId: number | null = null
   private queue: AudioPlaybackItem[] = []
@@ -210,7 +211,11 @@ export class AudioPlayer {
   /** Get current RMS volume 0–1 for lip sync */
   getCurrentVolume(): number {
     if (!this.analyserNode || !this._isPlaying) return 0
-    const dataArray = new Uint8Array(this.analyserNode.frequencyBinCount)
+    const binCount = this.analyserNode.frequencyBinCount
+    if (!this.analyserBuffer || this.analyserBuffer.length !== binCount) {
+      this.analyserBuffer = new Uint8Array(binCount)
+    }
+    const dataArray = this.analyserBuffer
     this.analyserNode.getByteTimeDomainData(dataArray)
     let sum = 0
     for (let i = 0; i < dataArray.length; i++) {

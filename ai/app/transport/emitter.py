@@ -158,6 +158,38 @@ class TransportEmitter:
             }),
         ])
 
+        # Stage semantic performance after the complete subtitle is visible but
+        # before audio can decode.  The frontend keeps this intent dormant until
+        # the real AudioBufferSource starts, so expression, body language,
+        # lip-sync and speech share the same playback clock.
+        plan = turn.output.performance
+        safe_plan = CharacterIntent.from_llm_segment(
+            {
+                "emotion": plan.emotion,
+                "behavior": plan.behavior,
+                "intensity": plan.intensity,
+                "attention": plan.attention,
+                "energy": plan.energy,
+                "durationMs": plan.duration_ms,
+                "naturalVAD": plan.natural_vad,
+                "contextTags": plan.context_tags,
+                "motionPlan": plan.motion_plan,
+            },
+            allowed_emotions=turn.allowed_emotions,
+        )
+        events.append(self._event(turn, "character.intent", {
+            "emotion": safe_plan.emotion,
+            "behavior": safe_plan.behavior,
+            "intensity": safe_plan.intensity,
+            "attention": safe_plan.attention,
+            "energy": safe_plan.energy,
+            "durationMs": safe_plan.duration_ms,
+            "naturalVAD": safe_plan.natural_vad,
+            "contextTags": list(safe_plan.context_tags),
+            "motionPlan": normalize_motion_plan(safe_plan.motion_plan).plan,
+            "segments": self._intent_segments(turn),
+        }))
+
         if turn.audio:
             events.extend([
                 self._event(turn, "tts.started", {
@@ -187,34 +219,7 @@ class TransportEmitter:
                     "message": tts_failure,
                 }))
 
-        plan = turn.output.performance
-        safe_plan = CharacterIntent.from_llm_segment(
-            {
-                "emotion": plan.emotion,
-                "behavior": plan.behavior,
-                "intensity": plan.intensity,
-                "attention": plan.attention,
-                "energy": plan.energy,
-                "durationMs": plan.duration_ms,
-                "naturalVAD": plan.natural_vad,
-                "contextTags": plan.context_tags,
-                "motionPlan": plan.motion_plan,
-            },
-            allowed_emotions=turn.allowed_emotions,
-        )
         events.extend([
-            self._event(turn, "character.intent", {
-                "emotion": safe_plan.emotion,
-                "behavior": safe_plan.behavior,
-                "intensity": safe_plan.intensity,
-                "attention": safe_plan.attention,
-                "energy": safe_plan.energy,
-                "durationMs": safe_plan.duration_ms,
-                "naturalVAD": safe_plan.natural_vad,
-                "contextTags": list(safe_plan.context_tags),
-                "motionPlan": normalize_motion_plan(safe_plan.motion_plan).plan,
-                "segments": self._intent_segments(turn),
-            }),
             self._event(turn, "turn.completed", {"reason": "complete"}),
             DomainEvent.create(
                 "runtime.status",

@@ -40,3 +40,22 @@ test('does not rebuild when the authoritative settings save fails', async () => 
 
   assert.equal(applied, false)
 })
+
+test('restores the persisted mode when Electron cannot rebuild the window', async () => {
+  const persisted: unknown[] = []
+
+  await assert.rejects(() => persistAndApplyWindowMode(
+    { windowMode: 'window', voiceInputEnabled: true },
+    'pet',
+    {
+      async persist(settings) {
+        persisted.push(settings.windowMode)
+      },
+      async setPetMode() {
+        throw new Error('replacement load failed')
+      },
+    },
+  ), /replacement load failed/)
+
+  assert.deepEqual(persisted, ['pet', 'window'])
+})

@@ -37,7 +37,7 @@ _char_name: str = "Monika"
 
 # Live2D expression config (loaded from config/live2d_models.json)
 _live2d_config: dict[str, Any] | None = None
-_live2d_model: str = "Design_genius_White"
+_live2d_model: str = "shirone"
 
 # Avatar config (loaded from config/avatar.yaml)
 _avatar_config: dict[str, Any] | None = None

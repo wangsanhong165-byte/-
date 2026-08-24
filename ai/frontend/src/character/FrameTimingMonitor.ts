@@ -7,12 +7,23 @@ export interface FrameTimingSample {
   renderMs: number
 }
 
+export interface PhaseTimingStats {
+  averageMs: number
+  p95Ms: number
+  p99Ms: number
+  maxMs: number
+}
+
+export type FrameTimingPhase = 'work' | 'controller' | 'mix' | 'model' | 'render'
+
 export interface FrameTimingSnapshot extends FrameTimingSample {
   sampleCount: number
   averageIntervalMs: number
   p95IntervalMs: number
+  p99IntervalMs: number
   maxIntervalMs: number
   longFrameCount: number
+  phases: Record<FrameTimingPhase, PhaseTimingStats>
 }
 
 const EMPTY_SAMPLE: FrameTimingSample = {
@@ -22,6 +33,13 @@ const EMPTY_SAMPLE: FrameTimingSample = {
   mixMs: 0,
   modelMs: 0,
   renderMs: 0,
+}
+
+const EMPTY_PHASE: PhaseTimingStats = {
+  averageMs: 0,
+  p95Ms: 0,
+  p99Ms: 0,
+  maxMs: 0,
 }
 
 /** Bounded recorder: every frame is observed, snapshots are emitted at 4 Hz. */
@@ -52,26 +70,65 @@ export class FrameTimingMonitor {
   snapshot(): FrameTimingSnapshot {
     if (!this.sampleCount) {
       const latest = EMPTY_SAMPLE
-      return { ...latest, sampleCount: 0, averageIntervalMs: 0, p95IntervalMs: 0, maxIntervalMs: 0, longFrameCount: 0 }
+      return {
+        ...latest,
+        sampleCount: 0,
+        averageIntervalMs: 0,
+        p95IntervalMs: 0,
+        p99IntervalMs: 0,
+        maxIntervalMs: 0,
+        longFrameCount: 0,
+        phases: {
+          work: { ...EMPTY_PHASE },
+          controller: { ...EMPTY_PHASE },
+          mix: { ...EMPTY_PHASE },
+          model: { ...EMPTY_PHASE },
+          render: { ...EMPTY_PHASE },
+        },
+      }
     }
     const latestIndex = (this.writeIndex - 1 + this.capacity) % this.capacity
     const latest = this.samples[latestIndex] ?? EMPTY_SAMPLE
-    const intervals = new Array<number>(this.sampleCount)
+    const orderedSamples = new Array<FrameTimingSample>(this.sampleCount)
     for (let index = 0; index < this.sampleCount; index += 1) {
       const sampleIndex = (this.writeIndex - this.sampleCount + index + this.capacity) % this.capacity
-      intervals[index] = this.samples[sampleIndex]?.intervalMs ?? 0
+      orderedSamples[index] = this.samples[sampleIndex] ?? EMPTY_SAMPLE
     }
-    intervals.sort((a, b) => a - b)
+    const intervals = orderedSamples.map(sample => sample.intervalMs).sort((a, b) => a - b)
     const total = intervals.reduce((sum, value) => sum + value, 0)
     return {
       ...latest,
       sampleCount: intervals.length,
       averageIntervalMs: total / intervals.length,
-      p95IntervalMs: intervals[Math.min(intervals.length - 1, Math.floor(intervals.length * 0.95))],
+      p95IntervalMs: percentile(intervals, 0.95),
+      p99IntervalMs: percentile(intervals, 0.99),
       maxIntervalMs: intervals.at(-1) ?? 0,
       longFrameCount: intervals.filter(value => value > 33.34).length,
+      phases: {
+        work: summarize(orderedSamples.map(sample => sample.workMs)),
+        controller: summarize(orderedSamples.map(sample => sample.controllerMs)),
+        mix: summarize(orderedSamples.map(sample => sample.mixMs)),
+        model: summarize(orderedSamples.map(sample => sample.modelMs)),
+        render: summarize(orderedSamples.map(sample => sample.renderMs)),
+      },
     }
   }
+}
+
+function summarize(values: number[]): PhaseTimingStats {
+  const ordered = values.sort((a, b) => a - b)
+  const total = ordered.reduce((sum, value) => sum + value, 0)
+  return {
+    averageMs: total / ordered.length,
+    p95Ms: percentile(ordered, 0.95),
+    p99Ms: percentile(ordered, 0.99),
+    maxMs: ordered.at(-1) ?? 0,
+  }
+}
+
+function percentile(ordered: number[], ratio: number): number {
+  if (!ordered.length) return 0
+  return ordered[Math.min(ordered.length - 1, Math.floor(ordered.length * ratio))]
 }
 
 function finite(value: number): number {

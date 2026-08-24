@@ -85,8 +85,8 @@ Live2D 模型资源库与声线包分离，角色 = **模型 + 声线 + 性格�
 
 | 模型 | 说明 |
 |------|------|
-| Design_genius_White | 主看板娘（Alice），高自定义度 |
-| ariu / hiyori / mao / youxiaomiao / shirone | 多款风格可选 |
+| shirone | 当前默认主模型，重点适配表情、嘴部、头身与耳尾身体语言 |
+| Design_genius_White / ariu / hiyori / mao / youxiaomiao | 多款风格可选 |
 
 - 声线：`config/voices/` 下的声线包（如 Monika 定制声线，GPT-SoVITS v2Pro）
 - 角色卡：`config/characters/<id>/character.json` 是薄声明，**引用**系统级资源而非复制

@@ -15,6 +15,18 @@ export async function persistAndApplyWindowMode(
   windowMode: WindowMode,
   dependencies: WindowModeTransitionDependencies,
 ): Promise<void> {
+  const previousMode: WindowMode = settings.windowMode === 'pet' ? 'pet' : 'window'
   await dependencies.persist({ ...settings, windowMode })
-  await dependencies.setPetMode(windowMode === 'pet')
+  try {
+    await dependencies.setPetMode(windowMode === 'pet')
+  } catch (error) {
+    try {
+      await dependencies.persist({ ...settings, windowMode: previousMode })
+    } catch (rollbackError) {
+      const applyMessage = error instanceof Error ? error.message : String(error)
+      const rollbackMessage = rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
+      throw new Error(`${applyMessage}; settings rollback failed: ${rollbackMessage}`)
+    }
+    throw error
+  }
 }

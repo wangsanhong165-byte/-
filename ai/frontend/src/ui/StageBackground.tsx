@@ -10,7 +10,6 @@ export function StageBackground({ settings }: { settings: AppSettings }) {
     eventBus.emit('background:status', { state: 'loading' })
   }, [settings.backgroundUrl, settings.backgroundType])
 
-  if (settings.windowMode === 'pet' && !settings.backgroundShowInPetMode) return null
   if (settings.backgroundType === 'none' || !settings.backgroundUrl) return null
 
   const style = { opacity: settings.backgroundOpacity } as const

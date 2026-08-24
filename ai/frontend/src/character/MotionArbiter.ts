@@ -6,7 +6,16 @@ import type {
 import { sampleMotionCurve } from './performance/MotionCurve.ts'
 
 export type MotionSource = 'ai' | 'system' | 'pet' | 'idle'
-export type MotionChannel = 'head' | 'body' | 'gaze' | 'expression' | 'mouth' | 'full'
+export type MotionChannel =
+  | 'head'
+  | 'body'
+  | 'gaze'
+  | 'expression'
+  | 'mouth'
+  | 'arms'
+  | 'accessory'
+  | 'secondary'
+  | 'full'
 
 export interface MotionKeyframe { time: number; parameter: string; value: number }
 export interface SequenceStep { time: number; type: 'attention' | 'expression' | 'motion' | 'behavior'; value: string }
@@ -103,6 +112,7 @@ export class MotionArbiter {
   private releasing = new Map<string, ReleasingMotion>()
   private nativePlayer: NativeMotionPlayer | null = null
   private motionMap: Record<string, string> = {}
+  private nativeMotionChannels: Record<string, MotionChannel[]> = {}
   private nativeFrame: NativeMotionContribution[] = []
   private nativeFallbackReason = ''
   private readonly clock: () => number
@@ -122,10 +132,16 @@ export class MotionArbiter {
   setNativeMotionPlayer(
     player: NativeMotionPlayer | null,
     motionMap: Record<string, string> = {},
+    nativeMotionChannels: Record<string, MotionChannel[]> = {},
   ): void {
     this.stop()
     this.nativePlayer = player
     this.motionMap = motionMap
+    this.nativeMotionChannels = Object.fromEntries(
+      Object.entries(nativeMotionChannels).map(([name, channels]) => [
+        name.toLowerCase(), normalizeChannels(channels),
+      ]),
+    )
   }
 
   request(input: MotionRequest): boolean {
@@ -150,7 +166,9 @@ export class MotionArbiter {
       input.channels?.length
         ? input.channels
         : nativeAvailable
-          ? ['full']
+          ? this.nativeMotionChannels[name]
+            ?? this.nativeMotionChannels[nativeName.toLowerCase()]
+            ?? ['full']
           : inferChannels(preset!),
     )
     const request: ActiveMotion['request'] = {
@@ -462,6 +480,12 @@ function inferChannels(preset: MotionPreset): MotionChannel[] {
     else if (frame.parameter.startsWith('eye.')) channels.add('gaze')
     else if (frame.parameter.startsWith('mouth.')) channels.add('mouth')
     else if (frame.parameter.startsWith('blink.')) channels.add('expression')
+    else if (frame.parameter.startsWith('arm.') || frame.parameter.startsWith('hand.')) channels.add('arms')
+    else if (
+      frame.parameter.startsWith('ear.')
+      || frame.parameter.startsWith('hair.')
+      || frame.parameter.startsWith('accessory.')
+    ) channels.add('accessory')
     else channels.add('full')
   }
   return channels.size ? [...channels] : ['full']

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 from typing import Any, AsyncIterator
 
 from app.interfaces.llm import LLMInterface, LLMResponse, LLMUsage, ToolCall
@@ -19,6 +20,77 @@ from app.models.http_adapters import OpenAILLMAdapter
 # any visible text is produced. This is a ceiling, not a target — normal replies
 # stay far below it and are unaffected.
 _DEFAULT_MAX_TOKENS = 8192
+_STRUCTURED_OUTPUT_KEYS = frozenset({"segments", "final_reply", "tool_calls"})
+_PROTOCOL_OBJECT_START = re.compile(
+    r'\{\s*"(?:segments|final_reply|tool_calls)"\s*:',
+    re.IGNORECASE,
+)
+_FINAL_REPLY_FIELD = re.compile(r'"final_reply"\s*:\s*', re.IGNORECASE)
+
+
+def _extract_structured_output(content: str) -> dict[str, Any] | None:
+    """Find one protocol object without treating arbitrary inline JSON as a reply.
+
+    Some OpenAI-compatible models prepend the spoken answer or wrap the object in
+    a Markdown fence even when JSON mode was requested.  ``raw_decode`` lets us
+    recover that object without a greedy brace regex, which would break on braces
+    inside quoted segment text.
+    """
+    decoder = json.JSONDecoder()
+
+    def scan(value: str) -> dict[str, Any] | None:
+        for index, char in enumerate(value):
+            if char != "{":
+                continue
+            try:
+                decoded, _ = decoder.raw_decode(value[index:])
+            except (json.JSONDecodeError, ValueError):
+                continue
+            if (
+                isinstance(decoded, dict)
+                and _STRUCTURED_OUTPUT_KEYS.intersection(decoded)
+            ):
+                return decoded
+        return None
+
+    envelope = scan(content)
+    if envelope is not None:
+        return envelope
+
+    # Tolerate a provider that JSON-encodes the whole structured payload once
+    # more.  Keep this bounded to one unwrap so malformed input cannot recurse.
+    try:
+        decoded_content = json.loads(content)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
+    if isinstance(decoded_content, str):
+        return scan(decoded_content)
+    return None
+
+
+def _recover_spoken_text_from_malformed_output(content: str) -> str | None:
+    """Remove a recognizable but invalid protocol tail from spoken content."""
+    protocol_start = _PROTOCOL_OBJECT_START.search(content)
+    if protocol_start is None:
+        return None
+
+    protocol_text = content[protocol_start.start():]
+    decoder = json.JSONDecoder()
+    # final_reply is commonly still a valid JSON string even when a nested
+    # motionPlan is malformed.  Prefer the last field occurrence, which is the
+    # top-level field in the canonical output contract.
+    for match in reversed(list(_FINAL_REPLY_FIELD.finditer(protocol_text))):
+        try:
+            value, _ = decoder.raw_decode(protocol_text[match.end():].lstrip())
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    prefix = content[:protocol_start.start()].strip()
+    prefix = re.sub(r"^```(?:json)?\s*", "", prefix, count=1, flags=re.IGNORECASE)
+    prefix = re.sub(r"\s*```$", "", prefix, count=1)
+    return prefix.strip()
 
 
 class OpenAILLMProvider(LLMInterface):
@@ -50,6 +122,16 @@ class OpenAILLMProvider(LLMInterface):
     @property
     def model(self) -> str:
         return self._adapter.model
+
+    def diagnostics(self) -> dict[str, Any]:
+        """Expose the effective provider route without exposing credentials."""
+        return {
+            "status": "ready",
+            "engine": self._adapter.engine,
+            "model": self._adapter.model,
+            "base_url": self._adapter.base_url,
+            "api_key_configured": self._adapter.api_key_configured,
+        }
 
     async def generate(
         self,
@@ -112,30 +194,30 @@ class OpenAILLMProvider(LLMInterface):
         reply = content
         reasoning = str(result.get("reasoning", "") or "")
 
-        if content and content.strip().startswith("{"):
-            try:
-                inner = json.loads(content)
+        inner = _extract_structured_output(content) if content else None
+        if inner is not None:
+            # Once a protocol envelope is recognized, never retain its source as
+            # spoken text.  ResponseValidator can reconstruct a reply from valid
+            # segments when final_reply is absent.
+            inner_reply = inner.get("final_reply", "")
+            reply = inner_reply.strip() if isinstance(inner_reply, str) else ""
 
-                # Extract reply text
-                inner_reply = inner.get("final_reply", "")
-                if inner_reply:
-                    reply = inner_reply
+            inner_segments = inner.get("segments")
+            if isinstance(inner_segments, list):
+                segments = [item for item in inner_segments if isinstance(item, dict)]
 
-                # Extract segments
-                inner_segments = inner.get("segments")
-                if inner_segments is not None:
-                    segments = inner_segments
-
-                # Extract JSON-in-text tool_calls as fallback
-                inner_tool_calls = inner.get("tool_calls")
-                if inner_tool_calls and not tool_calls:
-                    tool_calls = [
-                        ToolCall(name=tc.get("name", ""), args=tc.get("args", {}))
-                        for tc in inner_tool_calls
-                    ]
-
-            except (json.JSONDecodeError, ValueError):
-                pass  # content is plain text, use as-is
+            # Extract JSON-in-text tool_calls as fallback.
+            inner_tool_calls = inner.get("tool_calls")
+            if isinstance(inner_tool_calls, list) and inner_tool_calls and not tool_calls:
+                tool_calls = [
+                    ToolCall(name=tc.get("name", ""), args=tc.get("args", {}))
+                    for tc in inner_tool_calls
+                    if isinstance(tc, dict)
+                ]
+        elif content:
+            recovered_reply = _recover_spoken_text_from_malformed_output(content)
+            if recovered_reply is not None:
+                reply = recovered_reply
 
         raw_usage = result.get("usage") or {}
         cached = raw_usage.get("cached_tokens", 0)

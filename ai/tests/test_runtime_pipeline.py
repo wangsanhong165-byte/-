@@ -3,10 +3,13 @@
 Run with: python -m unittest tests/test_runtime_pipeline.py
 """
 
+import asyncio
 import json
 import os
 import sys
+import time
 import unittest
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -34,7 +37,7 @@ from app.runtime.event import Event, EventType
 from app.runtime.pipeline import Pipeline, Step
 from app.runtime.character_turn import CharacterTurn, TurnInput, TurnOrigin
 from app.runtime.runtime import CharacterRuntime
-from app.runtime.initiative import InitiativeCandidate
+from app.runtime.initiative import InitiativeCandidate, InitiativeQueue
 
 
 def _turn_input(event: Event) -> TurnInput:
@@ -277,6 +280,75 @@ class TestCharacterRuntime(unittest.TestCase):
         import asyncio
 
         self.assertTrue(asyncio.run(scenario()))
+
+    def test_failed_initiative_turn_is_delivered_to_frontend_handler(self):
+        """A proactive failure must leave a visible lifecycle instead of vanishing."""
+
+        async def scenario():
+            delivered = []
+
+            async def on_proactive(turn):
+                delivered.append(turn)
+
+            failed = CharacterTurn(input=TurnInput(
+                text="主动问候",
+                origin=TurnOrigin.INITIATIVE,
+                metadata={"initiative": {"intent": "idle_chat"}},
+            ))
+            failed.fail("llm.request_failed", "provider rejected continuation")
+
+            async def fail_turn(_turn_input):
+                return failed
+
+            self.runtime.register_proactive_handler(on_proactive)
+            self.runtime.handle_turn = fail_turn
+            pending = InitiativeCandidate.create(
+                source="test",
+                topic="hello",
+                priority=1.0,
+                freshness=1.0,
+                ttl_seconds=10.0,
+                payload={
+                    "prompt": "主动问候",
+                    "initiative": {"intent": "idle_chat"},
+                },
+            )
+
+            await self.runtime._dispatch_initiative(pending)
+            return delivered
+
+        delivered = asyncio.run(scenario())
+        self.assertEqual(len(delivered), 1)
+        self.assertEqual(delivered[0].error.code, "llm.request_failed")
+
+    def test_initiative_prompt_uses_character_reply_language(self):
+        """A multilingual display name must not override reply_language."""
+        self.runtime._initiative_queue = InitiativeQueue()
+        self.runtime._initiative_cooldown = 0
+        self.runtime.initiative_checker = SimpleNamespace(
+            _last_interaction=time.time() - 120,
+        )
+        character = self.runtime._character_step.character
+        character._raw_card["reply_language"] = "zh"
+        character.persona._card["reply_language"] = "zh"
+        character.persona._card["name"] = {"zh": "Alice", "en": "Alice", "ja": "Alice"}
+
+        candidate = {
+            "type": "idle_chat",
+            "topic": "聊聊天",
+            "score": 1.0,
+        }
+        with (
+            patch("app.runtime.runtime.compute_candidates", return_value=[candidate]),
+            patch("app.runtime.runtime.decide_action", return_value=candidate),
+            patch(
+                "app.runtime.runtime.build_initiative_prompt",
+                return_value="主动聊聊天",
+            ) as build_prompt,
+        ):
+            self.runtime._on_initiative([])
+
+        self.assertEqual(build_prompt.call_args.kwargs["language"], "zh")
 
     def test_providers_available(self):
         """All expected providers should be initialized."""

@@ -11,6 +11,10 @@ const DEVELOPER_WORKSPACE_SOURCE = fs.readFileSync(
   path.join(__dirname, '..', 'src', 'ui', 'DeveloperWorkspace.tsx'),
   'utf8',
 )
+const PET_SURFACES_SOURCE = fs.readFileSync(
+  path.join(__dirname, '..', 'src', 'ui', 'PetSurfaces.tsx'),
+  'utf8',
+)
 
 function sourceBetween (start, end) {
   const afterStart = MAIN_SOURCE.split(start, 2)[1]
@@ -143,13 +147,124 @@ test('normal stage is opaque while pet mode recreates a transparent window', () 
   assert.match(createWindow, /backgroundColor: transparent \? '#00000000' : '#1a2030'/)
   assert.match(createWindow, /backgroundThrottling: false/)
   assert.match(modeSwitch, /transparent: targetPetMode/)
-  assert.match(modeSwitch, /replacement\.loadURL\(appUrl\)/)
+  assert.match(modeSwitch, /replacement\.loadURL\(targetPetMode \? withSurfaceQuery\(appUrl, 'pet-model'\) : appUrl\)/)
+  assert.match(modeSwitch, /conversation\?\.loadURL\(withSurfaceQuery\(appUrl, 'pet-conversation'\)\)/)
   assert.match(modeSwitch, /oldWindow\.destroy\(\)/)
   assert.match(modeSwitch, /petMode = !targetPetMode/)
 })
 
-test('pet mode uses a full-work-area window with passthrough controls', () => {
-  assert.match(MAIN_SOURCE, /replacement\.setSkipTaskbar\(true\)/)
-  assert.match(MAIN_SOURCE, /replacement\.setIgnoreMouseEvents\(true, \{ forward: true \}\)/)
-  assert.match(MAIN_SOURCE, /ipcMain\.on\('pet:setMousePassthrough'/)
+test('pet mode uses compact native surfaces without a display-sized passthrough overlay', () => {
+  const configurePetSurface = sourceBetween(
+    'function configurePetSurface(',
+    'async function recreateWindowForMode(',
+  )
+
+  assert.match(configurePetSurface, /window\.setSkipTaskbar\(true\)/)
+  assert.match(configurePetSurface, /window\.setAlwaysOnTop\(true\)/)
+  assert.match(MAIN_SOURCE, /getPetConversationBounds\(display\.workArea\)/)
+  assert.doesNotMatch(MAIN_SOURCE, /setIgnoreMouseEvents/)
+  assert.doesNotMatch(MAIN_SOURCE, /pet:setMousePassthrough/)
+})
+
+test('window mode IPC waits for the replacement window and reports failures', () => {
+  const modeSwitch = sourceBetween(
+    "ipcMain.handle('window:setPetMode'",
+    "ipcMain.on('pet:publishSnapshot'",
+  )
+  const recreate = sourceBetween(
+    'async function recreateWindowForMode(',
+    'async function loadAppUrl()',
+  )
+
+  assert.match(MAIN_SOURCE, /ipcMain\.handle\('window:setPetMode', async/)
+  assert.match(modeSwitch, /await recreateWindowForMode\(true, petBounds\)/)
+  assert.match(modeSwitch, /await recreateWindowForMode\(false, normalBounds\)/)
+  assert.match(recreate, /throw error/)
+})
+
+test('visible windows keep full-rate rendering while hidden or minimized windows may throttle', () => {
+  const createWindow = sourceBetween(
+    'function createWindow(',
+    'async function recreateWindowForMode(',
+  )
+
+  assert.match(createWindow, /window\.on\('minimize'.*setBackgroundThrottling\(true\)/s)
+  assert.match(createWindow, /window\.on\('hide'.*setBackgroundThrottling\(true\)/s)
+  assert.match(createWindow, /window\.on\('restore'.*setBackgroundThrottling\(false\)/s)
+  assert.match(createWindow, /window\.on\('show'.*setBackgroundThrottling\(false\)/s)
+  const blurHandler = createWindow.split("window.on('blur'", 2)[1]?.split('\n', 2)[0] ?? ''
+  assert.doesNotMatch(blurHandler, /setBackgroundThrottling/)
+})
+
+test('Electron exposes measured display and GPU diagnostics instead of assuming a frame cap', () => {
+  assert.match(MAIN_SOURCE, /SOULLINK_FORCE_HIGH_PERFORMANCE_GPU/)
+  assert.match(MAIN_SOURCE, /appendSwitch\('force_high_performance_gpu'\)/)
+  assert.match(MAIN_SOURCE, /ipcMain\.handle\('performance:getElectronDiagnostics'/)
+  assert.match(MAIN_SOURCE, /app\.getGPUInfo\('complete'\)/)
+  assert.match(MAIN_SOURCE, /app\.getGPUFeatureStatus\(\)/)
+  assert.match(MAIN_SOURCE, /displayFrequency/)
+  assert.match(MAIN_SOURCE, /getBackgroundThrottling\(\)/)
+})
+
+test('pet mode uses independent compact model and conversation renderer surfaces', () => {
+  assert.match(MAIN_SOURCE, /getPetConversationBounds/)
+  assert.match(MAIN_SOURCE, /petConversationWindow/)
+  assert.match(MAIN_SOURCE, /withSurfaceQuery\(appUrl, 'pet-model'\)/)
+  assert.match(MAIN_SOURCE, /withSurfaceQuery\(appUrl, 'pet-conversation'\)/)
+  assert.match(MAIN_SOURCE, /pet:publishSnapshot/)
+  assert.match(MAIN_SOURCE, /pet:command/)
+  assert.doesNotMatch(MAIN_SOURCE, /getPetBounds\(display\.workArea\).*setIgnoreMouseEvents\(true/s)
+})
+
+test('pet mode starts model-only and tray owns conversation and stage navigation', () => {
+  const traySource = sourceBetween(
+    '// ── System tray',
+    '// ── IPC handlers (window controls)',
+  )
+  const visibilityHandler = sourceBetween(
+    "ipcMain.on('pet:setConversationVisible'",
+    "ipcMain.on('pet:resizeModel'",
+  )
+  const modeSwitch = sourceBetween(
+    "ipcMain.handle('window:setPetMode'",
+    "ipcMain.on('pet:publishSnapshot'",
+  )
+
+  assert.match(MAIN_SOURCE, /let petConversationVisible = false/)
+  assert.match(modeSwitch, /petConversationVisible = false/)
+  assert.match(traySource, /showCompanionWindows/)
+  assert.match(traySource, /hideCompanionWindows/)
+  assert.match(traySource, /petConversationVisible \? '隐藏对话' : '打开对话'/)
+  assert.match(traySource, /label: '返回主界面'/)
+  assert.match(traySource, /refreshTrayMenu/)
+  assert.match(visibilityHandler, /petConversationVisible = Boolean\(visible\)/)
+  assert.match(visibilityHandler, /refreshTrayMenu\(\)/)
+})
+
+test('pet model surface is visually model-only and compact conversation only hides itself', () => {
+  const modelSurface = PET_SURFACES_SOURCE
+    .split('export function PetModelSurface', 2)[1]
+    .split('export function PetConversationSurface', 1)[0]
+  const conversationSurface = PET_SURFACES_SOURCE
+    .split('export function PetConversationSurface', 2)[1]
+
+  assert.ok(modelSurface)
+  assert.ok(conversationSurface)
+  assert.match(modelSurface, /<CharacterView \/>/)
+  assert.doesNotMatch(modelSurface, /pet-model-controls/)
+  assert.doesNotMatch(modelSurface, /setPetConversationVisible/)
+  assert.doesNotMatch(modelSurface, /onExit/)
+  assert.match(conversationSurface, /setPetConversationVisible\(false\)/)
+  assert.doesNotMatch(conversationSurface, /exit-pet/)
+})
+
+test('frameless dragging follows the sending compact window, not a global overlay', () => {
+  const dragHandler = sourceBetween(
+    "ipcMain.on('window:dragStart'",
+    "ipcMain.on('window:dragEnd'",
+  )
+
+  assert.match(dragHandler, /BrowserWindow\.fromWebContents\(event\.sender\)/)
+  assert.match(dragHandler, /dragWindow\.setBounds/)
+  assert.doesNotMatch(dragHandler, /mainWindow\.setBounds/)
 })

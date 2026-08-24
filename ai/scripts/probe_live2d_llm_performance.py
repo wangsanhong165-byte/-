@@ -36,6 +36,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--browser-executable")
     parser.add_argument("--expected-model", default="shirone")
     parser.add_argument("--device-scale-factor", type=float, default=1.0)
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--samples-output", type=Path)
+    parser.add_argument("--video-dir", type=Path)
     return parser.parse_args()
 
 
@@ -69,6 +72,8 @@ def read_snapshot(page: Any) -> dict[str, Any] | None:
             frame: value.frame || {},
             devicePixelRatio,
             subtitle: document.querySelector('.stage-subtitle p')?.textContent || '',
+            lastAssistant: Array.from(document.querySelectorAll('.message.assistant'))
+              .at(-1)?.textContent || '',
           }));
         }"""
     )
@@ -105,16 +110,27 @@ def main() -> int:
     speaking_first: float | None = None
     speaking_last: float | None = None
     completed_at: float | None = None
+    subtitle_first: float | None = None
+    subtitle_text = ""
+    assistant_text = ""
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
             headless=not args.headed,
             executable_path=resolve_browser_executable(args.browser_executable),
         )
-        page = browser.new_page(
-            viewport={"width": 1200, "height": 800},
-            device_scale_factor=args.device_scale_factor,
+        context_args: dict[str, Any] = {
+            "viewport": {"width": 1200, "height": 800},
+            "device_scale_factor": args.device_scale_factor,
+        }
+        if args.video_dir:
+            args.video_dir.mkdir(parents=True, exist_ok=True)
+            context_args["record_video_dir"] = str(args.video_dir)
+            context_args["record_video_size"] = {"width": 1200, "height": 800}
+        context = browser.new_context(
+            **context_args,
         )
+        page = context.new_page()
         page.goto(args.url, wait_until="networkidle")
         page.wait_for_selector("canvas", timeout=20_000)
         page.wait_for_function("() => Boolean(globalThis.__SOULLINK_RUNTIME_SNAPSHOT__)")
@@ -126,6 +142,8 @@ def main() -> int:
         )
         initial = read_snapshot(page) or {}
         initial_turn = str((initial.get("intentAudit") or {}).get("turnId") or "")
+        initial_subtitle = str(initial.get("subtitle") or "").strip()
+        initial_assistant = str(initial.get("lastAssistant") or "").strip()
 
         input_box.fill(args.prompt)
         page.get_by_label("发送").click()
@@ -143,6 +161,18 @@ def main() -> int:
                 last_at = float(sample.get("at") or 0.0)
                 turn_id = str((sample.get("intentAudit") or {}).get("turnId") or "")
                 turn_seen = turn_seen or bool(turn_id and turn_id != initial_turn)
+                current_subtitle = str(sample.get("subtitle") or "").strip()
+                if (
+                    turn_seen
+                    and current_subtitle
+                    and current_subtitle != initial_subtitle
+                    and subtitle_first is None
+                ):
+                    subtitle_first = sample["observedAt"]
+                    subtitle_text = current_subtitle
+                current_assistant = str(sample.get("lastAssistant") or "").strip()
+                if turn_seen and current_assistant and current_assistant != initial_assistant:
+                    assistant_text = current_assistant
                 if sample.get("activity") == "speaking":
                     speaking_first = speaking_first if speaking_first is not None else sample["observedAt"]
                     speaking_last = sample["observedAt"]
@@ -153,6 +183,7 @@ def main() -> int:
                         completed_at = sample["observedAt"]
                         break
             page.wait_for_timeout(50)
+        context.close()
         browser.close()
 
     turn_samples = [
@@ -189,6 +220,23 @@ def main() -> int:
         and float(sample["observedAt"]) < speaking_first - 0.15
         and active_ai_motion(sample)
     ]
+    performance_lag = (
+        performance_first - speaking_first
+        if performance_first is not None and speaking_first is not None
+        else None
+    )
+    protocol_tokens = (
+        '"segments"',
+        '"emotion"',
+        '"behavior"',
+        '"final_reply"',
+        '"motionPlan"',
+        '"tool_calls"',
+        '"naturalVAD"',
+        '"contextTags"',
+    )
+    subtitle_protocol_leak = any(token in subtitle_text for token in protocol_tokens)
+    assistant_protocol_leak = any(token in assistant_text for token in protocol_tokens)
     speaking_subtitles = {
         str(sample.get("subtitle") or "").strip()
         for sample in speaking
@@ -212,10 +260,18 @@ def main() -> int:
             round(performance_first, 3) if performance_first is not None else None
         ),
         "performanceLeadSeconds": (
-            round(performance_first - speaking_first, 3)
-            if performance_first is not None and speaking_first is not None
+            round(performance_lag, 3)
+            if performance_lag is not None
             else None
         ),
+        "subtitleVisibleAtSeconds": round(subtitle_first, 3) if subtitle_first is not None else None,
+        "subtitleBeforeSpeechSeconds": (
+            round(speaking_first - subtitle_first, 3)
+            if subtitle_first is not None and speaking_first is not None
+            else None
+        ),
+        "subtitleText": subtitle_text,
+        "assistantText": assistant_text,
         "completedAtSeconds": round(completed_at, 3) if completed_at is not None else None,
         "expressions": sorted(expressions),
         "maximumMouthOpen": round(max(mouth_values, default=0.0), 5),
@@ -234,8 +290,19 @@ def main() -> int:
         "correctBenchmarkModel": metrics["model"] == args.expected_model,
         "realTurnIntentObserved": len(turn_samples) >= 1,
         "decodedSpeechObserved": len(speaking) >= 4,
-        "performanceStartsWithSpeech": len(premature_motion) == 0,
+        "performanceStartsWithSpeech": (
+            len(premature_motion) == 0
+            and performance_lag is not None
+            and -0.15 <= performance_lag <= 0.25
+        ),
+        "wholeSubtitleVisibleBeforeSpeech": (
+            subtitle_first is not None
+            and speaking_first is not None
+            and subtitle_first <= speaking_first
+        ),
         "wholeSubtitleStableDuringSpeech": len(speaking_subtitles) == 1,
+        "noProtocolFieldsInSubtitle": bool(subtitle_text) and not subtitle_protocol_leak,
+        "noProtocolFieldsInChatBubble": bool(assistant_text) and not assistant_protocol_leak,
         "lipSyncVisible": metrics["maximumMouthOpen"] >= 0.04,
         "semanticMotionAccepted": len(accepted) >= 1,
         "bodyLanguageVisible": metrics["bodySpanDuringSpeaking"] >= 0.08,
@@ -243,7 +310,17 @@ def main() -> int:
         "turnCompleted": completed_at is not None,
     }
     result = {"metrics": metrics, "checks": checks, "ok": all(checks.values())}
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    rendered = json.dumps(result, ensure_ascii=False, indent=2)
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(rendered + "\n", encoding="utf-8")
+    if args.samples_output:
+        args.samples_output.parent.mkdir(parents=True, exist_ok=True)
+        args.samples_output.write_text(
+            json.dumps(samples, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    print(rendered)
     return 0 if result["ok"] else 1
 
 

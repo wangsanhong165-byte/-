@@ -33,7 +33,7 @@ class Live2DPresentationRegistry:
     consume only immutable capability snapshots through this interface.
     """
 
-    _PREFERRED_MODELS = ("Design_genius_White", "youxiaomiao", "ariu")
+    _PREFERRED_MODELS = ("shirone", "Design_genius_White", "youxiaomiao", "ariu")
 
     def __init__(self, base_dir: Path | str | None = None) -> None:
         self._base_dir = Path(

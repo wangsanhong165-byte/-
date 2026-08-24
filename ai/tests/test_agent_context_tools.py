@@ -123,7 +123,7 @@ def test_response_validator_clamps_and_replaces_invalid_presentation_fields():
     assert result.segments[0]["intensity"] == 0.0
 
 
-def test_planner_represents_initiative_as_system_event_not_user_message():
+def test_planner_keeps_initiative_payload_in_system_event_with_clean_turn_boundary():
     from app.runtime.steps.decision_step import DefaultPlanner
 
     ctx = CharacterTurn(input=TurnInput(
@@ -135,11 +135,19 @@ def test_planner_represents_initiative_as_system_event_not_user_message():
         "id": "monika", "name": {"en": "Monika"}, "character_setting": "Be natural."
     })
     messages = DefaultPlanner().plan(ctx).messages
-    assert not any(m["role"] == "user" for m in messages)
     assert any(
         m["role"] == "system" and "Trusted initiative event" in m["content"]
         for m in messages
     )
+    # DeepSeek thinking mode rejects a system-only tail after assistant history
+    # as an incomplete tool continuation.  The provider boundary is a fixed
+    # instruction only: it must not relabel or repeat the initiative payload as
+    # user speech, and DecisionStep never persists it into conversation history.
+    assert messages[-1] == {
+        "role": "user",
+        "content": "Respond naturally to the trusted initiative event above.",
+    }
+    assert "提醒喝水" not in messages[-1]["content"]
 
 
 def test_malformed_json_reply_is_not_forwarded_as_spoken_text():

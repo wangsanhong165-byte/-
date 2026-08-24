@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { AlertCircle, CheckCircle2, ExternalLink, FileImage, FolderOpen, Info, LoaderCircle, Palette, RotateCcw, Settings2, type LucideIcon } from 'lucide-react'
 import { theme } from '../core/theme'
 import type { AppSettings } from '../core/store'
-import { electronWindowBridge, type WallpaperResourceResult } from '../session/electron-window-bridge'
+import { electronWindowBridge, type ElectronPerformanceDiagnostics, type WallpaperResourceResult } from '../session/electron-window-bridge'
 import { eventBus, type EventMap } from '../core/event-bus'
 import {
   normalizeLive2DPerformanceSettings,
@@ -10,6 +10,15 @@ import {
   type Live2DPerformanceSettings,
 } from '../character/Live2DPerformanceSettings'
 import { Live2DActionStudio } from './Live2DActionStudio'
+import {
+  getLlmProviderKeys,
+  getVoiceKeys,
+  LLM_ENGINE_OPTIONS,
+  normalizeLlmEngine,
+  VOICE_SECTION_OPTIONS,
+  type LlmEngine,
+  type VoiceSectionId,
+} from './settings-config'
 
 export interface SettingsPanelProps {
   open: boolean
@@ -42,6 +51,7 @@ const CALIBRATION_CONTROLS = [
 ] as const
 
 type TabId = 'general' | 'appearance' | 'about'
+type GeneralSectionId = 'window' | 'interaction' | 'llm' | 'voice'
 
 interface TabDef {
   id: TabId
@@ -60,6 +70,17 @@ const TAB_LABELS: Record<TabId, string> = {
   appearance: '外观',
   about: '关于',
 }
+
+const GENERAL_SECTION_OPTIONS: ReadonlyArray<{
+  value: GeneralSectionId
+  label: string
+  description: string
+}> = [
+  { value: 'window', label: '窗口', description: '窗口模式与置顶' },
+  { value: 'interaction', label: '交互', description: '主动对话与语音输入' },
+  { value: 'llm', label: '语言模型', description: '引擎、模型与密钥' },
+  { value: 'voice', label: '语音服务', description: 'ASR、TTS 与 GSVI' },
+]
 
 const isElectron = electronWindowBridge.available
 
@@ -106,6 +127,7 @@ export function SettingsPanel({
                   onClick={() => setActiveTab(tab.id)}
                 >
                   <Icon style={styles.tabIcon} aria-hidden="true" />
+                  <span style={styles.tabLabel}>{TAB_LABELS[tab.id]}</span>
                 </button>
               )
             })}
@@ -310,9 +332,6 @@ function AppearanceTab({ settings, onSettingChange }: {
           step={0.05}
           onChange={value => onSettingChange('backgroundOpacity', value)}
         />
-        <SettingRow label="宠物模式显示背景" desc="开启后会取消桌面透明效果">
-          <Toggle checked={settings.backgroundShowInPetMode} onChange={value => onSettingChange('backgroundShowInPetMode', value)} />
-        </SettingRow>
         </div>
       </div>
 
@@ -328,157 +347,283 @@ function GeneralTab({ settings, onSettingChange }: {
   settings: AppSettings
   onSettingChange: (key: string, value: unknown) => void
 }) {
-  const [env, setEnv] = useState<Record<string, Record<string, string>>>({})
+  type EnvConfig = Record<string, Record<string, string>>
+  type EnvSaveState = 'loading' | 'pending' | 'saving' | 'saved' | 'error'
+
+  const [activeSection, setActiveSection] = useState<GeneralSectionId>('llm')
+  const [voiceSection, setVoiceSection] = useState<VoiceSectionId>('asr')
+  const [env, setEnv] = useState<EnvConfig>({})
+  const [envSaveState, setEnvSaveState] = useState<EnvSaveState>('loading')
+  const envLoadedRef = useRef(false)
+  const envDirtyVersionRef = useRef(0)
+
   useEffect(() => {
+    let disposed = false
     void fetch('/api/config/env')
       .then(r => r.ok ? r.json() : Promise.reject(new Error('env unavailable')))
       .then((body: { config?: Record<string, Record<string, string>> }) => {
-        if (body.config) setEnv(body.config)
+        if (!body.config) throw new Error('env config missing')
+        if (disposed) return
+        setEnv(body.config)
+        envLoadedRef.current = true
+        setEnvSaveState('saved')
       })
-      .catch(() => {})
+      .catch(() => {
+        if (!disposed) setEnvSaveState('error')
+      })
+    return () => { disposed = true }
   }, [])
 
+  useEffect(() => {
+    if (!envLoadedRef.current || envDirtyVersionRef.current === 0) return
+    const timer = setTimeout(() => {
+      const version = envDirtyVersionRef.current
+      setEnvSaveState('saving')
+      void fetch('/api/config/env', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config: env }),
+      })
+        .then(r => r.ok ? r.json() : Promise.reject(new Error('save failed')))
+        .then(() => {
+          if (version === envDirtyVersionRef.current) setEnvSaveState('saved')
+        })
+        .catch(() => {
+          if (version === envDirtyVersionRef.current) setEnvSaveState('error')
+        })
+    }, 350)
+    return () => clearTimeout(timer)
+  }, [env])
+
   const setEnvKey = (group: string, key: string, value: string) => {
+    envDirtyVersionRef.current += 1
     setEnv(prev => ({ ...prev, [group]: { ...(prev[group] || {}), [key]: value } }))
+    setEnvSaveState('pending')
   }
 
-  const saveEnv = () => {
-    void fetch('/api/config/env', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ config: env }),
-    })
-      .then(r => r.ok ? r.json() : Promise.reject(new Error('save failed')))
-      .then(() => alert('已保存。部分配置需重启生效。'))
-      .catch(() => alert('保存失败'))
-  }
+  const engine: LlmEngine = normalizeLlmEngine(env.llm?.LLM_ENGINE ?? '')
+  const engineLabel = LLM_ENGINE_OPTIONS.find(option => option.value === engine)?.label ?? engine
+  const llmFieldVisible = (key: string) => getLlmProviderKeys(engine).includes(key)
+  const voiceFieldVisible = (key: string) => getVoiceKeys(voiceSection).includes(key)
+  const envSaveLabel = envSaveState === 'loading'
+    ? '读取核心配置…'
+    : envSaveState === 'pending' || envSaveState === 'saving'
+      ? '自动保存中…'
+      : envSaveState === 'error'
+        ? '自动保存失败，请再次修改'
+        : '已自动保存'
 
   return (
     <div style={styles.tabContent}>
-
-      <div style={styles.settingGroup}>
-      <div style={styles.sectionLabel}>Window</div>
-
-      <SettingRow label="Window Mode" desc="Pet mode removes window frame">
-        <select
-          style={styles.select}
-          value={settings.windowMode}
-          onChange={(e) => onSettingChange('windowMode', e.target.value as 'window' | 'pet')}
-        >
-          <option value="window">Window</option>
-          <option value="pet">Pet</option>
-        </select>
-      </SettingRow>
-
-      <SettingRow label="Always on Top" desc={isElectron ? '' : 'Desktop app only'}>
-        <Toggle
-          checked={settings.alwaysOnTop}
-          disabled={!isElectron}
-          onChange={(v) => onSettingChange('alwaysOnTop', v)}
-        />
-      </SettingRow>
-
+      <div style={styles.settingsNav} role="tablist" aria-label="常规设置分类">
+        {GENERAL_SECTION_OPTIONS.map(option => (
+          <button
+            key={option.value}
+            type="button"
+            role="tab"
+            aria-selected={activeSection === option.value}
+            style={{
+              ...styles.settingsNavButton,
+              ...(activeSection === option.value ? styles.settingsNavButtonActive : {}),
+            }}
+            onClick={() => setActiveSection(option.value)}
+          >
+            <span style={styles.settingsNavLabel}>{option.label}</span>
+            <span style={styles.settingsNavDesc}>{option.description}</span>
+          </button>
+        ))}
       </div>
 
-      <div style={styles.settingGroup}>
-      <div style={styles.sectionLabel}>Interaction</div>
+      {activeSection === 'window' && (
+        <div style={styles.settingGroup}>
+          <div style={styles.sectionLabel}>窗口</div>
 
-      <SettingRow label="Proactive Mode" desc="AI initiates conversation">
-        <Toggle
-          checked={settings.proactive}
-          onChange={(v) => onSettingChange('proactive', v)}
-        />
-      </SettingRow>
-      {settings.proactive && (
-        <div style={styles.proactiveIdleRow}>
-          <span style={styles.proactiveIdleLabel}>Idle time:</span>
-          <input
-            type="number"
-            min="10"
-            max="3600"
-            step="10"
-            value={settings.proactiveIdleTime}
-            onChange={(e) => {
-              const v = parseInt(e.target.value, 10)
-              if (!isNaN(v) && v >= 10) onSettingChange('proactiveIdleTime', v)
-            }}
-            style={styles.numberInput}
-          />
+          <SettingRow label="窗口模式" desc="桌宠模式会移除窗口边框">
+            <select
+              style={styles.select}
+              value={settings.windowMode}
+              onChange={(e) => onSettingChange('windowMode', e.target.value as 'window' | 'pet')}
+            >
+              <option value="window">窗口</option>
+              <option value="pet">桌宠</option>
+            </select>
+          </SettingRow>
+
+          <SettingRow label="窗口置顶" desc={isElectron ? '始终显示在其他窗口上方' : '仅桌面版可用'}>
+            <Toggle
+              checked={settings.alwaysOnTop}
+              disabled={!isElectron}
+              onChange={(v) => onSettingChange('alwaysOnTop', v)}
+            />
+          </SettingRow>
         </div>
       )}
 
-      <SettingRow label="Voice Input" desc="Enable microphone for voice chat">
-        <Toggle
-          checked={settings.voiceInputEnabled}
-          onChange={(v) => onSettingChange('voiceInputEnabled', v)}
-        />
-      </SettingRow>
+      {activeSection === 'interaction' && (
+        <div style={styles.settingGroup}>
+          <div style={styles.sectionLabel}>交互</div>
 
-      </div>
+          <SettingRow label="主动对话" desc="让 AI 在空闲时主动发起对话">
+            <Toggle
+              checked={settings.proactive}
+              onChange={(v) => onSettingChange('proactive', v)}
+            />
+          </SettingRow>
+          {settings.proactive && (
+            <div style={styles.proactiveIdleRow}>
+              <span style={styles.proactiveIdleLabel}>空闲时间：</span>
+              <input
+                type="number"
+                min="10"
+                max="3600"
+                step="10"
+                value={settings.proactiveIdleTime}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value, 10)
+                  if (!isNaN(v) && v >= 10) onSettingChange('proactiveIdleTime', v)
+                }}
+                style={styles.numberInput}
+              />
+            </div>
+          )}
 
-      <div style={styles.settingGroup}>
-      <div style={styles.sectionLabel}>核心配置</div>
-      <div style={styles.sectionDesc}>保存到 config/.env；部分配置需重启生效。</div>
+          <SettingRow label="语音输入" desc="启用麦克风进行语音对话">
+            <Toggle
+              checked={settings.voiceInputEnabled}
+              onChange={(v) => onSettingChange('voiceInputEnabled', v)}
+            />
+          </SettingRow>
+        </div>
+      )}
 
-      <div style={styles.subSectionLabel}>LLM</div>
-      <EnvRow label="Engine" group="llm" keyName="LLM_ENGINE" value={env.llm?.LLM_ENGINE ?? ''} onChange={setEnvKey} options={['deepseek', 'openai', 'opencode', 'local']} />
-      <EnvRow label="Base URL" group="llm" keyName="LLM_BASE_URL" value={env.llm?.LLM_BASE_URL ?? ''} onChange={setEnvKey} />
-      <EnvRow label="Model" group="llm" keyName="LLM_MODEL" value={env.llm?.LLM_MODEL ?? ''} onChange={setEnvKey} />
-      <EnvRow label="DeepSeek API Key" group="llm" keyName="DEEPSEEK_API_KEY" value={env.llm?.DEEPSEEK_API_KEY ?? ''} onChange={setEnvKey} type="password" />
-      <EnvRow label="OpenAI API Key" group="llm" keyName="OPENAI_API_KEY" value={env.llm?.OPENAI_API_KEY ?? ''} onChange={setEnvKey} type="password" />
-      <EnvRow label="OpenAI Base URL" group="llm" keyName="OPENAI_BASE_URL" value={env.llm?.OPENAI_BASE_URL ?? ''} onChange={setEnvKey} />
-      <EnvRow label="OpenCode Base URL" group="llm" keyName="OPENCODE_BASE_URL" value={env.llm?.OPENCODE_BASE_URL ?? ''} onChange={setEnvKey} placeholder="http://127.0.0.1:4096/v1" />
-      <EnvRow label="OpenCode Model" group="llm" keyName="OPENCODE_MODEL" value={env.llm?.OPENCODE_MODEL ?? ''} onChange={setEnvKey} placeholder="opencode" />
-      <EnvRow label="OpenCode API Key" group="llm" keyName="OPENCODE_API_KEY" value={env.llm?.OPENCODE_API_KEY ?? ''} onChange={setEnvKey} type="password" placeholder="local" />
-      <EnvRow label="Temperature" group="llm" keyName="LLM_TEMPERATURE" value={env.llm?.LLM_TEMPERATURE ?? ''} onChange={setEnvKey} />
-      <EnvRow label="Reasoning Effort" group="llm" keyName="LLM_REASONING_EFFORT" value={env.llm?.LLM_REASONING_EFFORT ?? ''} onChange={setEnvKey} options={['low', 'medium', 'high']} />
-      <EnvRow label="Timeout (s)" group="llm" keyName="LLM_TIMEOUT_SECONDS" value={env.llm?.LLM_TIMEOUT_SECONDS ?? ''} onChange={setEnvKey} />
-      <EnvRow label="Max Output Tokens" group="llm" keyName="LLM_MAX_TOKENS" value={env.llm?.LLM_MAX_TOKENS ?? ''} onChange={setEnvKey} placeholder="8192" />
-      <EnvRow label="Empty Reply Fallback" group="llm" keyName="LLM_EMPTY_REPLY_FALLBACK" value={env.llm?.LLM_EMPTY_REPLY_FALLBACK ?? ''} onChange={setEnvKey} placeholder="我刚才走神了，能再跟我说一遍吗？" />
+      {activeSection === 'llm' && (
+        <div style={styles.settingGroup}>
+          <div style={styles.settingsGroupHeader}>
+            <div>
+              <div style={styles.sectionLabel}>语言模型</div>
+              <div style={styles.sectionDesc}>选择引擎后只显示该引擎需要的配置；修改会自动保存到 config/.env。</div>
+            </div>
+            <span style={styles.profileBadge}>{envSaveLabel}</span>
+          </div>
 
-      <div style={styles.subSectionLabel}>语音服务</div>
-      <EnvRow label="ASR Engine" group="asr" keyName="ASR_ENGINE" value={env.asr?.ASR_ENGINE ?? ''} onChange={setEnvKey} />
-      <EnvRow label="ASR Base URL" group="asr" keyName="ASR_BASE_URL" value={env.asr?.ASR_BASE_URL ?? ''} onChange={setEnvKey} />
-      <EnvRow label="ASR API Key" group="asr" keyName="ASR_API_KEY" value={env.asr?.ASR_API_KEY ?? ''} onChange={setEnvKey} type="password" />
-      <EnvRow label="TTS Engine" group="tts" keyName="TTS_ENGINE" value={env.tts?.TTS_ENGINE ?? ''} onChange={setEnvKey} />
-      <EnvRow label="TTS Base URL" group="tts" keyName="TTS_BASE_URL" value={env.tts?.TTS_BASE_URL ?? ''} onChange={setEnvKey} />
-      <EnvRow label="TTS API Key" group="tts" keyName="TTS_API_KEY" value={env.tts?.TTS_API_KEY ?? ''} onChange={setEnvKey} type="password" />
-      <EnvRow label="GSVI URL" group="gsvi" keyName="GSVI_URL" value={env.gsvi?.GSVI_URL ?? ''} onChange={setEnvKey} />
-      <EnvRow label="GSVI Text Lang" group="gsvi" keyName="GSVI_TEXT_LANG" value={env.gsvi?.GSVI_TEXT_LANG ?? ''} onChange={setEnvKey} />
-      <EnvRow label="GSVI Prompt Lang" group="gsvi" keyName="GSVI_PROMPT_LANG" value={env.gsvi?.GSVI_PROMPT_LANG ?? ''} onChange={setEnvKey} />
-      <EnvRow label="GSVI Speed" group="gsvi" keyName="GSVI_SPEED" value={env.gsvi?.GSVI_SPEED ?? ''} onChange={setEnvKey} />
-      <EnvRow label="GSVI Timeout (s)" group="gsvi" keyName="GSVI_TIMEOUT" value={env.gsvi?.GSVI_TIMEOUT ?? ''} onChange={setEnvKey} />
+          <EnvRow
+            label="当前引擎"
+            desc="切换后立即使用对应引擎配置"
+            group="llm"
+            keyName="LLM_ENGINE"
+            value={engine}
+            onChange={setEnvKey}
+            options={LLM_ENGINE_OPTIONS}
+          />
+          <div style={styles.engineSummary}>
+            <span style={styles.engineSummaryLabel}>{engineLabel}</span>
+            <span style={styles.engineSummaryDesc}>{LLM_ENGINE_OPTIONS.find(option => option.value === engine)?.description}</span>
+          </div>
 
-      <button
-        onClick={saveEnv}
-        style={styles.saveButton}
-      >
-        保存核心配置
-      </button>
-      </div>
+          {llmFieldVisible('LLM_BASE_URL') && (
+            <EnvRow label="Base URL" group="llm" keyName="LLM_BASE_URL" value={env.llm?.LLM_BASE_URL ?? ''} onChange={setEnvKey} />
+          )}
+          {llmFieldVisible('LLM_MODEL') && (
+            <EnvRow label="Model" group="llm" keyName="LLM_MODEL" value={env.llm?.LLM_MODEL ?? ''} onChange={setEnvKey} />
+          )}
+          {llmFieldVisible('DEEPSEEK_API_KEY') && (
+            <EnvRow label="DeepSeek API Key" group="llm" keyName="DEEPSEEK_API_KEY" value={env.llm?.DEEPSEEK_API_KEY ?? ''} onChange={setEnvKey} type="password" />
+          )}
+          {llmFieldVisible('OPENAI_API_KEY') && (
+            <EnvRow label="OpenAI API Key" group="llm" keyName="OPENAI_API_KEY" value={env.llm?.OPENAI_API_KEY ?? ''} onChange={setEnvKey} type="password" />
+          )}
+          {llmFieldVisible('OPENCODE_BASE_URL') && (
+            <EnvRow label="OpenCode Base URL" group="llm" keyName="OPENCODE_BASE_URL" value={env.llm?.OPENCODE_BASE_URL ?? ''} onChange={setEnvKey} placeholder="http://127.0.0.1:4096/v1" />
+          )}
+          {llmFieldVisible('OPENCODE_MODEL') && (
+            <EnvRow label="OpenCode Model" group="llm" keyName="OPENCODE_MODEL" value={env.llm?.OPENCODE_MODEL ?? ''} onChange={setEnvKey} placeholder="opencode" />
+          )}
+          {llmFieldVisible('OPENCODE_API_KEY') && (
+            <EnvRow label="OpenCode API Key" group="llm" keyName="OPENCODE_API_KEY" value={env.llm?.OPENCODE_API_KEY ?? ''} onChange={setEnvKey} type="password" placeholder="local" />
+          )}
+
+          <details style={styles.advancedDetails}>
+            <summary style={styles.advancedSummary}>通用生成参数</summary>
+            <div style={styles.advancedContent}>
+              <EnvRow label="Temperature" group="llm" keyName="LLM_TEMPERATURE" value={env.llm?.LLM_TEMPERATURE ?? ''} onChange={setEnvKey} />
+              <EnvRow label="Reasoning Effort" group="llm" keyName="LLM_REASONING_EFFORT" value={env.llm?.LLM_REASONING_EFFORT ?? ''} onChange={setEnvKey} options={['low', 'medium', 'high']} />
+              <EnvRow label="Timeout (s)" group="llm" keyName="LLM_TIMEOUT_SECONDS" value={env.llm?.LLM_TIMEOUT_SECONDS ?? ''} onChange={setEnvKey} />
+              <EnvRow label="Max Output Tokens" group="llm" keyName="LLM_MAX_TOKENS" value={env.llm?.LLM_MAX_TOKENS ?? ''} onChange={setEnvKey} placeholder="8192" />
+              <EnvRow label="Empty Reply Fallback" group="llm" keyName="LLM_EMPTY_REPLY_FALLBACK" value={env.llm?.LLM_EMPTY_REPLY_FALLBACK ?? ''} onChange={setEnvKey} placeholder="我刚才走神了，能再跟我说一遍吗？" />
+            </div>
+          </details>
+        </div>
+      )}
+
+      {activeSection === 'voice' && (
+        <div style={styles.settingGroup}>
+          <div style={styles.settingsGroupHeader}>
+            <div>
+              <div style={styles.sectionLabel}>语音服务</div>
+              <div style={styles.sectionDesc}>选择服务后只显示该服务需要的配置；修改会自动保存到 config/.env。</div>
+            </div>
+            <span style={styles.profileBadge}>{envSaveLabel}</span>
+          </div>
+          <div style={styles.inlineNav} role="tablist" aria-label="语音服务分类">
+            {VOICE_SECTION_OPTIONS.map(option => (
+              <button
+                key={option.value}
+                type="button"
+                role="tab"
+                aria-selected={voiceSection === option.value}
+                style={{
+                  ...styles.inlineNavButton,
+                  ...(voiceSection === option.value ? styles.inlineNavButtonActive : {}),
+                }}
+                onClick={() => setVoiceSection(option.value)}
+              >
+                <span>{option.label}</span>
+                <small>{option.description}</small>
+              </button>
+            ))}
+          </div>
+
+          {voiceFieldVisible('ASR_ENGINE') && <EnvRow label="ASR Engine" group="asr" keyName="ASR_ENGINE" value={env.asr?.ASR_ENGINE ?? ''} onChange={setEnvKey} />}
+          {voiceFieldVisible('ASR_BASE_URL') && <EnvRow label="ASR Base URL" group="asr" keyName="ASR_BASE_URL" value={env.asr?.ASR_BASE_URL ?? ''} onChange={setEnvKey} />}
+          {voiceFieldVisible('ASR_API_KEY') && <EnvRow label="ASR API Key" group="asr" keyName="ASR_API_KEY" value={env.asr?.ASR_API_KEY ?? ''} onChange={setEnvKey} type="password" />}
+          {voiceFieldVisible('TTS_ENGINE') && <EnvRow label="TTS Engine" group="tts" keyName="TTS_ENGINE" value={env.tts?.TTS_ENGINE ?? ''} onChange={setEnvKey} />}
+          {voiceFieldVisible('TTS_BASE_URL') && <EnvRow label="TTS Base URL" group="tts" keyName="TTS_BASE_URL" value={env.tts?.TTS_BASE_URL ?? ''} onChange={setEnvKey} />}
+          {voiceFieldVisible('TTS_API_KEY') && <EnvRow label="TTS API Key" group="tts" keyName="TTS_API_KEY" value={env.tts?.TTS_API_KEY ?? ''} onChange={setEnvKey} type="password" />}
+          {voiceFieldVisible('GSVI_URL') && <EnvRow label="GSVI URL" group="gsvi" keyName="GSVI_URL" value={env.gsvi?.GSVI_URL ?? ''} onChange={setEnvKey} />}
+          {voiceFieldVisible('GSVI_TEXT_LANG') && <EnvRow label="GSVI Text Lang" group="gsvi" keyName="GSVI_TEXT_LANG" value={env.gsvi?.GSVI_TEXT_LANG ?? ''} onChange={setEnvKey} />}
+          {voiceFieldVisible('GSVI_PROMPT_LANG') && <EnvRow label="GSVI Prompt Lang" group="gsvi" keyName="GSVI_PROMPT_LANG" value={env.gsvi?.GSVI_PROMPT_LANG ?? ''} onChange={setEnvKey} />}
+          {voiceFieldVisible('GSVI_SPEED') && <EnvRow label="GSVI Speed" group="gsvi" keyName="GSVI_SPEED" value={env.gsvi?.GSVI_SPEED ?? ''} onChange={setEnvKey} />}
+          {voiceFieldVisible('GSVI_TIMEOUT') && <EnvRow label="GSVI Timeout (s)" group="gsvi" keyName="GSVI_TIMEOUT" value={env.gsvi?.GSVI_TIMEOUT ?? ''} onChange={setEnvKey} />}
+        </div>
+      )}
     </div>
   )
 }
 
-function EnvRow({ label, group, keyName, value, onChange, options, type, placeholder }: {
+function EnvRow({ label, desc, group, keyName, value, onChange, options, type, placeholder }: {
   label: string
+  desc?: string
   group: string
   keyName: string
   value: string
   onChange: (group: string, key: string, value: string) => void
-  options?: string[]
+  options?: ReadonlyArray<string | { value: string; label: string }>
   type?: string
   placeholder?: string
 }) {
   return (
-    <SettingRow label={label}>
+    <SettingRow label={label} desc={desc}>
       {options ? (
         <select
           style={styles.select}
           value={value}
           onChange={(e) => onChange(group, keyName, e.target.value)}
         >
-          {options.map((o) => <option key={o} value={o}>{o}</option>)}
+          {options.map((option) => {
+            const optionValue = typeof option === 'string' ? option : option.value
+            const optionLabel = typeof option === 'string' ? option : option.label
+            return <option key={optionValue} value={optionValue}>{optionLabel}</option>
+          })}
         </select>
       ) : (
         <input
@@ -809,8 +954,20 @@ function Live2DRuntimeMonitor({ model }: { model: string }) {
   const [probeValue, setProbeValue] = useState(0)
   const [partProbeId, setPartProbeId] = useState('')
   const [partProbeOpacity, setPartProbeOpacity] = useState(1)
+  const [renderEnvironment, setRenderEnvironment] = useState<EventMap['character:render_environment'] | null>(null)
+  const [electronDiagnostics, setElectronDiagnostics] = useState<ElectronPerformanceDiagnostics | null>(null)
+
+  const refreshEnvironment = () => {
+    eventBus.emit('character:render_environment_request', undefined)
+    void electronWindowBridge.getPerformanceDiagnostics().then(setElectronDiagnostics)
+  }
 
   useEffect(() => eventBus.on('character:performance_debug', setSnapshot), [])
+  useEffect(() => {
+    const dispose = eventBus.on('character:render_environment', setRenderEnvironment)
+    refreshEnvironment()
+    return dispose
+  }, [])
   useEffect(() => {
     const dispose = eventBus.on('character:model_capability', next => {
       if (next.model === model) setCapability(next)
@@ -840,6 +997,24 @@ function Live2DRuntimeMonitor({ model }: { model: string }) {
     target?: { x?: number; y?: number }
     torsoVelocity?: { x?: number; y?: number }
   } | undefined
+  const display = electronDiagnostics?.display
+  const windowDiagnostics = electronDiagnostics?.window
+  const refreshBudgetMs = display?.displayFrequency ? 1000 / display.displayFrequency : 0
+  const acceptanceFloorFps = 110
+  const pacingHealthy = frame ? fps >= acceptanceFloorFps : false
+  const activeGpu = (() => {
+    const info = electronDiagnostics?.gpuInfo as {
+      gpuDevice?: Array<Record<string, unknown>>
+      auxAttributes?: Record<string, unknown>
+    } | null | undefined
+    const devices = info?.gpuDevice ?? []
+    const active = devices.find(device => device.active === true) ?? devices[0]
+    const name = info?.auxAttributes?.glRenderer
+      ?? active?.deviceString
+      ?? active?.driverVendor
+      ?? renderEnvironment?.webglRenderer
+    return name ? String(name) : '—'
+  })()
   const formatControl = (x: number | undefined, y: number | undefined) => (
     x === undefined && y === undefined ? '—' : `${(x ?? 0).toFixed(2)} / ${(y ?? 0).toFixed(2)}`
   )
@@ -851,22 +1026,39 @@ function Live2DRuntimeMonitor({ model }: { model: string }) {
           <div style={styles.cardTitle}>实时表现监控</div>
           <div style={styles.cardDesc}>逐帧采样控制、物理与渲染；界面以 4 Hz 汇总，不干扰动画循环。</div>
         </div>
-        <span style={{ ...styles.profileBadge, color: frame && frame.longFrameCount === 0 ? '#77d6a0' : theme.colors.accent }}>
+        <span style={{ ...styles.profileBadge, color: pacingHealthy ? '#77d6a0' : theme.colors.accent }}>
           {frame ? `${fps.toFixed(0)} FPS` : '等待模型'}
         </span>
+        <button type="button" style={styles.calibrationButton} onClick={refreshEnvironment}>刷新硬件数据</button>
       </div>
       <div style={styles.metricGrid}>
+        <RuntimeMetric label="显示器刷新率" value={display?.displayFrequency ? `${display.displayFrequency} Hz` : '浏览器模式'} />
+        <RuntimeMetric label="刷新预算" value={refreshBudgetMs ? `${refreshBudgetMs.toFixed(2)} ms` : '—'} />
+        <RuntimeMetric label="110 FPS 验收线" value={frame ? (fps >= acceptanceFloorFps ? '达到' : '未达到') : '—'} />
+        <RuntimeMetric label="显示刷新预算" value={frame && refreshBudgetMs ? (frame.p95IntervalMs <= refreshBudgetMs ? 'P95 达到' : 'P95 未达到') : '—'} />
         <RuntimeMetric label="帧间隔 P95" value={frame ? `${frame.p95IntervalMs.toFixed(1)} ms` : '—'} />
-        <RuntimeMetric label="单帧工作" value={frame ? `${frame.workMs.toFixed(1)} ms` : '—'} />
-        <RuntimeMetric label="控制 / 物理" value={frame ? `${frame.controllerMs.toFixed(1)} / ${frame.modelMs.toFixed(1)} ms` : '—'} />
-        <RuntimeMetric label="渲染" value={frame ? `${frame.renderMs.toFixed(1)} ms` : '—'} />
+        <RuntimeMetric label="帧间隔 P99" value={frame ? `${frame.p99IntervalMs.toFixed(1)} ms` : '—'} />
+        <RuntimeMetric label="单帧工作 P95 / P99" value={frame ? `${frame.phases.work.p95Ms.toFixed(1)} / ${frame.phases.work.p99Ms.toFixed(1)} ms` : '—'} />
+        <RuntimeMetric label="控制 P95 / 物理 P95" value={frame ? `${frame.phases.controller.p95Ms.toFixed(1)} / ${frame.phases.model.p95Ms.toFixed(1)} ms` : '—'} />
+        <RuntimeMetric label="提交渲染 P95 / P99" value={frame ? `${frame.phases.render.p95Ms.toFixed(1)} / ${frame.phases.render.p99Ms.toFixed(1)} ms` : '—'} />
         <RuntimeMetric label="长帧 (>33ms)" value={frame ? String(frame.longFrameCount) : '—'} />
+        <RuntimeMetric label="Live2D 画布" value={renderEnvironment ? `${renderEnvironment.cssWidth}×${renderEnvironment.cssHeight} → ${renderEnvironment.pixelWidth}×${renderEnvironment.pixelHeight}` : '—'} />
+        <RuntimeMetric label="渲染 DPR" value={renderEnvironment ? renderEnvironment.renderDpr.toFixed(2) : '—'} />
         <RuntimeMetric label="参数覆盖" value={snapshot ? `${coverage.toFixed(0)}%` : '—'} />
         <RuntimeMetric label="参数冲突" value={snapshot ? String(contested) : '—'} />
         <RuntimeMetric label="模型参数" value={capability ? String(capability.parameters.length) : '—'} />
         <RuntimeMetric label="模型部件" value={capability ? String(capability.parts.length) : '—'} />
       </div>
       <div style={styles.runtimeLine}>
+        <span>WebGL：{renderEnvironment?.webglRenderer || '—'}</span>
+        <span>Electron GPU：{activeGpu}</span>
+        <span>硬件加速：{electronDiagnostics
+          ? (electronDiagnostics.hardwareAccelerationEnabled === null ? 'Electron 31 未提供总开关状态' : (electronDiagnostics.hardwareAccelerationEnabled ? '开启' : '关闭'))
+          : '—'}</span>
+        <span>WebGL 状态：{electronDiagnostics?.gpuFeatureStatus.webgl || '—'}</span>
+        <span>GPU 合成：{electronDiagnostics?.gpuFeatureStatus.gpu_compositing || '—'}</span>
+        <span>高性能 GPU 开关：{electronDiagnostics ? (electronDiagnostics.forceHighPerformanceGpu ? '开启' : '关闭') : '—'}</span>
+        <span>后台节流：{windowDiagnostics ? (windowDiagnostics.backgroundThrottling ? '允许' : '禁用') : '—'}</span>
         <span>动作：{motion}</span>
         <span>占用通道：{snapshot?.activeChannels.join(', ') || '无'}</span>
         <span>表情：{snapshot?.expression.name || 'neutral'}</span>
@@ -1161,17 +1353,18 @@ const styles: Record<string, React.CSSProperties> = {
 
   // ── Tab bar (left sidebar) ──
   tabBar: {
-    width: 44, flexShrink: 0, display: 'flex', flexDirection: 'column',
+    width: 96, flexShrink: 0, display: 'flex', flexDirection: 'column',
     padding: `${theme.spacing.sm}px 0`, gap: 2,
     borderRight: `1px solid ${theme.colors.border}`,
     backgroundColor: theme.colors.bg.surface,
   },
   tabBtn: {
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    width: '100%', minHeight: 40, padding: '8px 0', border: 'none', cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 8,
+    width: '100%', minHeight: 40, padding: '8px 10px', border: 'none', cursor: 'pointer',
     color: theme.colors.text.secondary, transition: 'background-color 0.1s',
   },
   tabIcon: { width: 17, height: 17, flexShrink: 0 },
+  tabLabel: { fontSize: theme.fontSize.xs, fontWeight: theme.fontWeight.medium },
 
   // ── Content area ──
   content: {
@@ -1187,6 +1380,44 @@ const styles: Record<string, React.CSSProperties> = {
     border: `1px solid ${theme.colors.border}`, borderRadius: theme.radius.lg,
     backgroundColor: theme.colors.bg.panel, overflow: 'hidden',
   },
+  settingsNav: {
+    display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: theme.spacing.xs,
+  },
+  settingsNavButton: {
+    display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2,
+    minWidth: 0, padding: `${theme.spacing.sm}px ${theme.spacing.md}px`,
+    border: `1px solid ${theme.colors.border}`, borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.bg.panel, color: theme.colors.text.secondary,
+    textAlign: 'left' as const, cursor: 'pointer',
+  },
+  settingsNavButtonActive: {
+    borderColor: theme.colors.accent, backgroundColor: 'rgba(217, 119, 87, 0.10)',
+    color: theme.colors.text.primary,
+  },
+  settingsNavLabel: { fontSize: theme.fontSize.sm, fontWeight: theme.fontWeight.medium },
+  settingsNavDesc: { fontSize: theme.fontSize.xs, color: theme.colors.text.muted, whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' },
+  settingsGroupHeader: {
+    display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: theme.spacing.md,
+  },
+  engineSummary: {
+    display: 'flex', alignItems: 'baseline', gap: theme.spacing.sm,
+    margin: `${theme.spacing.xs}px 0`, padding: `${theme.spacing.xs}px ${theme.spacing.sm}px`,
+    borderRadius: theme.radius.sm, backgroundColor: theme.colors.bg.surface,
+  },
+  engineSummaryLabel: { color: theme.colors.text.primary, fontSize: theme.fontSize.xs, fontWeight: theme.fontWeight.medium },
+  engineSummaryDesc: { color: theme.colors.text.muted, fontSize: theme.fontSize.xs },
+  advancedDetails: { marginTop: theme.spacing.sm, borderTop: `1px solid ${theme.colors.border}`, paddingTop: theme.spacing.sm },
+  advancedSummary: { cursor: 'pointer', color: theme.colors.text.secondary, fontSize: theme.fontSize.xs, fontWeight: theme.fontWeight.medium },
+  advancedContent: { marginTop: theme.spacing.xs },
+  inlineNav: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: theme.spacing.xs, margin: `${theme.spacing.sm}px 0` },
+  inlineNavButton: {
+    display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2,
+    minWidth: 0, padding: `${theme.spacing.xs}px ${theme.spacing.sm}px`,
+    border: `1px solid ${theme.colors.border}`, borderRadius: theme.radius.sm,
+    backgroundColor: theme.colors.bg.surface, color: theme.colors.text.secondary,
+    textAlign: 'left' as const, cursor: 'pointer', fontSize: theme.fontSize.xs,
+  },
+  inlineNavButtonActive: { borderColor: theme.colors.accent, color: theme.colors.text.primary },
 
   // ── Section labels ──
   sectionLabel: {

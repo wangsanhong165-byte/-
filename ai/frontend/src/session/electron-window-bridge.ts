@@ -1,3 +1,23 @@
+import type { RecorderState } from '../audio/recorder'
+import type { AppSettings } from '../core/store'
+import type { AiActivity, ChatMessage, ConnectionState } from '../core/types'
+
+export interface PetConversationSnapshot {
+  messages: ChatMessage[]
+  activity: AiActivity
+  connection: ConnectionState
+  statusMessage: string
+  ttsActive: boolean
+  settings: Pick<AppSettings, 'voiceInputEnabled' | 'windowMode'>
+  recorderState: RecorderState
+  recordingSupported: boolean
+}
+
+export type PetSurfaceCommand =
+  | { type: 'send'; text: string }
+  | { type: 'interrupt' }
+  | { type: 'toggle-recording' }
+
 declare global {
   interface Window {
     electronAPI?: {
@@ -8,10 +28,17 @@ declare global {
       close: () => void
       setAlwaysOnTop: (value: boolean) => void
       setPetMode: (enabled: boolean) => void | Promise<unknown>
-      setPetMousePassthrough: (passthrough: boolean) => void
       startWindowDrag: () => void
       endWindowDrag: () => void
+      publishPetSnapshot?: (snapshot: PetConversationSnapshot) => void
+      getPetSnapshot?: () => Promise<PetConversationSnapshot | null>
+      sendPetCommand?: (command: PetSurfaceCommand) => void
+      setPetConversationVisible?: (visible: boolean) => void
+      resizePetModel?: (scaleFactor: number) => void
+      onPetSnapshot?: (callback: (snapshot: PetConversationSnapshot) => void) => () => void
+      onPetCommand?: (callback: (command: PetSurfaceCommand) => void) => () => void
       getSettings: () => Record<string, unknown>
+      getElectronPerformanceDiagnostics?: () => Promise<ElectronPerformanceDiagnostics>
       onPetExitRequest?: (callback: () => void) => () => void
       selectCharacterAsset?: (kind: string) => Promise<string>
       selectWallpaper?: (mode: 'file' | 'directory') => Promise<WallpaperResourceResult>
@@ -23,6 +50,31 @@ declare global {
       }) => void) => () => void
     }
   }
+}
+
+export interface ElectronPerformanceDiagnostics {
+  capturedAt: string
+  forceHighPerformanceGpu: boolean
+  hardwareAccelerationEnabled: boolean | null
+  gpuFeatureStatus: Record<string, string>
+  gpuInfo: Record<string, unknown> | null
+  gpuInfoError: string | null
+  display: {
+    id: number
+    label: string
+    displayFrequency: number
+    scaleFactor: number
+    size: { width: number; height: number }
+    workArea: { x: number; y: number; width: number; height: number }
+  } | null
+  window: {
+    visible: boolean
+    minimized: boolean
+    focused: boolean
+    petMode: boolean
+    bounds: { x: number; y: number; width: number; height: number }
+    backgroundThrottling: boolean
+  } | null
 }
 
 export interface WallpaperResourceResult {
@@ -49,10 +101,20 @@ export class ElectronWindowBridge {
   close() { return window.electronAPI?.close?.() }
   setAlwaysOnTop(value: boolean) { return window.electronAPI?.setAlwaysOnTop?.(value) }
   setPetMode(value: boolean) { return window.electronAPI?.setPetMode?.(value) }
-  setPetMousePassthrough(value: boolean) { return window.electronAPI?.setPetMousePassthrough?.(value) }
   onPetExitRequest(callback: () => void) { return window.electronAPI?.onPetExitRequest?.(callback) ?? (() => {}) }
   startWindowDrag() { return window.electronAPI?.startWindowDrag?.() }
   endWindowDrag() { return window.electronAPI?.endWindowDrag?.() }
+  publishPetSnapshot(snapshot: PetConversationSnapshot) { return window.electronAPI?.publishPetSnapshot?.(snapshot) }
+  getPetSnapshot() { return window.electronAPI?.getPetSnapshot?.() ?? Promise.resolve(null) }
+  sendPetCommand(command: PetSurfaceCommand) { return window.electronAPI?.sendPetCommand?.(command) }
+  setPetConversationVisible(visible: boolean) { return window.electronAPI?.setPetConversationVisible?.(visible) }
+  resizePetModel(scaleFactor: number) { return window.electronAPI?.resizePetModel?.(scaleFactor) }
+  onPetSnapshot(callback: (snapshot: PetConversationSnapshot) => void) {
+    return window.electronAPI?.onPetSnapshot?.(callback) ?? (() => {})
+  }
+  onPetCommand(callback: (command: PetSurfaceCommand) => void) {
+    return window.electronAPI?.onPetCommand?.(callback) ?? (() => {})
+  }
   selectWallpaper(mode: 'file' | 'directory') {
     return window.electronAPI?.selectWallpaper?.(mode) ?? Promise.resolve({ ok: false, code: 'unavailable' })
   }
@@ -61,6 +123,9 @@ export class ElectronWindowBridge {
   }
   getStatus() {
     return window.electronAPI?.getStatus?.() ?? Promise.resolve({ ready: false, services: [] })
+  }
+  getPerformanceDiagnostics() {
+    return window.electronAPI?.getElectronPerformanceDiagnostics?.() ?? Promise.resolve(null)
   }
 }
 

@@ -15,6 +15,7 @@ Search strategy (two-tier, same as openhanako v2):
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import threading
 import re
@@ -97,9 +98,17 @@ class MemoryStore:
     """SQLite+FTS5 memory store. Drop-in replacement for JSONL-based store."""
 
     def __init__(self, base_dir: Optional[Path] = None):
-        base = base_dir or Path(__file__).resolve().parents[2]
-        base.mkdir(parents=True, exist_ok=True)
-        db_path = base / "data" / "memory" / "memory.db"
+        configured_path = os.environ.get("MEMORY_DB_PATH", "").strip()
+        if base_dir is not None:
+            base = Path(base_dir)
+            base.mkdir(parents=True, exist_ok=True)
+            db_path = base / "data" / "memory" / "memory.db"
+        elif configured_path:
+            db_path = Path(configured_path).expanduser()
+        else:
+            base = Path(__file__).resolve().parents[2]
+            base.mkdir(parents=True, exist_ok=True)
+            db_path = base / "data" / "memory" / "memory.db"
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self._db_path = str(db_path)
         self._local = threading.local()
@@ -853,12 +862,35 @@ class MemoryStore:
 
     def delete_history(self, history_uid: str, *, character_id: str = "") -> int:
         conn = self._get_conn()
-        cur = conn.execute(
-            "DELETE FROM logs WHERE history_uid = ? AND (? = '' OR character_id = ?)",
-            (history_uid, character_id, character_id),
-        )
-        conn.commit()
-        return cur.rowcount
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            commit_keys = conn.execute(
+                "SELECT DISTINCT character_id, turn_id, write_token FROM logs "
+                "WHERE history_uid = ? AND (? = '' OR character_id = ?) "
+                "AND turn_id IS NOT NULL AND turn_id != '' "
+                "AND write_token IS NOT NULL AND write_token != ''",
+                (history_uid, character_id, character_id),
+            ).fetchall()
+            cur = conn.execute(
+                "DELETE FROM logs WHERE history_uid = ? AND (? = '' OR character_id = ?)",
+                (history_uid, character_id, character_id),
+            )
+            for row in commit_keys:
+                key = (row["character_id"], row["turn_id"], row["write_token"])
+                conn.execute(
+                    "DELETE FROM turn_commits "
+                    "WHERE character_id = ? AND turn_id = ? AND write_token = ? "
+                    "AND NOT EXISTS ("
+                    "SELECT 1 FROM logs "
+                    "WHERE character_id = ? AND turn_id = ? AND write_token = ?"
+                    ")",
+                    key + key,
+                )
+            conn.commit()
+            return cur.rowcount
+        except Exception:
+            conn.rollback()
+            raise
 
     def recent_turns(self, n: int = 10, character_id: str = "") -> list[dict]:
         conn = self._get_conn()

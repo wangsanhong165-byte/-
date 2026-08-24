@@ -54,3 +54,15 @@ test('ignores malformed or non-finite persisted values', () => {
   )
   assert.equal(readPersistedViewport(storage, 'model-b'), undefined)
 })
+
+test('keeps stage and pet viewport transforms in separate namespaces', () => {
+  const storage = createStorage()
+
+  savePersistedViewport(storage, 'shirone', { x: 0.2, y: -0.1, scale: 1.25 }, 'stage')
+  savePersistedViewport(storage, 'shirone', { x: 0, y: 0.15, scale: 0.72 }, 'pet')
+
+  assert.equal(getViewportStorageKey('shirone', 'stage'), 'live2d_viewport_shirone')
+  assert.equal(getViewportStorageKey('shirone', 'pet'), 'live2d_viewport_pet_shirone')
+  assert.deepEqual(readPersistedViewport(storage, 'shirone', 'stage'), { x: 0.2, y: -0.1, scale: 1.25 })
+  assert.deepEqual(readPersistedViewport(storage, 'shirone', 'pet'), { x: 0, y: 0.15, scale: 0.72 })
+})

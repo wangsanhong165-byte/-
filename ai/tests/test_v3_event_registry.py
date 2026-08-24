@@ -194,10 +194,10 @@ def test_current_v3_emitter_only_emits_registered_events() -> None:
         "turn.started",
         "assistant.text.started",
         "assistant.text.completed",
+        "character.intent",
         "tts.started",
         "tts.audio",
         "tts.completed",
-        "character.intent",
         "turn.completed",
         "runtime.status",
     ]

@@ -17,6 +17,17 @@ export interface FrameworkRendererState {
   canvasHeight: number
 }
 
+export interface Live2DRenderEnvironment {
+  webglVendor: string
+  webglRenderer: string
+  webglVersion: string
+  cssWidth: number
+  cssHeight: number
+  pixelWidth: number
+  pixelHeight: number
+  renderDpr: number
+}
+
 type ModelLayout = Record<string, number>
 
 let _rs: FrameworkRendererState | null = null
@@ -103,6 +114,35 @@ export function resizeRenderer(width: number, height: number): void {
   // Invalidate cached matrices on resize
   _cachedModelW = -1
   _projectionDirty = true
+}
+
+/** Low-frequency, read-only renderer diagnostics for the settings monitor. */
+export function getRenderEnvironment(): Live2DRenderEnvironment | null {
+  if (!_rs) return null
+  const { gl } = _rs
+  const canvas = gl.canvas as HTMLCanvasElement
+  const extension = gl.getExtension('WEBGL_debug_renderer_info')
+  const vendor = extension
+    ? gl.getParameter(extension.UNMASKED_VENDOR_WEBGL)
+    : gl.getParameter(gl.VENDOR)
+  const renderer = extension
+    ? gl.getParameter(extension.UNMASKED_RENDERER_WEBGL)
+    : gl.getParameter(gl.RENDERER)
+  const cssWidth = canvas.clientWidth || 0
+  const cssHeight = canvas.clientHeight || 0
+  const widthRatio = cssWidth > 0 ? canvas.width / cssWidth : 0
+  const heightRatio = cssHeight > 0 ? canvas.height / cssHeight : 0
+  const ratios = [widthRatio, heightRatio].filter(value => Number.isFinite(value) && value > 0)
+  return {
+    webglVendor: typeof vendor === 'string' ? vendor : String(vendor ?? ''),
+    webglRenderer: typeof renderer === 'string' ? renderer : String(renderer ?? ''),
+    webglVersion: String(gl.getParameter(gl.VERSION) ?? ''),
+    cssWidth,
+    cssHeight,
+    pixelWidth: canvas.width,
+    pixelHeight: canvas.height,
+    renderDpr: ratios.length ? ratios.reduce((sum, value) => sum + value, 0) / ratios.length : 0,
+  }
 }
 
 // ── Texture helpers ──

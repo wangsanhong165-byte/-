@@ -270,7 +270,7 @@ function withLocalSemanticChoreography(intent: CharacterIntent): CharacterIntent
     occupied.add(primitive)
     return {
       atMs,
-      durationMs: Math.round(Math.min(1_250, Math.max(520, durationMs * 0.13), available)),
+      durationMs: Math.round(Math.min(2_200, Math.max(900, durationMs * 0.18), available)),
       primitive,
       intensity: clamp(baseIntensity * (index === 0 ? 0.9 : index === 1 ? 1 : 0.82), 0, 1),
     }

@@ -212,6 +212,7 @@
     "prompt_emotions": [
       "neutral",
       "happy",
+      "joyful",
       "playful",
       "love",
       "sad",
@@ -224,7 +225,7 @@
       "calm": "重置",
       "blank": "",
       "happy": "",
-      "joyful": "",
+      "joyful": "星星眼",
       "smile": "",
       "love": "心心眼",
       "cheerful": "星星眼",
@@ -245,7 +246,7 @@
       "comfort", "wave", "nod", "tilt", "shrug"
     ],
     "behavior_map": {
-      "greet": { "motion": "sway", "expression": "happy", "motionIntensityScale": 0.92 },
+      "greet": { "motion": "sway", "motionIntensityScale": 0.92 },
       "agree": { "motion": "nod" },
       "disagree": { "motion": "tilt" },
       "think": { "motion": "tilt", "suppressIdle": true },
@@ -255,6 +256,9 @@
       "nod": { "motion": "nod" },
       "tilt": { "motion": "tilt" },
       "shrug": { "motion": "tilt", "motionIntensityScale": 0.78 }
+    },
+    "personality": {
+      "expressionIntensityScale": 1.12
     },
     "accessories": {
       "丸子头": "丸子头",

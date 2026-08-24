@@ -34,15 +34,15 @@ def test_success_lifecycle_has_one_canonical_order():
         "turn.started",
         "assistant.text.started",
         "assistant.text.completed",
+        "character.intent",
         "tts.started",
         "tts.audio",
         "tts.completed",
-        "character.intent",
         "turn.completed",
         "runtime.status",
     ]
     assert all(isinstance(message, DomainEvent) for message in messages)
-    update = messages[-3]
+    update = messages[3]
     assert update.payload.behavior == "greet"
     assert update.payload.intensity == 0.85
     assert update.payload.energy == 0.35

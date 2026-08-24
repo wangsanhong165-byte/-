@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from app.runtime.character_turn import CharacterTurn, TurnInput, TurnPhase
+from app.runtime.character_turn import CharacterTurn, TurnInput, TurnOrigin, TurnPhase
 from app.transport.websocket.handler import RuntimeEventHandler
 from contracts.v3.registry import EventRegistry
 
@@ -187,6 +187,52 @@ def test_audio_recording_blocks_initiative_until_cancelled() -> None:
     asyncio.run(scenario())
 
     assert runtime.input_activity == [True, False]
+
+
+def test_successful_initiative_push_contains_text_performance_audio_and_completion() -> None:
+    """A background trigger must become a complete visible and audible V3 turn."""
+    pushed = []
+
+    async def capture(response):
+        pushed.append(response)
+
+    turn = CharacterTurn(
+        input=TurnInput(
+            text="主动聊聊天",
+            origin=TurnOrigin.INITIATIVE,
+            metadata={"initiative": {"intent": "idle_chat"}},
+        ),
+        turn_id="initiative-1",
+    )
+    turn.transition_to(TurnPhase.PROCESSING)
+    turn.reply_text = "要不要休息一下？"
+    turn.segments = [{
+        "text": turn.reply_text,
+        "emotion": "happy",
+        "behavior": "care",
+        "intensity": 0.6,
+    }]
+    turn.output.performance.emotion = "happy"
+    turn.output.performance.behavior = "care"
+    turn.output.performance.intensity = 0.6
+    turn.audio = b"wav"
+    turn.transition_to(TurnPhase.COMPLETED)
+
+    handler = RuntimeEventHandler(runtime=RuntimeProbe(), send_event=capture)
+    asyncio.run(handler._on_proactive_reply(turn))
+
+    event_types = [response.event_type for response in pushed]
+    assert event_types[0] == "turn.started"
+    assert "assistant.text.completed" in event_types
+    assert "character.intent" in event_types
+    assert "tts.audio" in event_types
+    assert "turn.completed" in event_types
+    text_event = next(
+        response for response in pushed
+        if response.event_type == "assistant.text.completed"
+    )
+    assert text_event.payload.text == "要不要休息一下？"
+    assert all(response.turn_id == "initiative-1" for response in pushed[:-1])
 
 
 def test_management_event_is_routed_without_v2_inbound_message() -> None:

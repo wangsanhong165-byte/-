@@ -783,6 +783,7 @@ class RuntimeManager:
             status = "ready" if provider is not None else "unavailable"
             detail = ""
             diagnostics = getattr(provider, "diagnostics", None)
+            provider_diagnostics: dict = {}
             if callable(diagnostics):
                 try:
                     provider_diagnostics = diagnostics()
@@ -796,6 +797,10 @@ class RuntimeManager:
                 "status": status,
                 "adapter": type(provider).__name__ if provider is not None else "",
             }
+            if callable(diagnostics):
+                for key in ("engine", "model", "base_url", "api_key_configured"):
+                    if key in provider_diagnostics:
+                        provider_status[key] = provider_diagnostics[key]
             if detail:
                 provider_status["detail"] = detail
             provider_statuses.append(provider_status)
@@ -1031,6 +1036,12 @@ class RuntimeManager:
             if ic is not None:
                 if enabled:
                     ic.start()
+                    # Runtime is commonly constructed before uvicorn owns an
+                    # asyncio loop, so its initial drain scheduling is a no-op.
+                    # The frontend's enable command runs on the live loop and is
+                    # the first reliable point to start the queue consumer.  The
+                    # Runtime helper is idempotent when a drain is already alive.
+                    self._runtime._start_initiative_drain()
                 else:
                     ic.stop()
                 logger.info("[Proactive] %s", "enabled" if enabled else "disabled")

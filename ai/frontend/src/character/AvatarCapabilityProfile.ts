@@ -47,6 +47,33 @@ export interface AvatarViewportConfig {
   scale?: number
 }
 
+/** Native motion ownership is separate from renderer parameter IDs. */
+export type AvatarNativeMotionChannel =
+  | 'head'
+  | 'body'
+  | 'gaze'
+  | 'expression'
+  | 'mouth'
+  | 'arms'
+  | 'accessory'
+  | 'secondary'
+  | 'full'
+
+export interface AvatarLogicalMotionKeyframe {
+  time: number
+  parameter: string
+  value: number
+}
+
+/** Authored model data uses stable logical names, never Cubism parameter IDs. */
+export interface AvatarLogicalMotionPreset {
+  name: string
+  duration: number
+  fadeInMs?: number
+  recoveryMs?: number
+  keyframes: AvatarLogicalMotionKeyframe[]
+}
+
 export interface AvatarPrivateEmotionBinding {
   target: string
   emotions?: string[]
@@ -73,8 +100,12 @@ export interface AvatarCapabilityProfile {
   personality?: CharacterPerformancePersonality
   capabilities?: AvatarPerformanceCapabilities
   motionMap?: Record<string, string>
-  /** Semantic behavior names mapped to executable logical/native motions. */
+  /** Semantic intent cues (behavior, emotion, or context tag) mapped to executable motions. */
   semanticMotionMap?: Record<string, string>
+  /** Native motion ownership by semantic/native motion name. */
+  nativeMotionChannels?: Record<string, AvatarNativeMotionChannel[]>
+  /** Model-specific authored timelines expressed only in logical parameters. */
+  logicalMotionPresets?: AvatarLogicalMotionPreset[]
   expressionMap?: Record<string, string>
   parameterGain?: number
   bodyMotionGain?: number
@@ -90,6 +121,8 @@ export interface AvatarCapabilityProfile {
   breathMotionGain?: number
   /** Model-specific initial framing for assets whose Cubism canvas origin is off-center. */
   viewport?: AvatarViewportConfig
+  /** Independent whole-character framing used by the transparent desktop-pet canvas. */
+  petViewport?: AvatarViewportConfig
 }
 
 export function normalizeAvatarViewport(

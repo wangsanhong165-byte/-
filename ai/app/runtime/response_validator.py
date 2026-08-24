@@ -200,8 +200,14 @@ class ResponseValidator:
         )):
             emotion, energy, intensity = "love", 0.58, 0.7
         elif any(token in lowered for token in (
-            "开心", "高兴", "乐意", "期待", "庆祝", "太好了",
-            "happy", "glad", "excited", "celebrate",
+            "太开心", "开心死了", "超开心", "太高兴", "高兴坏了", "太好了",
+            "好耶", "欢呼", "庆祝", "兴奋", "激动",
+            "overjoyed", "thrilled", "celebrate", "excited",
+        )):
+            emotion, energy, intensity = "joyful", 0.84, 0.82
+        elif any(token in lowered for token in (
+            "开心", "高兴", "乐意", "期待", "愉快",
+            "happy", "glad",
         )):
             emotion, energy, intensity = "happy", 0.68, 0.62
         elif any(token in lowered for token in ("难过", "伤心", "悲伤", "sad", "sorry to hear")):

@@ -5,7 +5,7 @@ import { memo, useRef, useEffect, useState, useCallback } from 'react'
 import { useSelector, selectCharacter, selectSettings } from '../core/store'
 import { theme } from '../core/theme'
 import { eventBus } from '../core/event-bus'
-import { initRenderer, resizeRenderer, destroyRenderer, render, setViewOffset, setViewScale, resetView, getViewTransform } from './live2d/renderer'
+import { initRenderer, resizeRenderer, destroyRenderer, render, setViewOffset, setViewScale, resetView, getViewTransform, getRenderEnvironment } from './live2d/renderer'
 import { ModelManager, type ModelState } from './live2d/ModelManager'
 import { CharacterController } from './controllers'
 import { initCubismFramework, disposeCubismFramework } from './live2d/core'
@@ -17,32 +17,42 @@ import { observeElementResize } from './observe-resize'
 import { normalizeAvatarViewport } from './AvatarCapabilityProfile'
 import { resolveLive2DRenderDpr } from './Live2DPerformanceSettings'
 import { isWindowDragging } from './window-drag-state'
-import { readPersistedViewport, savePersistedViewport } from './live2d/viewport-persistence'
+import {
+  getViewportStorageKey,
+  readPersistedViewport,
+  savePersistedViewport,
+  type ViewportScope,
+} from './live2d/viewport-persistence'
 
 function modelUrl(name: string): string {
   return `/live2d-models/${name}/${name}.model3.json`
 }
 
-function applyModelViewport(modelName: string): void {
+function applyModelViewport(modelName: string, scope: ViewportScope): void {
   const profiles = (window as any).__INITIAL_MODEL_INFO__?.avatarProfiles as
-    | Record<string, { viewport?: { x?: number; y?: number; scale?: number } }>
+    | Record<string, {
+      viewport?: { x?: number; y?: number; scale?: number }
+      petViewport?: { x?: number; y?: number; scale?: number }
+    }>
     | undefined
   let persisted
   try {
-    persisted = readPersistedViewport(window.localStorage, modelName)
+    persisted = readPersistedViewport(window.localStorage, modelName, scope)
   } catch (_) {
     persisted = undefined
   }
-  const viewport = normalizeAvatarViewport(persisted ?? profiles?.[modelName]?.viewport)
+  const profile = profiles?.[modelName]
+  const configured = scope === 'pet' ? profile?.petViewport : profile?.viewport
+  const viewport = normalizeAvatarViewport(persisted ?? configured)
   resetView()
   setViewScale(viewport.scale)
   setViewOffset(viewport.x, viewport.y)
 }
 
-function persistModelViewport(modelName: string): void {
+function persistModelViewport(modelName: string, scope: ViewportScope): void {
   if (!modelName) return
   try {
-    savePersistedViewport(window.localStorage, modelName, getViewTransform())
+    savePersistedViewport(window.localStorage, modelName, getViewTransform(), scope)
   } catch (_) {}
 }
 
@@ -252,6 +262,15 @@ export const CharacterView = memo(function CharacterView() {
       return
     }
 
+    const emitRenderEnvironment = () => {
+      const environment = getRenderEnvironment()
+      if (environment) eventBus.emit('character:render_environment', environment)
+    }
+    const unsubRenderEnvironmentRequest = eventBus.on(
+      'character:render_environment_request',
+      emitRenderEnvironment,
+    )
+
     let attachedGeneration = 0
     const attachCommittedModel = (expectedName: string, generation: number): boolean => {
       const handle = modelMgr.getModel()
@@ -280,7 +299,7 @@ export const CharacterView = memo(function CharacterView() {
 
       ctrl.detach()
       adapter.detach()
-      applyModelViewport(expectedName)
+      applyModelViewport(expectedName, petModeRef.current ? 'pet' : 'stage')
       modelNameRef.current = expectedName
       ctrl.setModelName(expectedName, modelMgr.getExpressionNames())
       ctrl.setNativeMotionPlayer(modelMgr.getNativeMotionPlayer())
@@ -333,6 +352,7 @@ export const CharacterView = memo(function CharacterView() {
         hDiag.canvasWidth, hDiag.canvasHeight,
         hDiag.frameworkModel.getParameterCount())
       setLoadState('loaded')
+      emitRenderEnvironment()
     })()
 
       let running = true
@@ -428,7 +448,7 @@ export const CharacterView = memo(function CharacterView() {
       drag.isDragging = false
       canvas.style.cursor = ''
       if (drag.didMove) {
-        persistModelViewport(modelNameRef.current)
+        persistModelViewport(modelNameRef.current, petModeRef.current ? 'pet' : 'stage')
         if (clickFeedbackRef.current) {
           eventBus.emit('character:interaction', { type: 'drag', phase: 'end', intensity: 0.2 })
         }
@@ -457,13 +477,14 @@ export const CharacterView = memo(function CharacterView() {
       const t = getViewTransform()
       const delta = e.deltaY > 0 ? 0.9 : 1.1
       setViewScale(t.scale * delta)
-      persistModelViewport(modelNameRef.current)
+      persistModelViewport(modelNameRef.current, petModeRef.current ? 'pet' : 'stage')
     }
 
     // Touch support for pinch zoom
     let lastTouchDist = 0
     let touchScaleAtStart = 1
     const onTouchStart = (e: TouchEvent) => {
+      if (petModeRef.current) return
       if (e.touches.length === 2) {
         lastTouchDist = Math.hypot(
           e.touches[0].clientX - e.touches[1].clientX,
@@ -473,6 +494,7 @@ export const CharacterView = memo(function CharacterView() {
       }
     }
     const onTouchMove = (e: TouchEvent) => {
+      if (petModeRef.current) return
       if (e.touches.length === 2) {
         e.preventDefault()
         const dist = Math.hypot(
@@ -483,8 +505,9 @@ export const CharacterView = memo(function CharacterView() {
       }
     }
     const onTouchEnd = () => {
+      if (petModeRef.current) return
       if (lastTouchDist > 0) {
-        persistModelViewport(modelNameRef.current)
+        persistModelViewport(modelNameRef.current, 'stage')
         lastTouchDist = 0
       }
     }
@@ -523,12 +546,17 @@ export const CharacterView = memo(function CharacterView() {
     const unsubViewportReset = eventBus.on('character:viewport_reset', () => {
       const modelName = modelNameRef.current
       if (!modelName) return
-      try { window.localStorage.removeItem(`live2d_viewport_${modelName}`) } catch (_) {}
+      const scope: ViewportScope = petModeRef.current ? 'pet' : 'stage'
+      try { window.localStorage.removeItem(getViewportStorageKey(modelName, scope)) } catch (_) {}
       resetView()
       const profiles = (window as any).__INITIAL_MODEL_INFO__?.avatarProfiles as
-        | Record<string, { viewport?: { x?: number; y?: number; scale?: number } }>
+        | Record<string, {
+          viewport?: { x?: number; y?: number; scale?: number }
+          petViewport?: { x?: number; y?: number; scale?: number }
+        }>
         | undefined
-      const viewport = normalizeAvatarViewport(profiles?.[modelName]?.viewport)
+      const profile = profiles?.[modelName]
+      const viewport = normalizeAvatarViewport(scope === 'pet' ? profile?.petViewport : profile?.viewport)
       setViewScale(viewport.scale)
       setViewOffset(viewport.x, viewport.y)
     })
@@ -583,6 +611,7 @@ export const CharacterView = memo(function CharacterView() {
       unsubAccessoryRefresh()
       unsubViewportReset()
       unsubModel()
+      unsubRenderEnvironmentRequest()
       animRunningRef.current = false
       cancelAnimationFrame(animRef.current)
       if (canvas) {
@@ -649,6 +678,12 @@ export const CharacterView = memo(function CharacterView() {
     settings.live2dClickFeedback,
     syncLive2dSettings,
   ])
+
+  useEffect(() => {
+    const modelName = modelNameRef.current
+    if (!modelName) return
+    applyModelViewport(modelName, settings.windowMode === 'pet' ? 'pet' : 'stage')
+  }, [settings.windowMode])
 
   // ── Pet Mode wiring (guarded against duplicate registration) ──
   useEffect(() => {
@@ -726,8 +761,6 @@ export const CharacterView = memo(function CharacterView() {
   useEffect(() => {
     const cvs = canvasRef.current
     if (!cvs) return
-    const dpr = resolveLive2DRenderDpr(window.devicePixelRatio)
-
     const doResize = () => {
       // During a window drag the window size is pinned, but the reported size
       // still jitters by a pixel or two as the DWM re-measures the frameless
@@ -739,6 +772,7 @@ export const CharacterView = memo(function CharacterView() {
       const w = parent.clientWidth
       const h = parent.clientHeight
       if (w <= 0 || h <= 0) return
+      const dpr = resolveLive2DRenderDpr(window.devicePixelRatio)
       const pixelWidth = Math.round(w * dpr)
       const pixelHeight = Math.round(h * dpr)
       const cssWidth = `${w}px`
@@ -754,6 +788,8 @@ export const CharacterView = memo(function CharacterView() {
       cvs.style.width = cssWidth
       cvs.style.height = cssHeight
       resizeRenderer(pixelWidth, pixelHeight)
+      const environment = getRenderEnvironment()
+      if (environment) eventBus.emit('character:render_environment', environment)
     }
 
     doResize()

@@ -48,9 +48,19 @@ export class CharacterPerformancePolicy {
     // the literal name `greet`; unless a native motion or preset with that
     // exact name exists, MotionArbiter correctly rejects it and the intent
     // becomes visually silent.
+    let contextualMotion: string | undefined
+    for (const tag of contextTags) {
+      const candidate = profile?.semanticMotionMap?.[tag]
+      if (candidate) {
+        contextualMotion = candidate
+        break
+      }
+    }
     const requestedMotion = profile?.semanticMotionMap?.[behavior]
       ?? mapping.motion
       ?? base.motion
+      ?? profile?.semanticMotionMap?.[emotion]
+      ?? contextualMotion
     const executableMotion = requestedMotion
       ? profile?.semanticMotionMap?.[requestedMotion] ?? requestedMotion
       : undefined

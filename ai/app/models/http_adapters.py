@@ -109,6 +109,7 @@ class OpenAILLMAdapter:
         from openai import OpenAI
 
         engine = os.environ.get("LLM_ENGINE", "").strip().lower()
+        self._engine = engine or "deepseek"
         if engine == "opencode":
             # OpenCode serve — OpenAI-compatible local server (default port 4096
             # per opencode.json server.port). Uses a placeholder key.
@@ -124,11 +125,32 @@ class OpenAILLMAdapter:
             self._model = model or os.environ.get("LLM_MODEL", "deepseek-v4-flash")
         self._temperature = temperature
         self._max_tool_rounds = max_tool_rounds
-        self._client = OpenAI(api_key=self._api_key, base_url=self._base_url)
+        client_kwargs: dict[str, Any] = {
+            "api_key": self._api_key,
+            "base_url": self._base_url,
+        }
+        if self._engine == "opencode":
+            # OpenCode Zen's current free stealth route rejects the SDK's
+            # default user-agent with an HTML error page. Keep this scoped to
+            # OpenCode so other OpenAI-compatible providers are unchanged.
+            client_kwargs["default_headers"] = {"User-Agent": "curl/8.5.0"}
+        self._client = OpenAI(**client_kwargs)
 
     @property
     def model(self) -> str:
         return self._model
+
+    @property
+    def engine(self) -> str:
+        return self._engine
+
+    @property
+    def base_url(self) -> str:
+        return self._base_url
+
+    @property
+    def api_key_configured(self) -> bool:
+        return bool(self._api_key)
 
     # ---- non-streaming ---------------------------------------------------
     def generate(
@@ -209,7 +231,7 @@ class OpenAILLMAdapter:
                 }
 
             if msg.tool_calls and tools:
-                msgs.append({
+                assistant_message = {
                     "role": "assistant",
                     "content": msg.content,
                     "tool_calls": [
@@ -220,7 +242,14 @@ class OpenAILLMAdapter:
                         }
                         for tc in msg.tool_calls
                     ],
-                })
+                }
+                # DeepSeek thinking mode requires the exact reasoning trace from
+                # a tool-call response to be echoed in the following request.
+                # Dropping it makes the continuation fail with HTTP 400 even
+                # though the tool itself executed successfully.
+                if reasoning:
+                    assistant_message["reasoning_content"] = reasoning
+                msgs.append(assistant_message)
                 return {
                     "content": msg.content or "",
                     "reasoning": reasoning,

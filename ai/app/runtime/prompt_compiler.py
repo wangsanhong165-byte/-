@@ -156,6 +156,17 @@ class PromptCompiler:
         if user_text and ctx.input_origin == "initiative":
             messages.append({"role": "system", "content": f"Trusted initiative event (not a user message):\n{user_text}\nStructured event: {ctx.initiative}"})
             sources.append("initiative")
+            # Keep the event itself in the trusted system role, but start a new
+            # provider turn with a fixed, payload-free boundary.  DeepSeek
+            # thinking mode treats a system-only tail after assistant history as
+            # an unfinished reasoning/tool continuation and rejects it with 400.
+            # This message is prompt-only: DecisionStep persists user history
+            # exclusively when input_origin == "user".
+            messages.append({
+                "role": "user",
+                "content": "Respond naturally to the trusted initiative event above.",
+            })
+            sources.append("initiative_turn_boundary")
         elif user_text:
             messages.append({"role": "user", "content": user_text})
             sources.append("user_input")
@@ -171,7 +182,7 @@ class PromptCompiler:
             "4. Format: {\"segments\":[{\"text\":\"...\",\"emotion\":\"neutral\",\"behavior\":\"speak\",\"attention\":\"user\",\"energy\":0.5,\"intensity\":0.5,\"naturalVAD\":{\"valence\":0,\"arousal\":0,\"dominance\":0},\"contextTags\":[],\"motionPlan\":{\"durationMs\":1200,\"steps\":[{\"atMs\":0,\"durationMs\":600,\"primitive\":\"nod\",\"intensity\":0.5}]}}],\"tool_calls\":[],\"final_reply\":\"...\"}\n"
             "5. motionPlan is optional. Use 1-3 restrained semantic body-language beats for emphasis, emotional shifts, greeting, agreement, disagreement, reflection, reassurance, or playfulness. Omit it for genuinely short neutral speech. Allowed primitives: nod, tilt_left, tilt_right, lean_forward, lean_back, sway, look_left, look_right, breathe, shrug. durationMs 300-8000; step durationMs 120-2500; intensity 0-1.\n"
             "6. Never output Param*, Cubism IDs, keyframes, animation files, expression files, motion names, or implementation details.\n"
-            f"7. Every final segment MUST set an \"emotion\" from: {emotions}. Judge each segment independently: happy for ordinary joy, playful for teasing, love for explicit affection, sad for hurt, angry for real objection, surprised for genuine surprise, and shy only for explicit embarrassment or romantic bashfulness. Otherwise use neutral; never copy the previous expression or choose by a habitual catchphrase.\n"
+            f"7. Every final segment MUST set an \"emotion\" from: {emotions}. Judge each segment independently: happy for ordinary joy, joyful for unmistakable high joy, celebration, or delighted excitement, playful for teasing, love for explicit affection, sad for hurt, angry for real objection, surprised for genuine surprise, and shy only for explicit embarrassment or romantic bashfulness (including bashfulness after being praised). Otherwise use neutral; never copy the previous expression or choose by a habitual catchphrase.\n"
             f"8. Every spoken segment must choose behavior from: {behaviors}. Use greet, agree, disagree, think, and speak by communicative meaning; never idle for spoken text.\n"
             "9. Leave tool_calls empty when not needed. Do NOT use [keyword] tags for emotions.\n"
             "10. SPOKEN TEXT ONLY: when the user asks for a visible action or expression, perform it through emotion, behavior, naturalVAD, and motionPlan, then answer with a brief natural spoken reaction. final_reply and segment text contain only words the character actually says aloud and must never narrate or claim blinking, leaning, smiling, making a face, or other visible performance. Visible performance belongs only in emotion, behavior, naturalVAD, and motionPlan. If those fields cannot represent an action, do not claim that it happened. Always produce a non-empty natural spoken reply. Never return empty, blank, or whitespace-only content.\n"

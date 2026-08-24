@@ -174,6 +174,10 @@ test('ordinary decoded speech receives a second conversational beat before it be
   assert.equal(cue.motionPlan?.steps.length, 2)
   assert.ok((cue.motionPlan?.steps[1].atMs ?? 0) >= 1_200)
   assert.ok((cue.motionPlan?.steps[0].intensity ?? 0) >= 0.3)
+  assert.ok(
+    (cue.motionPlan?.steps[0].durationMs ?? 0) >= 850,
+    'ordinary speech posture should remain readable instead of flicking',
+  )
 })
 
 test('decoded long speech distributes multiple expression-compatible body beats', () => {
@@ -187,6 +191,7 @@ test('decoded long speech distributes multiple expression-compatible body beats'
   assert.equal(cue.motionPlan?.durationMs, 9_000)
   assert.equal(cue.motionPlan?.steps.length, 3)
   assert.ok(cue.motionPlan!.steps.at(-1)!.atMs > 6_000)
+  assert.ok(cue.motionPlan!.steps.every(step => step.durationMs >= 1_000))
 })
 
 test('sparse LLM choreography is completed through the later half of speech', () => {

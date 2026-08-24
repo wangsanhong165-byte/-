@@ -86,7 +86,7 @@ test('Design_genius_White routes body motion into its physical body inputs', () 
   )
 })
 
-test('shirone profile recruits torso rotation and its segmented cat-tail without controlling limbs', () => {
+test('shirone profile exposes only real torso, face, ear, and tail controls', () => {
   const profile = JSON.parse(readFileSync(
     new URL('../../../config/avatar_profiles/shirone.json', import.meta.url),
     'utf8',
@@ -105,7 +105,54 @@ test('shirone profile recruits torso rotation and its segmented cat-tail without
     assert.equal(typeof binding === 'string' ? binding : binding?.target,
       `Param_Angle_Rotation_${index}_ArtMesh571`)
   }
-  assert.equal(Object.keys(profile.bindings).some(key => key.startsWith('arm.')), false)
+  assert.equal(profile.bindings['body.y2'], 'ParamBodyAngleY2')
+  assert.equal(profile.bindings['body.z2'], 'ParamBodyAngleZ2')
+  assert.equal(
+    typeof profile.bindings['brow.left.y'] === 'string'
+      ? profile.bindings['brow.left.y']
+      : profile.bindings['brow.left.y']?.target,
+    'ParamBrowLY',
+  )
+  assert.equal(profile.bindings['arm.right.upper'], undefined)
+  assert.equal(profile.bindings['hand.right'], undefined)
+  assert.deepEqual(profile.motions, ['nod', 'tilt', 'sway', 'thinking', 'ear_flick', 'tail_sweep'])
+  assert.equal(profile.semanticMotionMap?.greet, 'sway')
+  assert.equal(profile.semanticMotionMap?.wave, 'sway')
+  assert.equal(profile.semanticMotionMap?.excited, 'tail_sweep')
+  assert.deepEqual(profile.nativeMotionChannels?.idle, ['secondary'])
+  assert.deepEqual(
+    profile.logicalMotionPresets?.map(preset => preset.name),
+    ['ear_flick', 'tail_sweep'],
+  )
+  assert.deepEqual(profile.petViewport, { x: 0, y: 0.02, scale: 0.78 })
+  assert.equal(profile.parameterGain, 1.4)
+  assert.equal(profile.bodyMotionGain, 1.34)
+  assert.equal(profile.expressionParameterPolicy?.minimumBlendDurationMs, 460)
+  assert.equal(profile.expressionMap?.happy, 'happy')
+  assert.equal(profile.expressionMap?.joyful, '星星眼')
+  const model3 = JSON.parse(readFileSync(
+    new URL('../../../models/live2d-models/shirone/shirone.model3.json', import.meta.url),
+    'utf8',
+  )) as { FileReferences: { Expressions: Array<{ Name: string }> } }
+  const nativeExpressions = new Set(
+    model3.FileReferences.Expressions.map(expression => expression.Name),
+  )
+  assert.ok(nativeExpressions.has(profile.expressionMap!.joyful))
+  assert.ok(nativeExpressions.has(profile.expressionMap!.shy))
+  const earFlick = profile.logicalMotionPresets?.find(preset => preset.name === 'ear_flick')
+  const tailSweep = profile.logicalMotionPresets?.find(preset => preset.name === 'tail_sweep')
+  assert.ok((earFlick?.duration ?? 0) >= 1_200, 'ear gesture should read as a pose, not a twitch')
+  assert.ok((tailSweep?.duration ?? 0) >= 1_700, 'tail/body sweep should have a broad readable arc')
+  assert.ok(
+    (earFlick?.keyframes ?? []).some(frame =>
+      frame.parameter === 'body.x' && Math.abs(frame.value) >= 1),
+    'ear gesture needs a visible matching torso contribution',
+  )
+  assert.equal(
+    profile.logicalMotionPresets?.some(preset => preset.keyframes.some(frame =>
+      frame.parameter.startsWith('arm.') || frame.parameter.startsWith('hand.'))),
+    false,
+  )
 })
 
 test('Design_genius_White does not advertise body rotation as an arm wave', () => {
@@ -153,6 +200,20 @@ test('Design_genius_White behavior config cannot reintroduce the ghosting arm po
     agree: 'nod',
     excited: 'sway',
   })
+})
+
+test('shirone keeps the LLM emotion authoritative for neutral greetings', () => {
+  const configs = JSON.parse(readFileSync(
+    new URL('../../../config/live2d_models.json', import.meta.url),
+    'utf8',
+  )) as Record<string, {
+    behavior_map: Record<string, { motion?: string; expression?: string }>
+    personality?: { expressionIntensityScale?: number }
+  }>
+
+  assert.equal(configs.shirone.behavior_map.greet.motion, 'sway')
+  assert.equal(configs.shirone.behavior_map.greet.expression, undefined)
+  assert.equal(configs.shirone.personality?.expressionIntensityScale, 1.12)
 })
 
 test('FACS face mapping stays subtle and avoids the model-specific cheek overlay', () => {

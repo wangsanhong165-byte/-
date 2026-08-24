@@ -70,10 +70,10 @@ def test_audio_turn_has_asr_and_strict_tts_event_order():
         "asr.result",
         "assistant.text.started",
         "assistant.text.completed",
+        "character.intent",
         "tts.started",
         "tts.audio",
         "tts.completed",
-        "character.intent",
         "turn.completed",
         "runtime.status",
     ]

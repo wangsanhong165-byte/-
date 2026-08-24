@@ -470,6 +470,27 @@ test('frame timing monitor keeps a bounded rolling window and reports long frame
   assert.equal(snapshot.longFrameCount, 1)
 })
 
+test('frame timing monitor reports average p95 and p99 for every render phase', () => {
+  const monitor = new FrameTimingMonitor(30)
+  for (let index = 1; index <= 30; index += 1) {
+    monitor.record({
+      intervalMs: index,
+      workMs: index * 0.5,
+      controllerMs: index * 0.1,
+      mixMs: index * 0.05,
+      modelMs: index * 0.2,
+      renderMs: index * 0.15,
+    })
+  }
+
+  const snapshot = monitor.snapshot()
+  assert.equal(snapshot.p99IntervalMs, 30)
+  assert.equal(snapshot.phases.work.averageMs, 7.75)
+  assert.ok(Math.abs(snapshot.phases.controller.p95Ms - 2.9) < 1e-9)
+  assert.equal(snapshot.phases.model.p99Ms, 6)
+  assert.equal(snapshot.phases.render.maxMs, 4.5)
+})
+
 test('autonomous torso sway carries velocity and recenters through inertia', () => {
   const sway = new BodySwayController(29)
   let sample = sway.update(0, 0, 1)

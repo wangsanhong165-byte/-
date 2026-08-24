@@ -13,8 +13,9 @@ const {
   serviceUrlFromLifecycleOutput,
 } = require('./soulctl.cjs')
 
-test('runtime config supports default and per-service Python', () => {
+test('runtime config supports default and per-service Python', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'soullink-config-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
   fs.mkdirSync(path.join(root, 'config'))
   fs.writeFileSync(path.join(root, 'config', 'runtime.local.json'), JSON.stringify({
     python: { default: 'runtime-python', services: { asr: 'asr-python' } },
@@ -35,8 +36,9 @@ test('explicit Python has priority over local configuration', () => {
   assert.equal(selected, 'cli-python')
 })
 
-test('build fingerprint changes when a tracked input changes', () => {
+test('build fingerprint changes when a tracked input changes', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'soullink-build-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
   const frontend = path.join(root, 'frontend')
   fs.mkdirSync(path.join(frontend, 'src'), { recursive: true })
   fs.writeFileSync(path.join(frontend, 'src', 'main.tsx'), 'one')

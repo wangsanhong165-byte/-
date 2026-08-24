@@ -13,10 +13,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
   close: () => ipcRenderer.invoke('window:close'),
   setAlwaysOnTop: (value) => ipcRenderer.invoke('window:setAlwaysOnTop', value),
   setPetMode: (enabled) => ipcRenderer.invoke('window:setPetMode', enabled),
-  setPetMousePassthrough: (passthrough) => ipcRenderer.send('pet:setMousePassthrough', passthrough),
   startWindowDrag: () => ipcRenderer.send('window:dragStart'),
   endWindowDrag: () => ipcRenderer.send('window:dragEnd'),
+  publishPetSnapshot: (snapshot) => ipcRenderer.send('pet:publishSnapshot', snapshot),
+  getPetSnapshot: () => ipcRenderer.invoke('pet:getSnapshot'),
+  sendPetCommand: (command) => ipcRenderer.send('pet:command', command),
+  setPetConversationVisible: (visible) => ipcRenderer.send('pet:setConversationVisible', visible),
+  resizePetModel: (scaleFactor) => ipcRenderer.send('pet:resizeModel', scaleFactor),
+  onPetSnapshot: (callback) => {
+    const listener = (_event, snapshot) => callback(snapshot)
+    ipcRenderer.on('pet:snapshot', listener)
+    return () => ipcRenderer.removeListener('pet:snapshot', listener)
+  },
+  onPetCommand: (callback) => {
+    const listener = (_event, command) => callback(command)
+    ipcRenderer.on('pet:command', listener)
+    return () => ipcRenderer.removeListener('pet:command', listener)
+  },
   getSettings: () => ipcRenderer.invoke('app:getSettings'),
+  getElectronPerformanceDiagnostics: () => ipcRenderer.invoke('performance:getElectronDiagnostics'),
   selectCharacterAsset: (kind) => ipcRenderer.invoke('character:selectAsset', kind),
   selectWallpaper: (mode) => ipcRenderer.invoke('wallpaper:select', mode),
   openWallpaperWorkshop: () => ipcRenderer.invoke('wallpaper:openWorkshop'),

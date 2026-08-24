@@ -233,6 +233,10 @@ PARAM_ALLOWED_FILES = {
     "Live2DModelAdapter.ts",
     "ParameterMixer.ts",
     "core.ts",
+    # renderer.ts reads WebGL vendor/renderer/version diagnostics through
+    # WebGLRenderingContext.getParameter; it does not read or write Cubism
+    # model parameters.  Cubism SDK imports remain guarded separately below.
+    "renderer.ts",
 }
 
 

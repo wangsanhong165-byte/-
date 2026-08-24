@@ -48,7 +48,6 @@ export interface AppSettings {
   backgroundLabel: string
   backgroundFit: 'cover' | 'contain' | 'fill'
   backgroundOpacity: number
-  backgroundShowInPetMode: boolean
 }
 
 // ── Conversation State ──
@@ -87,7 +86,7 @@ const INITIAL_SETTINGS: AppSettings = {
   alwaysOnTop: false,
   voiceInputEnabled: true,
   activeCharacterId: 'monika',
-  live2dModel: 'Design_genius_White',
+  live2dModel: 'shirone',
   windowMode: 'window',
   proactive: true,
   proactiveIdleTime: 120,  // default 2 min
@@ -108,7 +107,6 @@ const INITIAL_SETTINGS: AppSettings = {
   // Preserve the source ratio and avoid enlarging small background assets.
   backgroundFit: 'contain',
   backgroundOpacity: 1,
-  backgroundShowInPetMode: false,
 }
 
 export const INITIAL_STATE: AppState = {
@@ -118,7 +116,7 @@ export const INITIAL_STATE: AppState = {
   ttsActive: false,
   character: INITIAL_CHARACTER,
   messages: [],
-  audio: { isPlaying: false, isQueued: false, currentVolume: 0 },
+  audio: { isPlaying: false, isQueued: false },
   settings: INITIAL_SETTINGS,
   conversation: { historyUid: '', histories: [], loading: false },
 }
@@ -137,7 +135,6 @@ type Action =
   | { type: 'CLEAR_MESSAGES' }
   | { type: 'SET_MESSAGES'; messages: ChatMessage[] }
   | { type: 'SET_TTS_PLAYING'; playing: boolean }
-  | { type: 'SET_AUDIO_VOLUME'; volume: number }
   | { type: 'SET_SETTING'; key: keyof AppSettings; value: unknown }
   | { type: 'SET_HISTORIES'; histories: HistoryEntry[] }
   | { type: 'SET_HISTORY_UID'; uid: string }
@@ -216,9 +213,6 @@ function reducer(state: AppState, action: Action): AppState {
         ttsActive: action.playing,
         audio: { ...state.audio, isPlaying: action.playing },
       }
-
-    case 'SET_AUDIO_VOLUME':
-      return { ...state, audio: { ...state.audio, currentVolume: action.volume } }
 
     case 'SET_SETTING':
       return { ...state, settings: { ...state.settings, [action.key]: action.value as never } }
@@ -321,9 +315,6 @@ export function useActions() {
 
     setAudioPlaying: (playing: boolean) =>
       dispatch({ type: 'SET_TTS_PLAYING', playing }),
-
-    setAudioVolume: (volume: number) =>
-      dispatch({ type: 'SET_AUDIO_VOLUME', volume }),
 
     setSetting: (key: keyof AppSettings, value: unknown) =>
       dispatch({ type: 'SET_SETTING', key, value }),

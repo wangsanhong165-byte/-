@@ -4,6 +4,10 @@ import { eventBus } from '../core/event-bus'
 import { selectConnection, useSelector } from '../core/store'
 import { electronWindowBridge } from '../session/electron-window-bridge'
 import { DrawerPanel } from './DrawerPanel'
+import {
+  formatServiceDetail,
+  getServiceHealthRows,
+} from './developer-health'
 
 type TurnSummary = {
   turnId: string
@@ -225,7 +229,7 @@ function ServiceHealth({ diagnostics, services }: { diagnostics: any; services: 
               <div className="service-health-row" key={row.name}>
                 <div className="service-health-service">
                   <strong>{row.name}</strong>
-                  <small>{row.detail || '运行服务'}</small>
+                  <small>{formatServiceDetail(row)}</small>
                 </div>
                 <span className={`service-health-status is-${tone}`}>
                   <i aria-hidden="true" />
@@ -240,26 +244,6 @@ function ServiceHealth({ diagnostics, services }: { diagnostics: any; services: 
       )}
     </section>
   )
-}
-
-type ServiceHealthRow = { name: string; status: string; detail: string }
-
-function getServiceHealthRows(diagnostics: any, services: any[]): ServiceHealthRow[] {
-  const rows = new Map<string, ServiceHealthRow>()
-  const add = (item: any) => {
-    const name = String(item?.name ?? item?.service ?? item?.id ?? '').trim()
-    if (!name) return
-    const current = rows.get(name)
-    rows.set(name, {
-      name,
-      status: String(item?.status ?? current?.status ?? 'unknown'),
-      detail: String(item?.adapter ?? item?.provider ?? item?.type ?? current?.detail ?? '').trim(),
-    })
-  }
-
-  ;(diagnostics?.providers ?? []).forEach(add)
-  services.forEach(add)
-  return Array.from(rows.values())
 }
 
 function getServiceStatusTone(status: string) {

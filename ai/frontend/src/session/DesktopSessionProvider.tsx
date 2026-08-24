@@ -1,5 +1,14 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
-import { useActions, useSelector, selectSettings, selectTtsActive } from '../core/store'
+import {
+  useActions,
+  useSelector,
+  selectActivity,
+  selectConnection,
+  selectMessages,
+  selectSettings,
+  selectStatusMessage,
+  selectTtsActive,
+} from '../core/store'
 import { eventBus } from '../core/event-bus'
 import { RuntimeAdapter } from '../runtime/adapter'
 import { runtimeWebSocketUrl } from '../runtime/client'
@@ -28,12 +37,15 @@ import {
   resolvePersistedLive2DModel,
 } from '../character/Live2DPerformanceSettings'
 import { persistAndApplyWindowMode } from './window-mode-transition'
+import { electronWindowBridge } from './electron-window-bridge'
+import { PetModelSurface } from '../ui/PetSurfaces'
 
 const WS_URL = runtimeWebSocketUrl(location)
 let idCounter = 0
 const nextId = () => `msg_${++idCounter}`
 
 export function DesktopSessionWorkspace() {
+  const surface = new URLSearchParams(window.location.search).get('surface')
   const actions = useActions()
   const clientRef = useRef<RuntimeAdapter | null>(null)
   const audioRef = useRef<AudioPlayer | null>(null)
@@ -48,6 +60,10 @@ export function DesktopSessionWorkspace() {
   const [accessoryState, setAccessoryState] = useState<Record<string, boolean>>({})
   const settings = useSelector(selectSettings)
   const ttsActive = useSelector(selectTtsActive)
+  const activity = useSelector(selectActivity)
+  const connection = useSelector(selectConnection)
+  const messages = useSelector(selectMessages)
+  const statusMessage = useSelector(selectStatusMessage)
   const settingsRef = useRef(settings)
   settingsRef.current = settings
 
@@ -272,12 +288,10 @@ export function DesktopSessionWorkspace() {
       },
       onEnd(turnId) {
         actions.setAudioPlaying(false)
-        actions.setAudioVolume(0)
         eventBus.emit('audio:end', { turnId })
       },
       onVolume(vol) {
         diagnosticRun?.probe.recordVolume(vol)
-        actions.setAudioVolume(vol)
         eventBus.emit('audio:volume', { volume: vol })
       },
     })
@@ -373,6 +387,13 @@ export function DesktopSessionWorkspace() {
     actions.setStatusMessage('')
   }, [])
 
+  const handleToggleRecording = useCallback(async () => {
+    const recorder = recorderRef.current
+    if (!recorder) return
+    if (recorder.state === 'recording') recorder.stop()
+    else await recorder.start()
+  }, [])
+
   const handleAccessoryToggle = useCallback((label: string, enabled: boolean) => {
     // Keep the controlled checkbox responsive even if the renderer is between
     // generations; CharacterController will immediately confirm the same state.
@@ -403,8 +424,9 @@ export function DesktopSessionWorkspace() {
       client?.sendCommand('set_proactive_idle', { seconds: value })
     } else if (key === 'windowMode') {
       const windowMode = value === 'pet' ? 'pet' : 'window'
+      const previousWindowMode = settings.windowMode === 'pet' ? 'pet' : 'window'
       document.body.style.cursor = windowMode === 'pet' ? 'default' : ''
-      void persistAndApplyWindowMode(settings, windowMode, {
+      void persistAndApplyWindowMode(settings as unknown as Record<string, unknown>, windowMode, {
         async persist(nextSettings) {
           const response = await fetch('/api/settings', {
             method: 'POST',
@@ -417,6 +439,8 @@ export function DesktopSessionWorkspace() {
           return window.electronAPI?.setPetMode(enabled)
         },
       }).catch(error => {
+        document.body.style.cursor = previousWindowMode === 'pet' ? 'default' : ''
+        actions.setSetting('windowMode', previousWindowMode)
         actions.setStatusMessage(`窗口模式切换失败：${error instanceof Error ? error.message : String(error)}`)
       })
     }
@@ -427,6 +451,41 @@ export function DesktopSessionWorkspace() {
       handleSettingChange('windowMode', 'window')
     })
   }, [handleSettingChange])
+
+  useEffect(() => {
+    if (surface !== 'pet-model') return
+    electronWindowBridge.publishPetSnapshot({
+      messages,
+      activity,
+      connection,
+      statusMessage,
+      ttsActive,
+      settings: {
+        voiceInputEnabled: settings.voiceInputEnabled,
+        windowMode: 'pet',
+      },
+      recorderState,
+      recordingSupported: AudioRecorder.isSupported(),
+    })
+  }, [
+    surface,
+    messages,
+    activity,
+    connection,
+    statusMessage,
+    ttsActive,
+    settings.voiceInputEnabled,
+    recorderState,
+  ])
+
+  useEffect(() => {
+    if (surface !== 'pet-model') return
+    return electronWindowBridge.onPetCommand(command => {
+      if (command.type === 'send') handleSend(command.text)
+      else if (command.type === 'interrupt') handleInterrupt()
+      else if (command.type === 'toggle-recording') void handleToggleRecording()
+    })
+  }, [surface, handleSend, handleInterrupt, handleToggleRecording, handleSettingChange])
 
   const handleCharacterActivate = useCallback(async (
     character: CharacterDescriptor,
@@ -515,6 +574,15 @@ export function DesktopSessionWorkspace() {
     audio?.resume()
   }, [])
 
+  if (surface === 'pet-model') {
+    return (
+      <div style={styles.wrapper} onClick={handleUserGesture}>
+        <PetModelSurface />
+        <PermissionDialog />
+      </div>
+    )
+  }
+
   return (
     <div style={styles.wrapper} onClick={handleUserGesture}>
       {settings.windowMode !== 'pet' && <TitleBar />}
@@ -528,12 +596,7 @@ export function DesktopSessionWorkspace() {
         }}
         recorderState={recorderState}
         recordingSupported={AudioRecorder.isSupported()}
-        onToggleRecording={async () => {
-          const recorder = recorderRef.current
-          if (!recorder) return
-          if (recorder.state === 'recording') recorder.stop()
-          else await recorder.start()
-        }}
+         onToggleRecording={handleToggleRecording}
         histories={histories}
         historyUid={historyUid}
         historyLoading={historyLoading}

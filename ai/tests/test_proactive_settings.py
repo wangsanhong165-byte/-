@@ -1,5 +1,9 @@
 """Proactive switch + idle gate read from persisted settings."""
 
+from types import SimpleNamespace
+from unittest.mock import Mock
+
+from app.runtime.management import RuntimeManager
 from app.runtime.runtime import CharacterRuntime
 
 
@@ -40,3 +44,19 @@ def test_load_proactive_settings_tolerates_malformed(tmp_path):
     proactive, idle = _rt()._load_proactive_settings(settings)
     assert proactive is True
     assert idle is None
+
+
+def test_enabling_proactive_starts_async_drain_without_prior_user_turn():
+    checker = SimpleNamespace(start=Mock(), stop=Mock())
+    runtime = SimpleNamespace(
+        initiative_checker=checker,
+        screen_watcher=None,
+        _start_initiative_drain=Mock(),
+    )
+    manager = RuntimeManager.__new__(RuntimeManager)
+    manager._runtime = runtime
+
+    manager.set_proactive(True)
+
+    checker.start.assert_called_once_with()
+    runtime._start_initiative_drain.assert_called_once_with()

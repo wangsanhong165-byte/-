@@ -5,6 +5,7 @@ import {
   compileMotionAction,
   compileMotionPlanForModel,
   MOTION_PRIMITIVES,
+  normalizeLogicalMotionPresets,
   normalizeMotionAction,
   validateMotionPlan,
 } from './MotionAction.ts'
@@ -139,4 +140,34 @@ test('shirone tail coupling remains part of the body channel instead of seizing 
   }), true)
 
   assert.deepEqual(arbiter.getActiveChannels().sort(), ['body', 'head'])
+})
+
+test('model-authored logical timelines allow staggered multi-channel gestures without renderer IDs', () => {
+  const presets = normalizeLogicalMotionPresets([{
+    name: 'hand_on_head',
+    duration: 1_800,
+    recoveryMs: 520,
+    keyframes: [
+      { time: 0, parameter: 'head.z', value: 0 },
+      { time: 180, parameter: 'head.z', value: -2 },
+      { time: 0, parameter: 'arm.right.upper', value: 0 },
+      { time: 420, parameter: 'arm.right.upper', value: -14 },
+      { time: 0, parameter: 'hand.right', value: 0 },
+      { time: 700, parameter: 'hand.right', value: 10 },
+    ],
+  }])
+
+  assert.equal(presets.length, 1)
+  assert.deepEqual(
+    new Set(presets[0].keyframes.map(frame => frame.parameter)),
+    new Set(['head.z', 'arm.right.upper', 'hand.right']),
+  )
+  assert.equal(normalizeLogicalMotionPresets([{
+    name: 'unsafe',
+    duration: 900,
+    keyframes: [
+      { time: 0, parameter: 'ParamAngleX', value: 0 },
+      { time: 900, parameter: 'ParamAngleX', value: 20 },
+    ],
+  }]).length, 0)
 })

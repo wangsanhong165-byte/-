@@ -1,7 +1,10 @@
+import asyncio
+
 from app.interfaces.llm import LLMResponse
 from app.runtime.character_turn import CharacterTurn, TurnInput
 from app.runtime.prompt_compiler import PromptCompiler
 from app.runtime.response_interpreter import ResponseInterpreter
+from app.runtime.steps.decision_step import DecisionStep
 
 
 class _Planner:
@@ -99,6 +102,38 @@ def test_response_interpreter_selects_dominant_segment_and_keeps_intensity_separ
     assert performance.intensity == 0.8
     assert performance.energy == 0.2
     assert performance.attention == "screen"
+
+
+def test_decision_step_preserves_one_coherent_dominant_segment_performance():
+    class SegmentedLLM:
+        async def generate(self, messages, **kwargs):
+            return LLMResponse(
+                reply="先开心地回应，再平静收尾。",
+                segments=[
+                    {
+                        "text": "先开心地回应。",
+                        "emotion": "happy",
+                        "behavior": "greet",
+                        "intensity": 0.8,
+                        "energy": 0.7,
+                    },
+                    {
+                        "text": "再平静收尾。",
+                        "emotion": "neutral",
+                        "behavior": "speak",
+                        "intensity": 0.3,
+                        "energy": 0.3,
+                    },
+                ],
+            )
+
+    turn = CharacterTurn(input=TurnInput(text="你好"))
+    asyncio.run(DecisionStep(SegmentedLLM()).run(turn))
+
+    assert turn.output.performance.emotion == "happy"
+    assert turn.output.performance.behavior == "greet"
+    assert turn.output.performance.intensity == 0.8
+    assert turn.output.performance.energy == 0.7
 
 
 def test_response_interpreter_canonicalizes_every_segment_motion_plan():

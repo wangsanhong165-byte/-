@@ -1,4 +1,5 @@
 import type { MotionKeyframe, MotionPreset } from './MotionArbiter'
+import type { AvatarLogicalMotionPreset } from './AvatarCapabilityProfile.ts'
 import { sampleMotionCurve } from './performance/MotionCurve.ts'
 
 export const MOTION_PRIMITIVES = [
@@ -53,6 +54,9 @@ type PrimitiveFrame = {
 const MAX_ACTION_DURATION_MS = 30_000
 const MAX_LLM_STEPS = 3
 const MAX_AUTHORED_STEPS = 16
+const MAX_LOGICAL_PRESETS = 32
+const MAX_LOGICAL_KEYFRAMES = 256
+const SAFE_LOGICAL_PARAMETER = /^(head|body|eye|brow|mouth|blink|tail|arm|hand|ear|hair|accessory)\.[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)*$/
 
 export function validateMotionPlan(
   value: unknown,
@@ -175,6 +179,51 @@ export function normalizeMotionActions(value: unknown): MotionActionDefinition[]
     }
   }
   return actions
+}
+
+/**
+ * Normalize trusted model-authored timelines. These are intentionally a
+ * different boundary from LLM motion plans: they may contain many logical
+ * keyframes, but never renderer IDs such as ParamAngleX.
+ */
+export function normalizeLogicalMotionPresets(value: unknown): AvatarLogicalMotionPreset[] {
+  if (!Array.isArray(value)) return []
+  const presets: AvatarLogicalMotionPreset[] = []
+  const names = new Set<string>()
+  for (const raw of value.slice(0, MAX_LOGICAL_PRESETS)) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue
+    const record = raw as Record<string, unknown>
+    const name = normalizePresetName(record.name)
+    const duration = finiteNumber(record.duration)
+    const rawKeyframes = record.keyframes
+    if (!name || duration === null || duration < 300 || duration > MAX_ACTION_DURATION_MS
+        || !Array.isArray(rawKeyframes) || rawKeyframes.length < 2) continue
+    if (names.has(name)) continue
+    const keyframes: AvatarLogicalMotionPreset['keyframes'] = []
+    for (const rawFrame of rawKeyframes.slice(0, MAX_LOGICAL_KEYFRAMES)) {
+      if (!rawFrame || typeof rawFrame !== 'object' || Array.isArray(rawFrame)) continue
+      const frame = rawFrame as Record<string, unknown>
+      const time = finiteNumber(frame.time)
+      const parameter = typeof frame.parameter === 'string' ? frame.parameter.trim().toLowerCase() : ''
+      const value = finiteNumber(frame.value)
+      if (time === null || value === null || !SAFE_LOGICAL_PARAMETER.test(parameter)) continue
+      if (time < 0 || time > duration || value < -30 || value > 30) continue
+      keyframes.push({ time: Math.round(time), parameter, value })
+    }
+    if (keyframes.length < 2) continue
+    keyframes.sort((left, right) => left.time - right.time || left.parameter.localeCompare(right.parameter))
+    names.add(name)
+    const fadeInMs = finiteNumber(record.fadeInMs)
+    const recoveryMs = finiteNumber(record.recoveryMs)
+    presets.push({
+      name,
+      duration: Math.round(duration),
+      keyframes,
+      ...(fadeInMs !== null ? { fadeInMs: Math.round(clamp(fadeInMs, 0, 500)) } : {}),
+      ...(recoveryMs !== null ? { recoveryMs: Math.round(clamp(recoveryMs, 300, 600)) } : {}),
+    })
+  }
+  return presets
 }
 
 export function compileMotionAction(action: MotionActionDefinition): MotionPreset {
@@ -338,6 +387,11 @@ function normalizeActionId(value: unknown): string {
   const normalized = raw.replace(/[^a-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40)
   if (!normalized) throw new Error('Action id is required')
   return normalized
+}
+
+function normalizePresetName(value: unknown): string {
+  const raw = typeof value === 'string' ? value.trim().toLowerCase() : ''
+  return raw.replace(/[^a-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 48)
 }
 
 function finiteNumber(value: unknown): number | null {

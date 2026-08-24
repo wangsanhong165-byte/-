@@ -1,5 +1,6 @@
 {
   "model": "shirone",
+  "petViewport": { "x": 0, "y": 0.02, "scale": 0.78 },
   "expressions": [
     "neutral",
     "happy",
@@ -10,7 +11,14 @@
     "surprised",
     "shy"
   ],
-  "motions": ["nod", "tilt", "sway", "thinking"],
+  "motions": [
+    "nod",
+    "tilt",
+    "sway",
+    "thinking",
+    "ear_flick",
+    "tail_sweep"
+  ],
   "sequences": [],
   "parameters": {
     "eye": {
@@ -35,6 +43,16 @@
     "body.x": "ParamBodyAngleX",
     "body.y": "ParamBodyAngleY",
     "body.z": "ParamBodyAngleZ",
+    "body.y2": "ParamBodyAngleY2",
+    "body.z2": "ParamBodyAngleZ2",
+    "brow.left.form": { "target": "ParamBrowLForm", "min": -1, "max": 1 },
+    "brow.left.y": { "target": "ParamBrowLY", "min": -1, "max": 1 },
+    "brow.left.angle": { "target": "ParamBrowLAngle", "min": -1, "max": 1 },
+    "brow.right.form": { "target": "ParamBrowRForm", "min": -1, "max": 1 },
+    "brow.right.y": { "target": "ParamBrowRY", "min": -1, "max": 1 },
+    "brow.right.angle": { "target": "ParamBrowRAngle", "min": -1, "max": 1 },
+    "ear.left.forward": { "target": "Param239", "min": -30, "max": 30 },
+    "ear.right.forward": { "target": "Param250", "min": -30, "max": 30 },
     "tail.z": {
       "target": "Param_Angle_Rotation_1_ArtMesh572",
       "scale": 0.2,
@@ -63,15 +81,15 @@
     "blink.right": "ParamEyeROpen"
   },
   "motionStyle": {
-    "preset": "natural",
-    "spontaneity": 1.18,
-    "gestureFrequency": 1.18,
-    "gazeStability": 0.62,
-    "microMotionGain": 1.1,
-    "idleActionGain": 1.14,
-    "bodyMotionGain": 1.18,
+    "preset": "lively",
+    "spontaneity": 1.08,
+    "gestureFrequency": 1.02,
+    "gazeStability": 0.58,
+    "microMotionGain": 1.04,
+    "idleActionGain": 1.02,
+    "bodyMotionGain": 1.02,
     "avoidRepeatWindow": 4,
-    "speechAccentGain": 1.38
+    "speechAccentGain": 1.12
   },
   "personality": {
     "expressiveness": 0.88,
@@ -82,6 +100,7 @@
     "headControl": true,
     "bodyControl": true,
     "gazeControl": true,
+    "browControl": true,
     "eyeBlink": true,
     "mouthControl": true,
     "mouthForm": true,
@@ -90,7 +109,7 @@
   "performanceMode": "enhanced",
   "expressionParameterPolicy": {
     "discreteSwitchDelayMs": 220,
-    "minimumBlendDurationMs": 520,
+    "minimumBlendDurationMs": 460,
     "discreteParameterIds": [
       "Param37", "Param39", "Param40", "Param194", "Param195", "Param196",
       "Param197", "Param210", "Param211", "Param212", "Param213", "Param216",
@@ -102,12 +121,106 @@
       "Param217", "Param219"
     ]]
   },
-  "parameterGain": 1.32,
+  "parameterGain": 1.40,
   "bodyMotionGain": 1.34,
   "motionMap": {
     "idle": "Idle"
   },
+  "semanticMotionMap": {
+    "greet": "sway",
+    "wave": "sway",
+    "excited": "tail_sweep",
+    "laugh": "nod",
+    "agree": "nod",
+    "disagree": "tilt",
+    "think": "thinking",
+    "comfort": "tilt",
+    "shrug": "tilt",
+    "playful": "ear_flick"
+  },
+  "nativeMotionChannels": {
+    "idle": ["secondary"]
+  },
+  "logicalMotionPresets": [
+    {
+      "name": "ear_flick",
+      "duration": 1300,
+      "recoveryMs": 460,
+      "fadeInMs": 180,
+      "keyframes": [
+        { "time": 0, "parameter": "ear.left.forward", "value": 0 },
+        { "time": 240, "parameter": "ear.left.forward", "value": 8 },
+        { "time": 600, "parameter": "ear.left.forward", "value": -2 },
+        { "time": 1050, "parameter": "ear.left.forward", "value": 1 },
+        { "time": 1300, "parameter": "ear.left.forward", "value": 0 },
+        { "time": 0, "parameter": "ear.right.forward", "value": 0 },
+        { "time": 320, "parameter": "ear.right.forward", "value": -7 },
+        { "time": 720, "parameter": "ear.right.forward", "value": 2 },
+        { "time": 1120, "parameter": "ear.right.forward", "value": -1 },
+        { "time": 1300, "parameter": "ear.right.forward", "value": 0 },
+        { "time": 0, "parameter": "head.z", "value": 0 },
+        { "time": 460, "parameter": "head.z", "value": 2.2 },
+        { "time": 950, "parameter": "head.z", "value": 1.1 },
+        { "time": 1300, "parameter": "head.z", "value": 0 },
+        { "time": 0, "parameter": "body.x", "value": 0 },
+        { "time": 520, "parameter": "body.x", "value": -1.25 },
+        { "time": 960, "parameter": "body.x", "value": -0.6 },
+        { "time": 1300, "parameter": "body.x", "value": 0 },
+        { "time": 0, "parameter": "eye.x", "value": 0 },
+        { "time": 500, "parameter": "eye.x", "value": 0.16 },
+        { "time": 1000, "parameter": "eye.x", "value": 0.08 },
+        { "time": 1300, "parameter": "eye.x", "value": 0 }
+      ]
+    },
+    {
+      "name": "tail_sweep",
+      "duration": 1900,
+      "recoveryMs": 600,
+      "fadeInMs": 180,
+      "keyframes": [
+        { "time": 0, "parameter": "head.z", "value": 0 },
+        { "time": 550, "parameter": "head.z", "value": -1.2 },
+        { "time": 1250, "parameter": "head.z", "value": 0.7 },
+        { "time": 1900, "parameter": "head.z", "value": 0 },
+        { "time": 0, "parameter": "body.x", "value": 0 },
+        { "time": 600, "parameter": "body.x", "value": -1.4 },
+        { "time": 1250, "parameter": "body.x", "value": 2.2 },
+        { "time": 1900, "parameter": "body.x", "value": 0 },
+        { "time": 0, "parameter": "eye.x", "value": 0 },
+        { "time": 700, "parameter": "eye.x", "value": -0.16 },
+        { "time": 1400, "parameter": "eye.x", "value": 0.12 },
+        { "time": 1900, "parameter": "eye.x", "value": 0 },
+        { "time": 0, "parameter": "tail.z", "value": 0 },
+        { "time": 400, "parameter": "tail.z", "value": 6 },
+        { "time": 1050, "parameter": "tail.z", "value": -7 },
+        { "time": 1550, "parameter": "tail.z", "value": 3 },
+        { "time": 1900, "parameter": "tail.z", "value": 0 },
+        { "time": 0, "parameter": "tail.segment01", "value": 0 },
+        { "time": 500, "parameter": "tail.segment01", "value": 4 },
+        { "time": 1150, "parameter": "tail.segment01", "value": -5 },
+        { "time": 1650, "parameter": "tail.segment01", "value": 2.5 },
+        { "time": 1900, "parameter": "tail.segment01", "value": 0 },
+        { "time": 0, "parameter": "tail.segment05", "value": 0 },
+        { "time": 650, "parameter": "tail.segment05", "value": 3.5 },
+        { "time": 1250, "parameter": "tail.segment05", "value": -4.5 },
+        { "time": 1720, "parameter": "tail.segment05", "value": 2.2 },
+        { "time": 1900, "parameter": "tail.segment05", "value": 0 },
+        { "time": 0, "parameter": "tail.segment10", "value": 0 },
+        { "time": 800, "parameter": "tail.segment10", "value": 2.5 },
+        { "time": 1400, "parameter": "tail.segment10", "value": -3.5 },
+        { "time": 1780, "parameter": "tail.segment10", "value": 1.5 },
+        { "time": 1900, "parameter": "tail.segment10", "value": 0 },
+        { "time": 0, "parameter": "tail.segment15", "value": 0 },
+        { "time": 950, "parameter": "tail.segment15", "value": 1.8 },
+        { "time": 1500, "parameter": "tail.segment15", "value": -2.5 },
+        { "time": 1830, "parameter": "tail.segment15", "value": 1 },
+        { "time": 1900, "parameter": "tail.segment15", "value": 0 }
+      ]
+    }
+  ],
   "expressionMap": {
+    "happy": "happy",
+    "joyful": "星星眼",
     "cheerful": "星星眼",
     "laughing": "星星眼",
     "playful": "星星眼",

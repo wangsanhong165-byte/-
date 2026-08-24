@@ -1,26 +1,28 @@
-function getPetBounds(workArea) {
+const DEFAULT_MODEL_SIZE = Object.freeze({ width: 420, height: 620 })
+const DEFAULT_CONVERSATION_SIZE = Object.freeze({ width: 360, height: 176 })
+
+function compactSurfaceBounds(workArea, size, position) {
+  const width = Math.max(1, Math.min(Math.round(size.width), Math.round(workArea.width)))
+  const height = Math.max(1, Math.min(Math.round(size.height), Math.round(workArea.height)))
   return {
-    x: Math.round(workArea.x),
-    y: Math.round(workArea.y),
-    width: Math.max(1, Math.round(workArea.width)),
-    height: Math.max(1, Math.round(workArea.height)),
+    x: position === 'left'
+      ? Math.round(workArea.x + Math.min(32, Math.max(0, workArea.width - width)))
+      : Math.round(workArea.x + workArea.width - width - Math.min(24, Math.max(0, workArea.width - width))),
+    y: Math.round(workArea.y + workArea.height - height - Math.min(
+      position === 'left' ? 32 : 24,
+      Math.max(0, workArea.height - height),
+    )),
+    width,
+    height,
   }
 }
 
-function isPointInPetRegions(point, regions) {
-  if (!point || !Array.isArray(regions)) return false
-  return regions.some(region => {
-    if (!region) return false
-    const x = Number(region.x)
-    const y = Number(region.y)
-    const width = Number(region.width)
-    const height = Number(region.height)
-    if (![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0) {
-      return false
-    }
-    return point.x >= x && point.x <= x + width
-      && point.y >= y && point.y <= y + height
-  })
+function getPetBounds(workArea) {
+  return compactSurfaceBounds(workArea, DEFAULT_MODEL_SIZE, 'right')
+}
+
+function getPetConversationBounds(workArea) {
+  return compactSurfaceBounds(workArea, DEFAULT_CONVERSATION_SIZE, 'left')
 }
 
 function fitBoundsToWorkArea(bounds, workArea) {
@@ -45,8 +47,10 @@ function selectRestorableBounds({ current, normal, maximized, fullScreen }) {
 }
 
 module.exports = {
+  DEFAULT_CONVERSATION_SIZE,
+  DEFAULT_MODEL_SIZE,
   fitBoundsToWorkArea,
   getPetBounds,
-  isPointInPetRegions,
+  getPetConversationBounds,
   selectRestorableBounds,
 }
