@@ -18,7 +18,7 @@ class EventType:
     """Canonical event type constants."""
     SPEECH_RECEIVED = "speech_received"
     TEXT_RECEIVED = "text_received"
+    VISUAL_RECEIVED = "visual_received"
     INITIATIVE_TRIGGERED = "initiative_triggered"
-    VISION_UPDATED = "vision_updated"
     TOOL_FINISHED = "tool_finished"
     SESSION_RESUMED = "session_resumed"

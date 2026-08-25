@@ -39,6 +39,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
   text: string
   reasoning?: string
+  imageCount?: number
   timestamp: number
 }
 

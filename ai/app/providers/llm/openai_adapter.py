@@ -131,6 +131,8 @@ class OpenAILLMProvider(LLMInterface):
             "model": self._adapter.model,
             "base_url": self._adapter.base_url,
             "api_key_configured": self._adapter.api_key_configured,
+            "visionEnabled": self._adapter.vision_enabled,
+            "visualPolicy": self._adapter.visual_policy,
         }
 
     async def generate(
@@ -186,6 +188,12 @@ class OpenAILLMProvider(LLMInterface):
 
         # ── Parse LLM text content ────────────────────────────────────
         content = result.get("content", "")
+        visual = dict(result.get("_visual") or {})
+        if visual.get("hasVisionInput"):
+            visual.setdefault("engine", self._adapter.engine)
+            visual.setdefault("model", self._adapter.model)
+            visual.setdefault("providerSuccess", not bool(result.get("error")))
+            visual.setdefault("finishReason", str(result.get("finish_reason", "") or ""))
         segments: list[dict] = []
         # Only expose a transcript when the provider actually returned one.
         # JSON-in-text tool calls have no native assistant/tool_call message;
@@ -214,10 +222,13 @@ class OpenAILLMProvider(LLMInterface):
                     for tc in inner_tool_calls
                     if isinstance(tc, dict)
                 ]
-        elif content:
-            recovered_reply = _recover_spoken_text_from_malformed_output(content)
-            if recovered_reply is not None:
-                reply = recovered_reply
+        else:
+            if visual.get("hasVisionInput"):
+                visual["visualFallback"] = True
+            if content:
+                recovered_reply = _recover_spoken_text_from_malformed_output(content)
+                if recovered_reply is not None:
+                    reply = recovered_reply
 
         raw_usage = result.get("usage") or {}
         cached = raw_usage.get("cached_tokens", 0)
@@ -237,6 +248,7 @@ class OpenAILLMProvider(LLMInterface):
                 model=str(result.get("model", "")),
             ),
             finish_reason=str(result.get("finish_reason", "") or ""),
+            visual=visual,
         )
 
     async def generate_stream(

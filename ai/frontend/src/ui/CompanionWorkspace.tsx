@@ -21,6 +21,7 @@ import type { DrawerSection } from './workspace-state'
 import { CharacterManagerPanel } from './CharacterManagerPanel'
 import { StageBackground } from './StageBackground'
 import type { CharacterDescriptor } from './character-catalog'
+import type { VisualComposerInput } from './InputBar'
 
 const DRAWER_ITEMS: DrawerItem[] = [
   { id: 'history', label: '聊天记录', icon: <History /> },
@@ -48,7 +49,7 @@ export interface CompanionWorkspaceProps {
   subtitleSpeaking: boolean
   accessoryParts: Record<string, string>
   accessoryState: Record<string, boolean>
-  onSend: (text: string) => void
+  onSend: (input: VisualComposerInput) => boolean | void
   onInterrupt: () => void
   onLoadHistory: (uid: string) => void
   onDeleteHistory: (uid: string) => void

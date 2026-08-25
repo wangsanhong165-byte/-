@@ -1,0 +1,9 @@
+{
+  "id": "amiya",
+  "name": "Amiya",
+  "ref": "Amiya_reference.wav",
+  "gpt": "Amiya.ckpt",
+  "vits": "Amiya.pth",
+  "prompt_text": "博士，请稍微听我说几句话，可以吗？",
+  "prompt_lang": "zh"
+}

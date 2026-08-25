@@ -378,8 +378,12 @@ export class RuntimeAdapter {
     this._connected = false
   }
 
-  sendText(text: string): void {
-    this.client.sendText(text)
+  sendText(text: string): boolean {
+    return this.client.sendText(text)
+  }
+
+  sendVisual(text: string, attachments: EventPayloadMap['user.visual']['attachments']): boolean {
+    return this.client.sendVisual(text, attachments)
   }
 
   sendInterrupt(): void {

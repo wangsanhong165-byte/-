@@ -183,6 +183,11 @@ class ToolCoordinator:
                 "attempts": 0, "duration_ms": 0,
                 "argument_keys": sorted(str(key) for key in tc_args),
             })
+        raw_result_text = result_text
+        try:
+            raw_parsed = _json.loads(raw_result_text)
+        except (_json.JSONDecodeError, ValueError, TypeError):
+            raw_parsed = None
         result_text = policy.clean_result(result_text)
         from app.runtime.context_budget import ContextBudget
         budget = ContextBudget()
@@ -191,10 +196,58 @@ class ToolCoordinator:
 
         tc_content: str | list = result_text
         try:
-            parsed = _json.loads(result_text)
+            parsed = raw_parsed
             if isinstance(parsed, dict) and parsed.get("type") == "screenshot":
-                w, h = parsed.get("width", 0), parsed.get("height", 0)
-                tc_content = f"Screenshot captured ({w}x{h})"
+                from app.runtime.visual_attachments import VisualAttachmentError, VisualAttachmentStore
+
+                ctx.visual_diagnostics.update({
+                    "hasVisionInput": True,
+                    "protocol": "screen_capture",
+                    "screenshotToolSuccess": True,
+                    "tool": "screen_capture",
+                    "toolResultType": "screenshot",
+                })
+                attachment_id = str(parsed.get("attachmentId", ""))
+                try:
+                    image_url = VisualAttachmentStore().load_data_url(attachment_id)
+                except VisualAttachmentError as exc:
+                    ctx.visual_diagnostics.update({
+                        "screenshotInjected": False,
+                        "screenshotInjectionFailed": str(exc),
+                    })
+                    tc_content = _json.dumps({
+                        "error": "screenshot_injection_failed",
+                        "message": str(exc),
+                    }, ensure_ascii=False)
+                else:
+                    ctx.visual_diagnostics.update({
+                        "screenshotInjected": True,
+                        "imageCount": 1,
+                        "imageBytes": int(parsed.get("sizeBytes", 0) or 0),
+                        "mimeTypes": [str(parsed.get("mimeType", "image/png"))],
+                        "dimensions": [{
+                            "width": int(parsed.get("width", 0) or 0),
+                            "height": int(parsed.get("height", 0) or 0),
+                        }],
+                    })
+                    tc_content = [
+                        {
+                            "type": "text",
+                            "text": f"Screenshot captured ({parsed.get('width', 0)}x{parsed.get('height', 0)}). Inspect the attached image.",
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": image_url, "detail": "auto"},
+                        },
+                    ]
+            elif isinstance(parsed, dict) and parsed.get("type") == "screenshot_error":
+                ctx.visual_diagnostics.update({
+                    "hasVisionInput": True,
+                    "protocol": "screen_capture",
+                    "screenshotToolSuccess": False,
+                    "screenshotInjected": False,
+                    "visualError": str(parsed.get("error", "screen capture failed")),
+                })
         except (_json.JSONDecodeError, ValueError, TypeError):
             pass
 

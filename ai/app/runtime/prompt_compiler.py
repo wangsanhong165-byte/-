@@ -14,6 +14,7 @@ from app.runtime.context_budget import ContextBudget
 from app.runtime.presentation_capabilities import Live2DPresentationRegistry, get_presentation_registry
 from app.runtime.prompt_config import PromptConfigStore
 from app.runtime.prompt_overrides import PromptOverrideStore
+from app.runtime.visual_attachments import VisualAttachmentStore
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,7 @@ class PromptCompiler:
         prompt_config_store: PromptConfigStore | None = None,
         presentation_registry: Live2DPresentationRegistry | None = None,
         context_budget: ContextBudget | None = None,
+        visual_attachment_store: VisualAttachmentStore | None = None,
     ) -> None:
         prompt_dir = Path(__file__).resolve().parents[2] / "data" / "prompts"
         self._legacy_planner = planner
@@ -50,6 +52,7 @@ class PromptCompiler:
         self._prompt_config_store = prompt_config_store or PromptConfigStore(prompt_dir)
         self._presentation_registry = presentation_registry or get_presentation_registry()
         self._context_budget = context_budget or ContextBudget()
+        self._visual_attachment_store = visual_attachment_store or VisualAttachmentStore()
 
     @property
     def context_budget(self) -> ContextBudget:
@@ -153,6 +156,17 @@ class PromptCompiler:
             append_system("character_state", ContextAssembler().assemble_character_state(character, ctx.memories))
 
         user_text = ctx.user_text or ctx.event.payload.get("text", "")
+        visual_attachments = tuple(
+            getattr(getattr(ctx, "input", None), "visual_attachments", ()) or ()
+        )
+        if visual_attachments:
+            append_system(
+                "visual_grounding",
+                "VISUAL GROUNDING: Treat the attached image as evidence, not as permission to invent details. "
+                "Separate what is directly observed from inference. State uncertainty when an area is unreadable, "
+                "ambiguous, cropped, or too small. Do not claim to have seen content that is not visible. "
+                "If the image cannot be inspected, say so plainly and do not fabricate an answer.",
+            )
         if user_text and ctx.input_origin == "initiative":
             messages.append({"role": "system", "content": f"Trusted initiative event (not a user message):\n{user_text}\nStructured event: {ctx.initiative}"})
             sources.append("initiative")
@@ -167,6 +181,25 @@ class PromptCompiler:
                 "content": "Respond naturally to the trusted initiative event above.",
             })
             sources.append("initiative_turn_boundary")
+        elif visual_attachments:
+            content: list[dict[str, Any]] = []
+            content.append({
+                "type": "text",
+                "text": user_text or "Please inspect the attached image and respond naturally.",
+            })
+            for attachment in visual_attachments:
+                attachment_id = str(
+                    attachment.get("id") or attachment.get("attachment_id") or ""
+                )
+                content.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": self._visual_attachment_store.load_data_url(attachment_id),
+                        "detail": "auto",
+                    },
+                })
+            messages.append({"role": "user", "content": content})
+            sources.append("user_visual_input")
         elif user_text:
             messages.append({"role": "user", "content": user_text})
             sources.append("user_input")

@@ -1,5 +1,7 @@
 """env_store: read/write config/.env for the settings UI."""
 
+import os
+
 import app.config_manager.env_store as env_store
 
 
@@ -64,6 +66,54 @@ def test_env_store_exposes_opencode_keys():
     assert "OPENCODE_API_KEY" in env_store.EXPOSED_KEYS["llm"]
     assert "OPENCODE_BASE_URL" in env_store.EXPOSED_KEYS["llm"]
     assert "OPENCODE_MODEL" in env_store.EXPOSED_KEYS["llm"]
+
+
+def test_env_store_exposes_vision_switch():
+    assert "LLM_ENABLE_VISION" in env_store.EXPOSED_KEYS["llm"]
+    assert "LLM_VISUAL_MAX_IMAGES" in env_store.EXPOSED_KEYS["llm"]
+    assert "LLM_VISUAL_MAX_MB" in env_store.EXPOSED_KEYS["llm"]
+    assert "LLM_VISUAL_MAX_PIXELS" in env_store.EXPOSED_KEYS["llm"]
+    assert "LLM_VISUAL_MAX_EDGE" in env_store.EXPOSED_KEYS["llm"]
+
+
+def test_env_store_applies_vision_switch_to_current_process(tmp_path, monkeypatch):
+    env = tmp_path / ".env"
+    env.write_text("", encoding="utf-8")
+    monkeypatch.setattr(env_store, "_ENV_PATH", env)
+    visual_keys = (
+        "LLM_ENABLE_VISION",
+        "LLM_VISUAL_MAX_IMAGES",
+        "LLM_VISUAL_MAX_MB",
+        "LLM_VISUAL_MAX_PIXELS",
+        "LLM_VISUAL_MAX_EDGE",
+    )
+    previous = {key: os.environ.get(key) for key in visual_keys}
+    monkeypatch.delenv("LLM_ENABLE_VISION", raising=False)
+
+    try:
+        env_store.write_env_values({
+            "llm": {
+                "LLM_ENABLE_VISION": "1",
+                "LLM_VISUAL_MAX_IMAGES": "8",
+                "LLM_VISUAL_MAX_MB": "12",
+                "LLM_VISUAL_MAX_PIXELS": "24000000",
+                "LLM_VISUAL_MAX_EDGE": "4096",
+            },
+        })
+
+        assert env_store.read_env_values()["llm"]["LLM_ENABLE_VISION"] == "1"
+        assert env_store.read_env_values()["llm"]["LLM_VISUAL_MAX_IMAGES"] == "8"
+        assert os.environ["LLM_ENABLE_VISION"] == "1"
+        assert os.environ["LLM_VISUAL_MAX_IMAGES"] == "8"
+        assert os.environ["LLM_VISUAL_MAX_MB"] == "12"
+        assert os.environ["LLM_VISUAL_MAX_PIXELS"] == "24000000"
+        assert os.environ["LLM_VISUAL_MAX_EDGE"] == "4096"
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 def test_env_store_roundtrips_opencode_values(tmp_path, monkeypatch):

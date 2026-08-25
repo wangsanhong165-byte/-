@@ -26,6 +26,7 @@ import type { AiActivity } from '../core/types'
 import type { AppSettings } from '../core/store'
 import type { ChatMessage } from '../core/types'
 import { CompanionWorkspace } from '../ui/CompanionWorkspace'
+import type { VisualComposerInput } from '../ui/InputBar'
 import type { CharacterDescriptor } from '../ui/character-catalog'
 import { requestLive2DModelLoad, synchronizeStartupLive2DModel } from './live2d-switch'
 import { resolveHistoryCommand } from '../conversation/history-command'
@@ -367,16 +368,27 @@ export function DesktopSessionWorkspace() {
     }
   }, [])
 
-  const handleSend = useCallback((text: string) => {
+  const handleSend = useCallback((input: VisualComposerInput): boolean => {
+    const { text, images } = input
     const client = clientRef.current
     const audio = audioRef.current
-    if (!client) return
+    if (!client) return false
+    const sent = images.length > 0
+      ? client.sendVisual(text, images)
+      : client.sendText(text)
+    if (!sent) return false
     // Ensure AudioContext is ready (browser autoplay policy)
     audio?.resume()
     actions.setStatusMessage('Processing...')
-    actions.addMessage({ id: nextId(), role: 'user', text, timestamp: Date.now() })
+    actions.addMessage({
+      id: nextId(),
+      role: 'user',
+      text,
+      imageCount: images.length || undefined,
+      timestamp: Date.now(),
+    })
     actions.addMessage({ id: nextId(), role: 'assistant', text: '', timestamp: Date.now() })
-    client.sendText(text)
+    return true
   }, [])
 
   const handleInterrupt = useCallback(() => {
@@ -481,7 +493,7 @@ export function DesktopSessionWorkspace() {
   useEffect(() => {
     if (surface !== 'pet-model') return
     return electronWindowBridge.onPetCommand(command => {
-      if (command.type === 'send') handleSend(command.text)
+      if (command.type === 'send') handleSend({ text: command.text, images: [] })
       else if (command.type === 'interrupt') handleInterrupt()
       else if (command.type === 'toggle-recording') void handleToggleRecording()
     })

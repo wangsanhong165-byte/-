@@ -11,7 +11,7 @@ from app.runtime.character_turn import CharacterTurn, TurnInput
 from app.runtime.steps import tts_step
 
 
-def _write_voice_assets(tmp_path: Path) -> dict[str, str]:
+def _write_voice_assets(tmp_path: Path, vits_tag: bytes = b"05") -> dict[str, str]:
     """Create valid reference audio + GPT/SoVITS checkpoint files."""
     ref = tmp_path / "ref.wav"
     with wave.open(str(ref), "wb") as output:
@@ -26,7 +26,7 @@ def _write_voice_assets(tmp_path: Path) -> dict[str, str]:
         with zipfile.ZipFile(path, "w") as archive:
             archive.writestr("model/data.pkl", b"checkpoint" * 128)
     vits_bytes = vits.read_bytes()
-    vits.write_bytes(b"05" + vits_bytes[2:])
+    vits.write_bytes(vits_tag + vits_bytes[2:])
     return {
         "reference_audio": str(ref),
         "t2s_model": str(t2s),
@@ -80,6 +80,18 @@ def test_voice_registry_adds_lists_and_resolves_packs(tmp_path: Path):
     # Files were copied into the voice pack, not referenced in place.
     assert (voice_dir / "ref.wav").is_file()
     assert (voice_dir / "gpt.ckpt").is_file()
+    assert (voice_dir / "sovits.pth").is_file()
+
+
+def test_voice_registry_accepts_v2proplus_tagged_weights(tmp_path: Path):
+    """A v2ProPlus ("06" tag) SoVITS checkpoint is a valid voice weight."""
+    assets = _write_voice_assets(tmp_path, vits_tag=b"06")
+    registry = VoiceRegistry(tmp_path)
+
+    added = registry.add(_spec(assets))
+
+    assert added["configured"] is True
+    voice_dir = tmp_path / "config" / "voices" / "monika"
     assert (voice_dir / "sovits.pth").is_file()
 
 

@@ -199,6 +199,7 @@ class SQLiteMemory(MemoryInterface):
                         turn_id=str(data.get("turn_id", "")),
                         write_token=str(data.get("write_token", "")),
                         history_uid=str(data.get("history_uid", "")),
+                        metadata={"visual": data.get("visual", {})},
                     )
                     if not committed:
                         data["idempotent_replay"] = True

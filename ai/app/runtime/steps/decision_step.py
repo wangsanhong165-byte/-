@@ -24,10 +24,10 @@ logger = logging.getLogger("decision_step")
 from app.runtime.pipeline import Step
 from app.runtime.character_turn import CharacterTurn
 from app.runtime.default_planner import DefaultPlanner, Plan  # compatibility exports
-from app.interfaces.llm import LLMInterface, LLMResponse
+from app.interfaces.llm import LLMInterface, LLMResponse, VisionRequestError
 from app.interfaces.tool import ToolInterface
 from app.runtime.tool_coordinator import ToolCoordinator
-
+from app.runtime.visual_attachments import redact_prompt_messages
 _MAX_TOOL_ROUNDS = min(3, max(1, int(os.environ.get("AGENT_MAX_TOOL_ROUNDS", "3"))))
 
 
@@ -79,6 +79,25 @@ class DecisionStep(Step):
         context_budget = self.prompt_compiler.context_budget
 
         user_text = ctx.user_text or ctx.event.payload.get("text", "")
+        visual_attachments = tuple(getattr(ctx.input, "visual_attachments", ()) or ())
+        if visual_attachments:
+            ctx.visual_diagnostics.update({
+                "hasVisionInput": True,
+                "protocol": "user.visual",
+                "imageCount": len(visual_attachments),
+                "imageBytes": sum(int(item.get("sizeBytes", 0) or 0) for item in visual_attachments),
+                "mimeTypes": sorted({str(item.get("mimeType", "")) for item in visual_attachments if item.get("mimeType")}),
+                "dimensions": [
+                    {"width": int(item.get("width", 0) or 0), "height": int(item.get("height", 0) or 0)}
+                    for item in visual_attachments
+                ],
+            })
+            ctx.visual_diagnostics["promptCompiled"] = True
+            ctx.visual_diagnostics["promptImageBlocks"] = sum(
+                1 for message in messages
+                for block in (message.get("content", []) if isinstance(message.get("content"), list) else [])
+                if isinstance(block, dict) and block.get("type") == "image_url"
+            )
 
         # Resolve tool schemas once, before the loop
         tool_schemas: list[dict] | None = None
@@ -116,12 +135,36 @@ class DecisionStep(Step):
             clean_messages = deepcopy(msgs)
             for message in clean_messages:
                 message.pop("_source_id", None)
-            ctx.prompt_messages = deepcopy(clean_messages)
+            ctx.prompt_messages = redact_prompt_messages(clean_messages)
             return self.llm.generate(clean_messages, tools=tools)
 
-        messages, response, accumulated_usage, final_reply = await self.tool_coordinator.execute_loop(
-            messages, ctx, tool_schemas, context_budget, _llm_gen
-        )
+        try:
+            messages, response, accumulated_usage, final_reply = await self.tool_coordinator.execute_loop(
+                messages, ctx, tool_schemas, context_budget, _llm_gen
+            )
+        except VisionRequestError:
+            raise
+        except Exception as exc:
+            if visual_attachments:
+                status_code = getattr(exc, "status_code", None) or getattr(exc, "response", None)
+                if hasattr(status_code, "status_code"):
+                    status_code = status_code.status_code
+                code = "vision.provider_rate_limited" if str(status_code) == "429" else "vision.provider_request_failed"
+                ctx.visual_diagnostics.update({
+                    "providerSuccess": False,
+                    "providerStatusCode": int(status_code) if str(status_code).isdigit() else None,
+                    "visualError": code,
+                })
+                raise VisionRequestError(
+                    f"Visual provider request failed: {exc}",
+                    code=code,
+                ) from exc
+            raise
+        if response.visual:
+            ctx.visual_diagnostics.update(response.visual)
+        if response.error and visual_attachments:
+            ctx.visual_diagnostics["providerSuccess"] = False
+            raise VisionRequestError(str(response.error), code="vision.provider_error")
 
         from app.modules.tts_preprocessor import split_reasoning
 
@@ -133,6 +176,8 @@ class DecisionStep(Step):
         )
         original_reply = (final_reply or response.reply).strip()
         if not safe.valid:
+            if visual_attachments:
+                ctx.visual_diagnostics["visualRepairAttempted"] = True
             truncated = response.finish_reason == "length"
             invalid_content = original_reply
             # An empty assistant message (or a whitespace-only one) is
@@ -167,19 +212,32 @@ class DecisionStep(Step):
             clean_messages = deepcopy(messages)
             for message in clean_messages:
                 message.pop("_source_id", None)
-            ctx.prompt_messages = deepcopy(clean_messages)
+            ctx.prompt_messages = redact_prompt_messages(clean_messages)
             repair = await self.llm.generate(
                 clean_messages, tools=None, temperature=0
             )
             accumulated_usage.add(repair.usage)
             response = repair
+            if repair.visual:
+                ctx.visual_diagnostics.update(repair.visual)
             safe = ResponseValidator().validate(
                 repair.reply,
                 repair.segments or [],
                 allowed_emotions=ctx.allowed_emotions,
                 semantic_context=user_text,
             )
+            if visual_attachments and safe.valid:
+                ctx.visual_diagnostics["visualRepairSucceeded"] = True
             if not safe.valid:
+                if visual_attachments:
+                    ctx.visual_diagnostics.update({
+                        "providerSuccess": False,
+                        "visualError": "vision.response_invalid",
+                    })
+                    raise VisionRequestError(
+                        "The visual model returned no valid spoken response",
+                        code="vision.response_invalid",
+                    )
                 # A structured repair is attempted exactly once.  If it still
                 # fails, retain usable prose rather than replacing the spoken
                 # answer with a generic line. Prefer the original reply so a
@@ -234,6 +292,8 @@ class DecisionStep(Step):
                 reasoning=response.reasoning,
                 segments=safe.segments,
                 tool_calls=response.tool_calls,
+                finish_reason=response.finish_reason,
+                visual=dict(response.visual),
                 usage=response.usage,
             ),
             ctx,
@@ -244,14 +304,29 @@ class DecisionStep(Step):
         ctx.warnings.extend(interpreted.warnings)
         from app.runtime.usage import usage_report
         ctx.llm_usage = usage_report(accumulated_usage)
+        ctx.llm_usage["finish_reason"] = response.finish_reason
+        if ctx.visual_diagnostics:
+            ctx.llm_usage["visual"] = dict(ctx.visual_diagnostics)
         provider_reasoning = (response.reasoning or "").strip()
         ctx.reasoning = "\n\n".join(part for part in (provider_reasoning, tagged_reasoning) if part)
 
         # Add turns to conversation
         conversation = ctx.conversation
         if conversation is not None:
-            if user_text and ctx.input_origin == "user":
-                conversation.add_turn("user", user_text)
+            if ctx.input_origin == "user" and (user_text or visual_attachments):
+                safe_user_text = user_text or f"用户发送了 {len(visual_attachments)} 张图片"
+                conversation.add_turn(
+                    "user",
+                    safe_user_text,
+                    input_mode="visual" if visual_attachments else "text",
+                    has_vision=bool(visual_attachments),
+                    image_count=len(visual_attachments),
+                    image_hashes=[
+                        str(item.get("sha256", ""))
+                        for item in visual_attachments
+                        if item.get("sha256")
+                    ],
+                )
             if ctx.reply_text and not any(
                 warning.startswith("assistant_reply_fallback")
                 for warning in ctx.warnings

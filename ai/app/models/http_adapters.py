@@ -1,16 +1,84 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 from typing import Any, Generator, Iterator
 
 import requests
 
+from app.interfaces.llm import VisionRequestError
+from app.runtime.visual_attachments import (
+    SUPPORTED_MIME_TYPES,
+    get_visual_limits,
+)
+
 # ASR/TTS are loopback services. Lifecycle-launched processes may inherit a
 # desktop HTTP proxy, so routing 127.0.0.1 traffic through it turns healthy
 # local services into spurious 502s. Disable proxy lookup for these adapters.
 _LOCAL_SESSION = requests.Session()
 _LOCAL_SESSION.trust_env = False
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def inspect_visual_messages(messages: list[dict]) -> dict[str, object]:
+    """Collect request metadata without retaining image data."""
+    image_sizes: list[int] = []
+    for message in messages:
+        content = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict) or block.get("type") != "image_url":
+                continue
+            image_url = block.get("image_url")
+            url = image_url.get("url", "") if isinstance(image_url, dict) else ""
+            size = 0
+            if isinstance(url, str) and url.startswith("data:") and "," in url:
+                encoded = url.split(",", 1)[1]
+                try:
+                    size = len(base64.b64decode(encoded, validate=True))
+                except (ValueError, TypeError):
+                    size = 0
+            image_sizes.append(size)
+    return {
+        "hasVisionInput": bool(image_sizes),
+        "imageCount": len(image_sizes),
+        "imageBytes": sum(image_sizes),
+        "imageByteSizes": image_sizes,
+    }
+
+
+def validate_visual_request(vision_enabled: bool, metadata: dict[str, object]) -> None:
+    """Apply user-owned visual policy and transport limits, not model allowlists."""
+    if not metadata.get("hasVisionInput"):
+        return
+    if not vision_enabled:
+        raise VisionRequestError(
+            "Visual input is disabled in settings; enable LLM_ENABLE_VISION to send images",
+            code="vision.disabled_by_settings",
+        )
+    limits = get_visual_limits()
+    image_count = int(metadata.get("imageCount", 0) or 0)
+    if image_count > limits["maxImages"]:
+        raise VisionRequestError(
+            f"Visual request contains {image_count} images; maximum is {limits['maxImages']}",
+            code="vision.image_count_exceeded",
+        )
+    sizes = metadata.get("imageByteSizes", [])
+    if isinstance(sizes, list):
+        largest = max((int(size or 0) for size in sizes), default=0)
+        if largest > limits["maxImageBytes"]:
+            raise VisionRequestError(
+                f"Visual image exceeds {limits['maxImageBytes']} bytes",
+                code="vision.image_bytes_exceeded",
+            )
 
 
 class HTTPASRAdapter:
@@ -123,6 +191,7 @@ class OpenAILLMAdapter:
             self._api_key = api_key or os.environ.get("DEEPSEEK_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
             self._base_url = base_url or os.environ.get("LLM_BASE_URL", "https://api.deepseek.com")
             self._model = model or os.environ.get("LLM_MODEL", "deepseek-v4-flash")
+        self._vision_enabled = _env_flag("LLM_ENABLE_VISION")
         self._temperature = temperature
         self._max_tool_rounds = max_tool_rounds
         client_kwargs: dict[str, Any] = {
@@ -151,6 +220,23 @@ class OpenAILLMAdapter:
     @property
     def api_key_configured(self) -> bool:
         return bool(self._api_key)
+
+    @property
+    def vision_enabled(self) -> bool:
+        # Settings writes update the current process environment, so an
+        # already-created provider observes the new toggle on its next turn.
+        return _env_flag(
+            "LLM_ENABLE_VISION",
+            bool(getattr(self, "_vision_enabled", False)),
+        )
+
+    @property
+    def visual_policy(self) -> dict[str, object]:
+        limits = get_visual_limits()
+        return {
+            **limits,
+            "supportedMimeTypes": sorted(SUPPORTED_MIME_TYPES),
+        }
 
     # ---- non-streaming ---------------------------------------------------
     def generate(
@@ -182,6 +268,11 @@ class OpenAILLMAdapter:
         max_rounds = max_tool_rounds or self._max_tool_rounds
         temp = temperature if temperature is not None else self._temperature
         msgs = list(messages)
+        visual_metadata = inspect_visual_messages(msgs)
+        # A few legacy tests and integrations construct this adapter with
+        # ``object.__new__``. Resolve lazily there while keeping normal
+        # construction explicit and immutable for the active route.
+        validate_visual_request(self.vision_enabled, visual_metadata)
 
         while rounds < max_rounds:
             rounds += 1
@@ -262,6 +353,7 @@ class OpenAILLMAdapter:
                     "model": self._model,
                     "usage": usage,
                     "raw_message": msg,
+                    "_visual": dict(visual_metadata),
                     "_messages": msgs,
                 }
 
@@ -274,6 +366,7 @@ class OpenAILLMAdapter:
                 "model": self._model,
                 "usage": usage,
                 "raw_message": msg,
+                "_visual": dict(visual_metadata),
             }
 
         return {
@@ -283,6 +376,7 @@ class OpenAILLMAdapter:
             "model": self._model,
             "usage": {},
             "raw_message": None,
+            "_visual": dict(visual_metadata),
         }
 
     def continue_with_tool_results(
@@ -328,6 +422,8 @@ class OpenAILLMAdapter:
                 result = e.value
         """
         temp = temperature if temperature is not None else self._temperature
+        visual_metadata = inspect_visual_messages(messages)
+        validate_visual_request(self.vision_enabled, visual_metadata)
         stream = self._client.chat.completions.create(
             model=self._model,
             messages=messages,

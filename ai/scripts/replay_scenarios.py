@@ -61,7 +61,6 @@ async def replay(scenarios: list[dict[str, Any]]) -> list[dict[str, Any]]:
             turn = await runtime.handle_turn(TurnInput(
                 text=str(scenario["text"]),
                 origin=origin,
-                screen_context=dict(scenario.get("screen_context", {})),
                 metadata={
                     "initiative": dict(scenario.get("initiative", {})),
                     "event_payload": dict(scenario.get("event_payload", {})),

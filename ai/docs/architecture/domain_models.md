@@ -48,8 +48,8 @@
 **Canonical types**:
 - `EventType.TEXT_RECEIVED` — text input
 - `EventType.SPEECH_RECEIVED` — voice input
+- `EventType.VISUAL_RECEIVED` — validated image input
 - `EventType.INITIATIVE_TRIGGERED` — proactive speech
-- `EventType.VISION_UPDATED` — screen context update
 - `EventType.TOOL_FINISHED` — tool execution complete
 - `EventType.SESSION_RESUMED` — session recovery
 

@@ -40,6 +40,43 @@ def _memory_summary(item: Any) -> dict[str, str]:
     }
 
 
+def _visual_project(turn: CharacterTurn) -> dict[str, Any]:
+    """Project only safe, useful visual metadata into the flight recorder."""
+    attachments = tuple(getattr(turn.input, "visual_attachments", ()) or ())
+    diagnostics = getattr(turn, "visual_diagnostics", {}) or {}
+    safe_keys = {
+        "hasVisionInput", "protocol", "imageCount", "imageBytes", "mimeTypes",
+        "dimensions", "engine", "model", "providerSuccess", "visualFallback",
+        "finishReason", "visualError", "screenshotToolSuccess", "screenshotInjected",
+        "screenshotInjectionFailed", "tool", "toolResultType", "promptCompiled",
+        "promptImageBlocks", "visualRepairAttempted", "visualRepairSucceeded",
+        "providerStatusCode",
+    }
+    projected = {
+        key: value for key, value in diagnostics.items()
+        if key in safe_keys and isinstance(value, (str, int, float, bool, list, dict, type(None)))
+    }
+    projected.setdefault("hasVisionInput", bool(attachments))
+    projected.setdefault("imageCount", len(attachments))
+    if attachments:
+        projected.setdefault(
+            "mimeTypes",
+            sorted({str(item.get("mimeType", "")) for item in attachments if item.get("mimeType")}),
+        )
+        projected.setdefault(
+            "dimensions",
+            [
+                {"width": int(item.get("width", 0) or 0), "height": int(item.get("height", 0) or 0)}
+                for item in attachments
+            ],
+        )
+        projected["attachmentIds"] = [str(item.get("id", "")) for item in attachments if item.get("id")]
+        projected["attachmentHashes"] = [str(item.get("sha256", "")) for item in attachments if item.get("sha256")]
+    if projected.get("hasVisionInput"):
+        projected["visualLatencyMs"] = round(float(turn.metrics.get("DecisionStep_ms", 0.0)), 2)
+    return projected
+
+
 class TurnRecorder:
     def __init__(
         self,
@@ -92,7 +129,11 @@ class TurnRecorder:
                     float(turn.created_at),
                     turn.phase.value,
                     turn.input_origin,
-                    _safe_text(turn.user_text, 160),
+                    _safe_text(turn.user_text, 160)
+                    or (
+                        f"用户发送了 {len(getattr(turn.input, 'visual_attachments', ()) or ())} 张图片"
+                        if getattr(turn.input, "visual_attachments", ()) else ""
+                    ),
                     json.dumps(detail, ensure_ascii=False),
                 ),
             )
@@ -206,7 +247,11 @@ class TurnRecorder:
             ).isoformat(),
             "phase": turn.phase.value,
             "origin": turn.input_origin,
-            "input": {"text": _safe_text(turn.user_text, 600)},
+            "input": {
+                "text": _safe_text(turn.user_text, 600),
+                "inputMode": "visual" if turn.input.visual_attachments else "audio" if turn.input.audio else "text",
+                "visual": _visual_project(turn),
+            },
             "response": {
                 "text": _safe_text(turn.reply_text),
                 "segments": [
@@ -270,8 +315,10 @@ class TurnRecorder:
                 if key in {
                     "prompt_tokens", "completion_tokens", "total_tokens",
                     "cached_tokens", "model", "estimated_cost_usd",
+                    "finish_reason",
                 }
             },
+            "visual": _visual_project(turn),
             "timeline": step_events,
             "warnings": [_redact_text(item, 200) for item in turn.warnings[:20]],
             "error": (

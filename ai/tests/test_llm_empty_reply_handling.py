@@ -521,6 +521,21 @@ def test_validator_recovers_all_supported_expression_families_from_plain_text():
         assert recovered.segments[0]["emotion"] == emotion, reply
 
 
+def test_validator_does_not_turn_a_negated_anger_reference_into_current_anger():
+    from app.runtime.response_validator import ResponseValidator
+
+    reply = (
+        "好好好，我不欺负你了，乖乖陪你玩。你想玩啥呀？"
+        "我陪你玩到尽兴为止，可不能再生气了哦~"
+    )
+
+    recovered = ResponseValidator().validate(reply, [])
+
+    assert recovered.segments[-1]["emotion"] == "calm"
+    assert recovered.segments[-1]["behavior"] == "comfort"
+    assert all(segment["emotion"] != "angry" for segment in recovered.segments)
+
+
 def test_validator_uses_user_intent_and_collapses_aliases_to_model_palette():
     from app.runtime.response_validator import ResponseValidator
 

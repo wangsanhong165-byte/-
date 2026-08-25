@@ -14,6 +14,16 @@ class TransportEmitter:
     """Emit one ordered V3 lifecycle without WebSocket or session concerns."""
 
     @staticmethod
+    def _input_mode(turn_input: TurnInput) -> str:
+        if turn_input.audio:
+            return "audio"
+        if turn_input.visual_attachments:
+            return "visual"
+        if turn_input.origin.value == "initiative":
+            return "initiative"
+        return "text"
+
+    @staticmethod
     def _event(
         turn: CharacterTurn,
         event_type: str,
@@ -29,9 +39,7 @@ class TransportEmitter:
         events = [
             DomainEvent.create("turn.started", {
                 "origin": turn_input.origin.value,
-                "inputMode": "audio" if turn_input.audio else (
-                    "initiative" if turn_input.origin.value == "initiative" else "text"
-                ),
+                "inputMode": TransportEmitter._input_mode(turn_input),
             }, turn_id=turn_input.turn_id),
         ]
         if turn_input.audio:
@@ -46,9 +54,7 @@ class TransportEmitter:
         events = [
             self._event(turn, "turn.started", {
                 "origin": turn.input_origin,
-                "inputMode": "audio" if turn.input.audio else (
-                    "initiative" if turn.input_origin == "initiative" else "text"
-                ),
+                "inputMode": TransportEmitter._input_mode(turn.input),
             }),
         ]
         if turn.input.audio:

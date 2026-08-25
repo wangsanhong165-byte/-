@@ -1,0 +1,9 @@
+{
+  "id": "alims",
+  "name": "Alims",
+  "ref": "Aemeath.wav",
+  "gpt": "Aemeath-e15.ckpt",
+  "vits": "Aemeath_e8_s272.pth",
+  "prompt_text": "看！雪融爆爆限量款蛋糕，可爱吧，总算又能在这间小屋里与你一起庆祝了。",
+  "prompt_lang": "zh"
+}

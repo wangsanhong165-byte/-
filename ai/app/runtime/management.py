@@ -306,7 +306,12 @@ class RuntimeManager:
                     role = m.get("role", "")
                     content = m.get("content", "")
                     if role in ("user", "assistant") and content:
-                        conv.add_turn(role, content)
+                        metadata = m.get("metadata")
+                        conv.add_turn(
+                            role,
+                            content,
+                            **metadata if isinstance(metadata, dict) else {},
+                        )
         except Exception as e:
             logger.warning("Failed to restore conversation: %s", e)
 
@@ -798,12 +803,33 @@ class RuntimeManager:
                 "adapter": type(provider).__name__ if provider is not None else "",
             }
             if callable(diagnostics):
-                for key in ("engine", "model", "base_url", "api_key_configured"):
+                for key in (
+                    "engine", "model", "base_url", "api_key_configured",
+                    "visionEnabled", "visualPolicy",
+                ):
                     if key in provider_diagnostics:
                         provider_status[key] = provider_diagnostics[key]
             if detail:
                 provider_status["detail"] = detail
             provider_statuses.append(provider_status)
+        recent_visual = None
+        try:
+            from app.runtime.turn_recorder import get_turn_recorder
+
+            recorder = get_turn_recorder()
+            for summary in recorder.list_turns(limit=20):
+                detail = recorder.get_turn(summary["turnId"]) or {}
+                visual = detail.get("visual") or detail.get("input", {}).get("visual")
+                if isinstance(visual, dict) and visual.get("hasVisionInput"):
+                    recent_visual = {
+                        key: value for key, value in visual.items()
+                        if key not in {"attachmentIds", "attachmentHashes"}
+                    }
+                    recent_visual["turnId"] = summary["turnId"]
+                    recent_visual["createdAt"] = summary["createdAt"]
+                    break
+        except Exception:
+            recent_visual = None
         return {
             "readOnly": True,
             "runtime": {
@@ -823,6 +849,7 @@ class RuntimeManager:
                 ),
             },
             "providers": provider_statuses,
+            "visual": recent_visual,
             "retention": {"turnDays": 30, "maximumTurns": 500},
         }
 

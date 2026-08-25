@@ -23,7 +23,7 @@ type TurnDetail = {
   createdAt: string
   phase: string
   origin: string
-  input: { text: string }
+  input: { text: string; inputMode?: string; visual?: Record<string, unknown> }
   response: { text: string; segments: Array<Record<string, string>> }
   performance: Record<string, unknown>
   memory: { retrieved: Array<Record<string, string>>; committed: Array<Record<string, string>> }
@@ -34,6 +34,7 @@ type TurnDetail = {
   warnings: string[]
   error?: { code: string; message: string } | null
   retention: { days: number; maximumTurns: number }
+  visual?: Record<string, unknown>
 }
 
 export function DeveloperWorkspace({
@@ -108,6 +109,8 @@ export function DeveloperWorkspace({
           <DevMetric label="服务" value={services.length ? `${services.filter(isHealthy).length}/${services.length}` : '浏览器预览'} />
         </section>
 
+        <VisualRoute diagnostics={diagnostics} />
+
         <section className="turn-browser">
           <div className="turn-list">
             <div className="developer-section-heading">
@@ -134,9 +137,14 @@ export function DeveloperWorkspace({
             {!detail ? <p className="empty-copy">选择一条 Turn 查看详情。</p> : (
               <>
                 <DevSection title="当前回合">
-                  <p>{detail.input.text || '语音输入'} → {detail.response.text || '无文本响应'}</p>
+                  <p>{detail.input.text || (detail.input.visual?.hasVisionInput ? `视觉输入 · ${detail.input.visual.imageCount ?? 0} 张图片` : '语音输入')} → {detail.response.text || '无文本响应'}</p>
                   <small>只读 · {detail.phase} · {detail.turnId.slice(0, 8)}</small>
                 </DevSection>
+                {detail.input.visual?.hasVisionInput && (
+                  <DevSection title="视觉链路" collapsible>
+                    <VisualFacts value={detail.visual ?? detail.input.visual} />
+                  </DevSection>
+                )}
                 <DevSection title="状态时间线">
                   <ol className="trace-timeline">
                     {detail.timeline.map((item, index) => (
@@ -244,6 +252,47 @@ function ServiceHealth({ diagnostics, services }: { diagnostics: any; services: 
       )}
     </section>
   )
+}
+
+function VisualRoute({ diagnostics }: { diagnostics: any }) {
+  const provider = (diagnostics?.providers ?? []).find((item: any) => item.name === 'llm')
+    ?? (diagnostics?.providers ?? []).find((item: any) => item.visionEnabled != null)
+  const recent = diagnostics?.visual
+  if (!provider && !recent) return null
+  const enabled = provider?.visionEnabled === true
+  return (
+    <section className="dev-section visual-route">
+      <div className="service-health-heading">
+        <div><span className="developer-kicker">VISION ROUTE</span><h3>视觉模型实际状态</h3></div>
+        <span className={`service-health-status is-${enabled ? 'healthy' : 'pending'}`}>
+          <i aria-hidden="true" />{enabled ? '设置已启用' : '设置未启用'}
+        </span>
+      </div>
+      <p>{provider?.engine || '—'} · {provider?.model || '—'}</p>
+      <small>{provider?.base_url || '未返回 provider 地址'}</small>
+      <VisualFacts value={{
+        visionEnabled: enabled,
+        visualPolicy: provider?.visualPolicy,
+        recent: recent ? `${recent.imageCount ?? 0} 张 · ${recent.providerSuccess === false ? '失败' : '最近成功/已记录'}` : '尚无视觉回合',
+      }} />
+    </section>
+  )
+}
+
+function VisualFacts({ value }: { value: Record<string, unknown> }) {
+  return (
+    <dl className="dev-key-values">
+      {Object.entries(value ?? {}).map(([key, item]) => (
+        <div key={key}><dt>{key}</dt><dd>{formatVisualValue(item)}</dd></div>
+      ))}
+    </dl>
+  )
+}
+
+function formatVisualValue(value: unknown): string {
+  if (value == null) return '—'
+  if (typeof value === 'object') return JSON.stringify(value)
+  return String(value)
 }
 
 function getServiceStatusTone(status: string) {

@@ -36,6 +36,7 @@ const EVENT_RULES: Record<EventType, PayloadRule> = {
     optional: { requestId: 'string', offendingEventId: 'string' },
   },
   'user.text': { required: { text: 'string' } },
+  'user.visual': { required: { attachments: 'array' }, optional: { text: 'string' } },
   'user.audio.started': {
     required: { sampleRate: 'number' },
     optional: { channels: 'number', format: 'string' },
@@ -149,6 +150,7 @@ const EVENT_RULES: Record<EventType, PayloadRule> = {
 
 const TURN_EVENTS = new Set<EventType>([
   'user.text',
+  'user.visual',
   'user.audio.started',
   'user.audio.chunk',
   'user.audio.completed',

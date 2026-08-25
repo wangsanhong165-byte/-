@@ -10,12 +10,17 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Response, WebSocket
+from fastapi import FastAPI, File, HTTPException, Response, UploadFile, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from starlette.responses import FileResponse
 
 from app.config_manager.service_config import service_config
+from app.runtime.visual_attachments import (
+    VisualAttachmentError,
+    VisualAttachmentStore,
+    get_visual_limits,
+)
 
 
 def parse_bind_address(argv: list[str] | None = None) -> tuple[str, int]:
@@ -382,10 +387,39 @@ def _get_model_switcher_script():
 
 # ── API Endpoints ───────────────────────────────────────────────────────
 
+@app.post("/api/visual-attachments")
+async def upload_visual_attachment(file: UploadFile = File(...)):
+    """Validate and persist one ephemeral image for a later user.visual turn."""
+    data = await file.read(get_visual_limits()["maxImageBytes"] + 1)
+    try:
+        attachment = VisualAttachmentStore().save_bytes(
+            data,
+            file.content_type,
+            source="user_upload",
+        )
+    except VisualAttachmentError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"attachment": attachment.to_public_dict()}
+
+
+@app.get("/api/visual-policy")
+async def get_visual_policy():
+    """Expose the effective local visual limits to the composer."""
+    from app.runtime.visual_attachments import SUPPORTED_MIME_TYPES
+
+    return {
+        **get_visual_limits(),
+        "supportedMimeTypes": sorted(SUPPORTED_MIME_TYPES),
+    }
+
 @app.on_event("startup")
 async def _startup():
     """Initialize background services on server start."""
     logger.info("Server starting")
+    try:
+        VisualAttachmentStore().cleanup()
+    except Exception:
+        logger.exception("Visual attachment cleanup failed")
 
 
 @app.get("/health")

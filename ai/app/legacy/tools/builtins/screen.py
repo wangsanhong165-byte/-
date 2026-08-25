@@ -7,14 +7,13 @@ from __future__ import annotations
 import os
 import sys
 import io
-import base64
-from pathlib import Path
+import json
 
 _SCREEN_ENABLED = os.environ.get("SCREEN_ENABLED", "1") not in {"0", "false", "no"}
 
 
 def screen_capture(region: str = "full") -> str:
-    """Capture current screen and return full-size base64 PNG JSON.
+    """Capture current screen into an ephemeral visual attachment.
 
     Args:
         region: "full" for entire screen or "active" for active window.
@@ -43,15 +42,29 @@ def screen_capture(region: str = "full") -> str:
 
         buf = io.BytesIO()
         img.save(buf, format="PNG")
-        b64 = base64.b64encode(buf.getvalue()).decode()
-        w, h = img.size
-        return '{"type":"screenshot","format":"png_base64","width":%d,"height":%d,"data":"%s"}' % (
-            w, h, b64,
+        from app.runtime.visual_attachments import VisualAttachmentStore
+
+        attachment = VisualAttachmentStore().save_bytes(
+            buf.getvalue(),
+            "image/png",
+            source="screen_capture",
         )
+        return json.dumps({
+            "type": "screenshot",
+            "attachmentId": attachment.attachment_id,
+            "mimeType": attachment.mime_type,
+            "width": attachment.width,
+            "height": attachment.height,
+            "sizeBytes": attachment.size_bytes,
+            "sha256": attachment.sha256,
+        }, ensure_ascii=False)
     except ImportError:
-        return '{"error": "PIL not installed (pip install Pillow)"}'
+        return json.dumps({
+            "type": "screenshot_error",
+            "error": "PIL not installed (pip install Pillow)",
+        }, ensure_ascii=False)
     except Exception as exc:
-        return '{"error": "%s"}' % str(exc)
+        return json.dumps({"type": "screenshot_error", "error": str(exc)}, ensure_ascii=False)
 
 
 def _register_all(registry) -> None:
@@ -61,7 +74,7 @@ def _register_all(registry) -> None:
     registry.register(
         name="screen_capture",
         fn=screen_capture,
-        description="Capture current screen as base64 PNG. Args: region (full|active).",
+        description="Capture the current screen as an ephemeral visual attachment. Args: region (full|active).",
         group="builtin",
         risk="safe",
         confirm="auto_allow",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 import time
+from typing import Any
 
 from app.runtime.character_turn import CharacterTurn
 
@@ -42,9 +43,12 @@ class Pipeline:
             try:
                 await step.run(turn)
             except Exception as exc:
+                code = str(getattr(exc, "code", "") or f"pipeline.{step_name}")
+                retryable = bool(getattr(exc, "retryable", False))
                 turn.fail(
-                    f"pipeline.{step_name}",
+                    code,
                     str(exc),
+                    retryable=retryable,
                 )
             finally:
                 elapsed = (time.perf_counter() - started_at) * 1000

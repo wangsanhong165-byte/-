@@ -16,11 +16,6 @@ scenarios:
       intent: scheduled_reminder
       topic: drink water
     persona_score: 4.0
-  - id: screen_context
-    text: "React briefly to what I am working on."
-    screen_context:
-      activity: coding
-    persona_score: 4.0
   - id: error_resilience
     text: "Give a short answer without using any tool."
     persona_score: 4.0

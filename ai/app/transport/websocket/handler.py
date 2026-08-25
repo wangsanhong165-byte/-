@@ -20,6 +20,11 @@ from app.avatar.events import (
     AvatarSuggestionCreated,
 )
 from app.runtime.character_turn import CharacterTurn, TurnInput
+from app.runtime.visual_attachments import (
+    VisualAttachmentError,
+    VisualAttachmentStore,
+    validate_visual_attachment_policy,
+)
 from app.transport.domain_event import DomainEvent
 from app.transport.emitter import TransportEmitter
 from contracts.v3.envelope import EventEnvelope, error_envelope
@@ -32,6 +37,7 @@ from contracts.v3.events import (
     UserAudioCompletedPayload,
     UserAudioStartedPayload,
     UserTextPayload,
+    UserVisualPayload,
 )
 
 logger = logging.getLogger("transport.handler")
@@ -93,6 +99,29 @@ class RuntimeEventHandler:
                 turn_id=event.turn_id or "",
             )
             return await self._start_or_run_turn(turn_input)
+
+        if event_type == "user.visual":
+            payload = self._payload(event, UserVisualPayload)
+            try:
+                validate_visual_attachment_policy(count=len(payload.attachments))
+                store = VisualAttachmentStore()
+                attachments = tuple(
+                    store.resolve(item.attachment_id).to_public_dict()
+                    for item in payload.attachments
+                )
+            except VisualAttachmentError as exc:
+                return [error_envelope(
+                    "visual_attachment_invalid",
+                    str(exc),
+                    session_id=event.session_id,
+                    turn_id=event.turn_id or "",
+                )]
+            return await self._start_or_run_turn(TurnInput(
+                text=payload.text,
+                visual_attachments=attachments,
+                session_id=event.session_id,
+                turn_id=event.turn_id or "",
+            ))
 
         if event_type == "user.audio.started":
             payload = self._payload(event, UserAudioStartedPayload)

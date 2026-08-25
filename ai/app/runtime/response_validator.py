@@ -162,12 +162,44 @@ class ResponseValidator:
         ][:6]
 
     @staticmethod
+    def _anger_marker_state(text: str, markers: tuple[str, ...]) -> str:
+        """Classify anger words as active, negated, or absent.
+
+        Semantic recovery sees prose without the LLM's explicit intent fields.
+        A bare substring match must not turn ``别生气`` or ``可不能再生气``
+        into the character's own angry state.
+        """
+        negation = re.compile(
+            r"(?:可不能|不能|不要|不用|别再|不要再|不能再|不再|不许|无需|不|别|没|没有)"
+            r"\s*再?\s*$|"
+            r"(?:don't|do not|cannot|can't|shouldn't|should not|not)"
+            r"\s*(?:get|be)?\s*$",
+            re.IGNORECASE,
+        )
+        found = False
+        for marker in markers:
+            start = 0
+            while True:
+                index = text.find(marker, start)
+                if index < 0:
+                    break
+                found = True
+                prefix = text[max(0, index - 16):index]
+                if not negation.search(prefix):
+                    return "active"
+                start = index + len(marker)
+        return "negated" if found else "absent"
+
+    @staticmethod
     def _recover_sentence(text: str, semantic_text: str = "") -> dict:
         lowered = (semantic_text or text).casefold()
         emotion = "neutral"
         behavior = "speak"
         energy = 0.5
         intensity = 0.5
+        anger_state = ResponseValidator._anger_marker_state(
+            lowered, ("生气", "愤怒", "恼火", "angry", "mad"),
+        )
 
         if any(token in lowered for token in (
             "哭哭", "哭哭脸", "想哭", "哭了", "流泪", "眼泪", "委屈", "泪汪汪",
@@ -178,8 +210,10 @@ class ResponseValidator:
             "撅嘴", "嘟嘴", "不满", "闹别扭", "pout",
         )):
             emotion, energy, intensity = "pout", 0.48, 0.58
-        elif any(token in lowered for token in ("生气", "愤怒", "恼火", "angry", "mad")):
+        elif anger_state == "active":
             emotion, energy, intensity = "angry", 0.75, 0.68
+        elif anger_state == "negated":
+            emotion, behavior, energy, intensity = "calm", "comfort", 0.38, 0.52
         elif any(token in lowered for token in (
             "惊讶", "惊喜", "震惊", "吓一跳", "没想到", "surprised", "shocked",
         )):

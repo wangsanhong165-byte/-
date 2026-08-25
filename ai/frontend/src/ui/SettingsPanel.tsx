@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertCircle, CheckCircle2, ExternalLink, FileImage, FolderOpen, Info, LoaderCircle, Palette, RotateCcw, Settings2, type LucideIcon } from 'lucide-react'
+import { AlertCircle, CheckCircle2, ExternalLink, Eye, FileImage, FolderOpen, Info, LoaderCircle, Palette, RotateCcw, Settings2, type LucideIcon } from 'lucide-react'
 import { theme } from '../core/theme'
 import type { AppSettings } from '../core/store'
 import { electronWindowBridge, type ElectronPerformanceDiagnostics, type WallpaperResourceResult } from '../session/electron-window-bridge'
@@ -50,7 +50,7 @@ const CALIBRATION_CONTROLS = [
   { logical: 'mouth.form', label: '嘴型变化', min: -1, max: 1, step: .05 },
 ] as const
 
-type TabId = 'general' | 'appearance' | 'about'
+type TabId = 'general' | 'vision' | 'appearance' | 'about'
 type GeneralSectionId = 'window' | 'interaction' | 'llm' | 'voice'
 
 interface TabDef {
@@ -61,12 +61,14 @@ interface TabDef {
 
 const TABS: TabDef[] = [
   { id: 'general', label: 'General', icon: Settings2 },
+  { id: 'vision', label: 'Vision', icon: Eye },
   { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'about', label: 'About', icon: Info },
 ]
 
 const TAB_LABELS: Record<TabId, string> = {
   general: '常规',
+  vision: '视觉',
   appearance: '外观',
   about: '关于',
 }
@@ -84,6 +86,76 @@ const GENERAL_SECTION_OPTIONS: ReadonlyArray<{
 
 const isElectron = electronWindowBridge.available
 
+type EnvConfig = Record<string, Record<string, string>>
+type EnvSaveState = 'loading' | 'pending' | 'saving' | 'saved' | 'error'
+
+interface EnvConfigState {
+  env: EnvConfig
+  setEnvKey: (group: string, key: string, value: string) => void
+  envSaveLabel: string
+}
+
+function useEnvConfig(): EnvConfigState {
+  const [env, setEnv] = useState<EnvConfig>({})
+  const [envSaveState, setEnvSaveState] = useState<EnvSaveState>('loading')
+  const envLoadedRef = useRef(false)
+  const envDirtyVersionRef = useRef(0)
+
+  useEffect(() => {
+    let disposed = false
+    void fetch('/api/config/env')
+      .then(r => r.ok ? r.json() : Promise.reject(new Error('env unavailable')))
+      .then((body: { config?: EnvConfig }) => {
+        if (!body.config) throw new Error('env config missing')
+        if (disposed) return
+        setEnv(body.config)
+        envLoadedRef.current = true
+        setEnvSaveState('saved')
+      })
+      .catch(() => {
+        if (!disposed) setEnvSaveState('error')
+      })
+    return () => { disposed = true }
+  }, [])
+
+  useEffect(() => {
+    if (!envLoadedRef.current || envDirtyVersionRef.current === 0) return
+    const timer = setTimeout(() => {
+      const version = envDirtyVersionRef.current
+      setEnvSaveState('saving')
+      void fetch('/api/config/env', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config: env }),
+      })
+        .then(r => r.ok ? r.json() : Promise.reject(new Error('save failed')))
+        .then(() => {
+          if (version === envDirtyVersionRef.current) setEnvSaveState('saved')
+        })
+        .catch(() => {
+          if (version === envDirtyVersionRef.current) setEnvSaveState('error')
+        })
+    }, 350)
+    return () => clearTimeout(timer)
+  }, [env])
+
+  const setEnvKey = (group: string, key: string, value: string) => {
+    envDirtyVersionRef.current += 1
+    setEnv(prev => ({ ...prev, [group]: { ...(prev[group] || {}), [key]: value } }))
+    setEnvSaveState('pending')
+  }
+
+  const envSaveLabel = envSaveState === 'loading'
+    ? '读取核心配置…'
+    : envSaveState === 'pending' || envSaveState === 'saving'
+      ? '自动保存中…'
+      : envSaveState === 'error'
+        ? '自动保存失败，请再次修改'
+        : '已自动保存'
+
+  return { env, setEnvKey, envSaveLabel }
+}
+
 export function SettingsPanel({
   open,
   onClose,
@@ -92,6 +164,7 @@ export function SettingsPanel({
   onSettingChange,
 }: SettingsPanelProps) {
   const [activeTab, setActiveTab] = useState<TabId>('general')
+  const envConfig = useEnvConfig()
 
   if (!open) return null
 
@@ -127,7 +200,6 @@ export function SettingsPanel({
                   onClick={() => setActiveTab(tab.id)}
                 >
                   <Icon style={styles.tabIcon} aria-hidden="true" />
-                  <span style={styles.tabLabel}>{TAB_LABELS[tab.id]}</span>
                 </button>
               )
             })}
@@ -136,8 +208,9 @@ export function SettingsPanel({
           {/* Tab content */}
           <div style={styles.content}>
             {activeTab === 'general' && (
-              <GeneralTab settings={settings} onSettingChange={onSettingChange} />
+              <GeneralTab settings={settings} onSettingChange={onSettingChange} envConfig={envConfig} />
             )}
+            {activeTab === 'vision' && <VisionTab envConfig={envConfig} />}
             {activeTab === 'appearance' && (
               <AppearanceTab settings={settings} onSettingChange={onSettingChange} />
             )}
@@ -341,77 +414,115 @@ function AppearanceTab({ settings, onSettingChange }: {
   )
 }
 
+// ── Tab: Vision ──
+
+function VisionTab({ envConfig }: { envConfig: EnvConfigState }) {
+  const { env, setEnvKey, envSaveLabel } = envConfig
+  const engine = normalizeLlmEngine(env.llm?.LLM_ENGINE ?? '')
+  const engineLabel = LLM_ENGINE_OPTIONS.find(option => option.value === engine)?.label ?? engine
+  const activeModel = engine === 'opencode'
+    ? env.llm?.OPENCODE_MODEL
+    : env.llm?.LLM_MODEL
+  const visionEnabled = ['1', 'true', 'yes', 'on'].includes((env.llm?.LLM_ENABLE_VISION ?? '').trim().toLowerCase())
+
+  return (
+    <div style={styles.tabContent}>
+      <div style={styles.settingsGroupHeader}>
+        <div>
+          <div style={styles.sectionLabel}>视觉输入</div>
+          <div style={styles.sectionDesc}>视觉请求跟随语言模型页选择的引擎和模型；这里集中管理图片能力与传输限制。</div>
+        </div>
+        <span style={styles.profileBadge}>{envSaveLabel}</span>
+      </div>
+
+      <div style={styles.settingGroup}>
+        <SettingRow label="启用视觉输入" desc="关闭时不会把图片发送给模型；修改会立即保存并生效">
+          <Toggle
+            checked={visionEnabled}
+            onChange={(value) => setEnvKey('llm', 'LLM_ENABLE_VISION', value ? '1' : '0')}
+          />
+        </SettingRow>
+
+        <div style={styles.engineSummary}>
+          <span style={styles.engineSummaryLabel}>当前视觉路由</span>
+          <span style={styles.engineSummaryDesc}>{engineLabel} · {activeModel || '未填写模型'}</span>
+        </div>
+
+        <EnvRow
+          label="最多附加图片"
+          desc="单次视觉请求最多几张；可设置 1–16 张，默认 4 张"
+          group="llm"
+          keyName="LLM_VISUAL_MAX_IMAGES"
+          value={env.llm?.LLM_VISUAL_MAX_IMAGES ?? ''}
+          onChange={setEnvKey}
+          type="number"
+          min={1}
+          max={16}
+          step={1}
+          placeholder="4"
+        />
+        <EnvRow
+          label="单张图片大小上限"
+          desc="单位 MB；可设置 1–32 MB，默认 4 MB"
+          group="llm"
+          keyName="LLM_VISUAL_MAX_MB"
+          value={env.llm?.LLM_VISUAL_MAX_MB ?? ''}
+          onChange={setEnvKey}
+          type="number"
+          min={1}
+          max={32}
+          step={1}
+          placeholder="4"
+        />
+        <EnvRow
+          label="图片像素上限"
+          desc="单位像素总数；可设置 1–50 MP，默认 12 MP"
+          group="llm"
+          keyName="LLM_VISUAL_MAX_PIXELS"
+          value={env.llm?.LLM_VISUAL_MAX_PIXELS ?? ''}
+          onChange={setEnvKey}
+          type="number"
+          min={1000000}
+          max={50000000}
+          step={1000000}
+          placeholder="12000000"
+        />
+        <EnvRow
+          label="图片最长边上限"
+          desc="单位像素；可设置 256–8192 px，默认 2048 px"
+          group="llm"
+          keyName="LLM_VISUAL_MAX_EDGE"
+          value={env.llm?.LLM_VISUAL_MAX_EDGE ?? ''}
+          onChange={setEnvKey}
+          type="number"
+          min={256}
+          max={8192}
+          step={256}
+          placeholder="2048"
+        />
+      </div>
+
+      <div style={styles.backgroundHint}>
+        支持格式：PNG、JPEG、WebP。输入为空或超出安全范围时，会回退/收敛到默认安全值；开发者工作台会显示当前实际生效值。
+      </div>
+    </div>
+  )
+}
+
 // ── Tab: General ──
 
-function GeneralTab({ settings, onSettingChange }: {
+function GeneralTab({ settings, onSettingChange, envConfig }: {
   settings: AppSettings
   onSettingChange: (key: string, value: unknown) => void
+  envConfig: EnvConfigState
 }) {
-  type EnvConfig = Record<string, Record<string, string>>
-  type EnvSaveState = 'loading' | 'pending' | 'saving' | 'saved' | 'error'
-
   const [activeSection, setActiveSection] = useState<GeneralSectionId>('llm')
   const [voiceSection, setVoiceSection] = useState<VoiceSectionId>('asr')
-  const [env, setEnv] = useState<EnvConfig>({})
-  const [envSaveState, setEnvSaveState] = useState<EnvSaveState>('loading')
-  const envLoadedRef = useRef(false)
-  const envDirtyVersionRef = useRef(0)
-
-  useEffect(() => {
-    let disposed = false
-    void fetch('/api/config/env')
-      .then(r => r.ok ? r.json() : Promise.reject(new Error('env unavailable')))
-      .then((body: { config?: Record<string, Record<string, string>> }) => {
-        if (!body.config) throw new Error('env config missing')
-        if (disposed) return
-        setEnv(body.config)
-        envLoadedRef.current = true
-        setEnvSaveState('saved')
-      })
-      .catch(() => {
-        if (!disposed) setEnvSaveState('error')
-      })
-    return () => { disposed = true }
-  }, [])
-
-  useEffect(() => {
-    if (!envLoadedRef.current || envDirtyVersionRef.current === 0) return
-    const timer = setTimeout(() => {
-      const version = envDirtyVersionRef.current
-      setEnvSaveState('saving')
-      void fetch('/api/config/env', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ config: env }),
-      })
-        .then(r => r.ok ? r.json() : Promise.reject(new Error('save failed')))
-        .then(() => {
-          if (version === envDirtyVersionRef.current) setEnvSaveState('saved')
-        })
-        .catch(() => {
-          if (version === envDirtyVersionRef.current) setEnvSaveState('error')
-        })
-    }, 350)
-    return () => clearTimeout(timer)
-  }, [env])
-
-  const setEnvKey = (group: string, key: string, value: string) => {
-    envDirtyVersionRef.current += 1
-    setEnv(prev => ({ ...prev, [group]: { ...(prev[group] || {}), [key]: value } }))
-    setEnvSaveState('pending')
-  }
-
+  const { env, setEnvKey, envSaveLabel } = envConfig
   const engine: LlmEngine = normalizeLlmEngine(env.llm?.LLM_ENGINE ?? '')
   const engineLabel = LLM_ENGINE_OPTIONS.find(option => option.value === engine)?.label ?? engine
   const llmFieldVisible = (key: string) => getLlmProviderKeys(engine).includes(key)
   const voiceFieldVisible = (key: string) => getVoiceKeys(voiceSection).includes(key)
-  const envSaveLabel = envSaveState === 'loading'
-    ? '读取核心配置…'
-    : envSaveState === 'pending' || envSaveState === 'saving'
-      ? '自动保存中…'
-      : envSaveState === 'error'
-        ? '自动保存失败，请再次修改'
-        : '已自动保存'
 
   return (
     <div style={styles.tabContent}>
@@ -536,7 +647,7 @@ function GeneralTab({ settings, onSettingChange }: {
             <EnvRow label="OpenCode Base URL" group="llm" keyName="OPENCODE_BASE_URL" value={env.llm?.OPENCODE_BASE_URL ?? ''} onChange={setEnvKey} placeholder="http://127.0.0.1:4096/v1" />
           )}
           {llmFieldVisible('OPENCODE_MODEL') && (
-            <EnvRow label="OpenCode Model" group="llm" keyName="OPENCODE_MODEL" value={env.llm?.OPENCODE_MODEL ?? ''} onChange={setEnvKey} placeholder="opencode" />
+            <EnvRow label="OpenCode Model · Ox Alpha" group="llm" keyName="OPENCODE_MODEL" value={env.llm?.OPENCODE_MODEL ?? ''} onChange={setEnvKey} placeholder="x-preview-f-free" />
           )}
           {llmFieldVisible('OPENCODE_API_KEY') && (
             <EnvRow label="OpenCode API Key" group="llm" keyName="OPENCODE_API_KEY" value={env.llm?.OPENCODE_API_KEY ?? ''} onChange={setEnvKey} type="password" placeholder="local" />
@@ -600,7 +711,7 @@ function GeneralTab({ settings, onSettingChange }: {
   )
 }
 
-function EnvRow({ label, desc, group, keyName, value, onChange, options, type, placeholder }: {
+function EnvRow({ label, desc, group, keyName, value, onChange, options, type, placeholder, min, max, step }: {
   label: string
   desc?: string
   group: string
@@ -610,6 +721,9 @@ function EnvRow({ label, desc, group, keyName, value, onChange, options, type, p
   options?: ReadonlyArray<string | { value: string; label: string }>
   type?: string
   placeholder?: string
+  min?: number
+  max?: number
+  step?: number
 }) {
   return (
     <SettingRow label={label} desc={desc}>
@@ -632,6 +746,9 @@ function EnvRow({ label, desc, group, keyName, value, onChange, options, type, p
           value={value}
           onChange={(e) => onChange(group, keyName, e.target.value)}
           placeholder={placeholder}
+          min={min}
+          max={max}
+          step={step}
           spellCheck={false}
         />
       )}
@@ -1353,18 +1470,17 @@ const styles: Record<string, React.CSSProperties> = {
 
   // ── Tab bar (left sidebar) ──
   tabBar: {
-    width: 96, flexShrink: 0, display: 'flex', flexDirection: 'column',
+    width: 56, flexShrink: 0, display: 'flex', flexDirection: 'column',
     padding: `${theme.spacing.sm}px 0`, gap: 2,
     borderRight: `1px solid ${theme.colors.border}`,
     backgroundColor: theme.colors.bg.surface,
   },
   tabBtn: {
-    display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 8,
-    width: '100%', minHeight: 40, padding: '8px 10px', border: 'none', cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+    width: '100%', minHeight: 40, padding: '8px 4px', border: 'none', cursor: 'pointer',
     color: theme.colors.text.secondary, transition: 'background-color 0.1s',
   },
   tabIcon: { width: 17, height: 17, flexShrink: 0 },
-  tabLabel: { fontSize: theme.fontSize.xs, fontWeight: theme.fontWeight.medium },
 
   // ── Content area ──
   content: {

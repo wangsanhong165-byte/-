@@ -7,6 +7,7 @@ directly; writes update only the exposed keys and preserve layout/comments.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,9 @@ _ENV_PATH = _BASE / "config" / ".env"
 EXPOSED_KEYS: dict[str, list[str]] = {
     "llm": [
         "LLM_ENGINE", "LLM_BASE_URL", "LLM_MODEL",
+        "LLM_ENABLE_VISION",
+        "LLM_VISUAL_MAX_IMAGES", "LLM_VISUAL_MAX_MB",
+        "LLM_VISUAL_MAX_PIXELS", "LLM_VISUAL_MAX_EDGE",
         "DEEPSEEK_API_KEY", "OPENAI_API_KEY", "OPENAI_BASE_URL",
         "OPENCODE_API_KEY", "OPENCODE_BASE_URL", "OPENCODE_MODEL",
         "LLM_TEMPERATURE", "LLM_REASONING_EFFORT", "LLM_TIMEOUT_SECONDS",
@@ -48,6 +52,19 @@ def write_env_values(updates: dict[str, Any]) -> dict[str, dict[str, str]]:
             if key in EXPOSED_KEYS.get(group, []):
                 current[key] = str(value)
     _write_env(current)
+    visual_updates = updates.get("llm", {}) or {}
+    visual_runtime_keys = (
+        "LLM_ENABLE_VISION",
+        "LLM_VISUAL_MAX_IMAGES",
+        "LLM_VISUAL_MAX_MB",
+        "LLM_VISUAL_MAX_PIXELS",
+        "LLM_VISUAL_MAX_EDGE",
+    )
+    # Visual policy is read at request/upload time, so these settings apply to
+    # the already-running process; engine/model changes keep their old lifecycle.
+    for key in visual_runtime_keys:
+        if key in visual_updates:
+            os.environ[key] = str(visual_updates[key])
     return read_env_values()
 
 

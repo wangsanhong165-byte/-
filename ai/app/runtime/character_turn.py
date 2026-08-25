@@ -45,12 +45,16 @@ class TurnInput:
     session_id: str = ""
     turn_id: str = ""
     origin: TurnOrigin = TurnOrigin.USER
-    screen_context: dict[str, Any] = field(default_factory=dict)
+    visual_attachments: tuple[dict[str, Any], ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        payload_count = int(bool(self.text.strip())) + int(bool(self.audio))
-        if payload_count != 1:
+        has_text = bool(self.text.strip())
+        has_audio = bool(self.audio)
+        has_visual = bool(self.visual_attachments)
+        if has_audio and (has_text or has_visual):
+            raise ValueError("TurnInput requires exactly one primary payload")
+        if not has_audio and not has_text and not has_visual:
             raise ValueError("TurnInput requires exactly one primary payload")
         if self.audio and self.sample_rate <= 0:
             raise ValueError("sample_rate must be positive")
@@ -65,10 +69,12 @@ class TurnInput:
         elif self.audio:
             event_type = EventType.SPEECH_RECEIVED
             payload = {"audio": self.audio, "sample_rate": self.sample_rate}
+        elif self.visual_attachments:
+            event_type = EventType.VISUAL_RECEIVED
+            payload = {"text": self.text, "attachments": [dict(item) for item in self.visual_attachments]}
         else:
             event_type = EventType.TEXT_RECEIVED
             payload = {"text": self.text}
-        payload["screen_context"] = dict(self.screen_context)
         payload.update(self.metadata.get("event_payload", {}))
         return Event(type=event_type, payload=payload, source=self.origin.value)
 
@@ -124,6 +130,7 @@ class CharacterTurn:
     prompt_messages: list[dict[str, Any]] = field(default_factory=list)
     prompt_sources: list[str] = field(default_factory=list)
     llm_usage: dict[str, Any] = field(default_factory=dict)
+    visual_diagnostics: dict[str, Any] = field(default_factory=dict)
     learned_memories: list[dict[str, Any]] = field(default_factory=list)
     tool_audit: list[dict[str, Any]] = field(default_factory=list)
     tool_calls: list[dict[str, Any]] = field(default_factory=list)

@@ -11,6 +11,14 @@ from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 
 
+class VisionRequestError(RuntimeError):
+    """A visual request was blocked by local settings or provider policy."""
+
+    def __init__(self, message: str, *, code: str = "vision.request_invalid") -> None:
+        super().__init__(message)
+        self.code = code
+
+
 @dataclass
 class ToolCall:
     """A single tool invocation requested by the LLM."""
@@ -65,6 +73,7 @@ class LLMResponse:
     # the output budget was exhausted, so an empty reply is truncation, not a
     # deliberate silence — the pipeline must treat it as abnormal.
     finish_reason: str = ""
+    visual: dict[str, Any] = field(default_factory=dict)
 
     def add_usage(self, usage: LLMUsage) -> None:
         self.usage.add(usage)

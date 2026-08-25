@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from copy import deepcopy
 from typing import Any
 
 
@@ -21,13 +22,32 @@ class ContextBudget:
         cjk = sum(1 for char in text if "\u3400" <= char <= "\u9fff")
         return max(1, round(cjk * 0.6 + (len(text) - cjk) * 0.3))
 
+    @classmethod
+    def estimate_content(cls, content: Any) -> tuple[int, int]:
+        """Estimate text tokens without stringifying multimodal blocks."""
+        if isinstance(content, list):
+            total = 0
+            visual_images = 0
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "image_url":
+                    total += 512
+                    visual_images += 1
+                elif isinstance(block, dict) and block.get("type") == "text":
+                    total += cls.estimate_tokens(str(block.get("text", "")))
+                else:
+                    total += cls.estimate_tokens(str(block))
+            return max(1, total), visual_images
+        return cls.estimate_tokens(str(content or "")), 0
+
     def fit_messages(self, messages: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict]:
-        fitted = [dict(message) for message in messages]
+        fitted = [deepcopy(message) for message in messages]
         compacted = 0
-        token_counts = [
-            self.estimate_tokens(str(message.get("content", "")))
-            for message in fitted
-        ]
+        token_counts = []
+        visual_images = 0
+        for message in fitted:
+            estimate, images = self.estimate_content(message.get("content", ""))
+            token_counts.append(estimate)
+            visual_images += images
         total_tokens = sum(token_counts)
         while total_tokens > self.soft_tokens:
             removable = next((
@@ -36,42 +56,69 @@ class ContextBudget:
             ), None)
             if removable is None:
                 break
+            _, removed_images = self.estimate_content(fitted[removable].get("content", ""))
             fitted.pop(removable)
             total_tokens -= token_counts.pop(removable)
+            visual_images -= removed_images
             compacted += 1
         if total_tokens > self.hard_tokens:
-            # Absolute anomaly guard. Prefer trimming tool and low-priority
-            # system context, but eventually cap every oversized component.
+            # Absolute anomaly guard. Trim text only; image blocks are never
+            # converted to strings because that would destroy the provider's
+            # multimodal content shape.
             while total_tokens > self.hard_tokens:
                 candidates = [
                     (self.estimate_tokens(str(msg.get("content", ""))), i)
                     for i, msg in enumerate(fitted[:-1])
-                    if len(str(msg.get("content", ""))) > 64
+                    if isinstance(msg.get("content"), str)
+                    and len(msg.get("content", "")) > 64
                 ]
-                if not candidates:
-                    break
-                _, index = max(candidates)
-                content = str(fitted[index].get("content", ""))
-                excess = total_tokens - self.hard_tokens
-                cut_chars = max(128, int(excess / 0.3))
-                new_length = max(64, len(content) - cut_chars)
-                fitted[index]["content"] = (
-                    content[:new_length]
-                    + "\n[context truncated by hard safety limit]"
-                )
-                new_tokens = self.estimate_tokens(str(fitted[index]["content"]))
-                if new_tokens >= token_counts[index] and len(fitted) > 3:
-                    total_tokens -= token_counts.pop(index)
-                    fitted.pop(index)
-                    compacted += 1
+                if candidates:
+                    _, index = max(candidates)
+                    content = str(fitted[index].get("content", ""))
+                    excess = total_tokens - self.hard_tokens
+                    cut_chars = max(128, int(excess / 0.3))
+                    new_length = max(64, len(content) - cut_chars)
+                    fitted[index]["content"] = (
+                        content[:new_length]
+                        + "\n[context truncated by hard safety limit]"
+                    )
+                    new_tokens = self.estimate_tokens(str(fitted[index]["content"]))
+                    if new_tokens >= token_counts[index] and len(fitted) > 3:
+                        total_tokens -= token_counts.pop(index)
+                        fitted.pop(index)
+                        compacted += 1
+                        continue
+                    if new_tokens >= token_counts[index]:
+                        break
+                    total_tokens += new_tokens - token_counts[index]
+                    token_counts[index] = new_tokens
                     continue
-                if new_tokens >= token_counts[index]:
+
+                visual_candidates = [
+                    (token_counts[i], i)
+                    for i, msg in enumerate(fitted[:-1])
+                    if isinstance(msg.get("content"), list)
+                    and any(
+                        isinstance(block, dict) and block.get("type") == "image_url"
+                        for block in msg["content"]
+                    )
+                ]
+                if not visual_candidates:
                     break
-                total_tokens += new_tokens - token_counts[index]
-                token_counts[index] = new_tokens
+                _, index = max(visual_candidates)
+                removed_images = sum(
+                    1
+                    for block in fitted[index]["content"]
+                    if isinstance(block, dict) and block.get("type") == "image_url"
+                )
+                total_tokens -= token_counts.pop(index)
+                visual_images -= removed_images
+                fitted.pop(index)
+                compacted += 1
         return fitted, {
             "estimated_tokens": total_tokens,
             "compacted_messages": compacted,
+            "visual_images": visual_images,
             "soft_tokens": self.soft_tokens,
             "hard_tokens": self.hard_tokens,
         }

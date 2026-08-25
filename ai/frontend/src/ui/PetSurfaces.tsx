@@ -102,7 +102,11 @@ export function PetConversationSurface() {
       <div className="pet-conversation-content">
         <ChatView />
         <InputBar
-          onSend={text => electronWindowBridge.sendPetCommand({ type: 'send', text })}
+          onSend={input => {
+            if (input.images.length) return false
+            electronWindowBridge.sendPetCommand({ type: 'send', text: input.text })
+            return true
+          }}
           onInterrupt={() => electronWindowBridge.sendPetCommand({ type: 'interrupt' })}
           recorderState={snapshot?.recorderState ?? 'idle'}
           recordingSupported={snapshot?.recordingSupported ?? false}

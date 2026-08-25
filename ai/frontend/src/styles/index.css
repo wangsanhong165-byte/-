@@ -986,6 +986,15 @@ html:has(.pet-conversation-surface) #root {
   color: var(--faint);
 }
 
+.message-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .reasoning {
   color: var(--muted);
   font-size: 11px;
@@ -998,6 +1007,7 @@ html:has(.pet-conversation-surface) #root {
 
 .message-composer {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding: 10px 12px 12px;
@@ -1016,6 +1026,67 @@ html:has(.pet-conversation-surface) #root {
 
 .message-composer input::placeholder {
   color: var(--faint);
+}
+
+.composer-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 180px;
+  min-width: 0;
+  padding: 4px 5px 4px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.composer-attachments {
+  flex: 0 0 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px 0;
+}
+
+.composer-attachment img {
+  width: 34px;
+  height: 34px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex: 0 0 auto;
+}
+
+.composer-attachment small {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.message-composer.is-dragging {
+  outline: 1px dashed var(--accent);
+  outline-offset: -3px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.composer-attachment span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-attachment .composer-action {
+  height: 22px;
+  padding: 0 3px;
+  border: 0;
+  background: transparent;
+}
+
+.composer-error {
+  color: var(--danger);
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .composer-action,

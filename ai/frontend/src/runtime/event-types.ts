@@ -21,6 +21,7 @@ export const EVENT_TYPES = [
   'configuration.updated',
   'protocol.error',
   'user.text',
+  'user.visual',
   'user.audio.started',
   'user.audio.chunk',
   'user.audio.completed',
@@ -74,6 +75,17 @@ export interface CancelledPayload {
   reason: string
 }
 
+export interface VisualAttachment {
+  id: string
+  mimeType: 'image/jpeg' | 'image/png' | 'image/webp'
+  width: number
+  height: number
+  sizeBytes: number
+  source?: string
+  sha256?: string
+  expiresAt?: number
+}
+
 export interface EventPayloadMap {
   'session.open': { capabilities: string[] }
   'session.opened': { capabilities: string[]; config: JsonObject }
@@ -96,11 +108,12 @@ export interface EventPayloadMap {
     offendingEventId?: string | null
   }
   'user.text': { text: string }
+  'user.visual': { text: string; attachments: VisualAttachment[] }
   'user.audio.started': { sampleRate: number; channels: number; format: 'pcm_f32' | 'pcm_s16' | 'wav' }
   'user.audio.chunk': { samples: number[] }
   'user.audio.completed': { sampleRate?: number | null }
   'user.audio.cancelled': CancelledPayload
-  'turn.started': { origin: 'user' | 'initiative' | 'tool' | 'system'; inputMode: 'text' | 'audio' | 'initiative' }
+  'turn.started': { origin: 'user' | 'initiative' | 'tool' | 'system'; inputMode: 'text' | 'audio' | 'visual' | 'initiative' }
   'turn.progress': { stage: string; message: string }
   'turn.completed': { reason: string }
   'turn.failed': FailurePayload

@@ -75,7 +75,8 @@
           "user.audio.chunk",
           "user.audio.completed",
           "user.audio.started",
-          "user.text"
+          "user.text",
+          "user.visual"
         ]
       },
       "sessionId": {
@@ -569,7 +570,7 @@
                 "items": {
                   "$ref": "#/$defs/MotionPlanStepPayload"
                 },
-                "maxItems": 16,
+                "maxItems": 3,
                 "minItems": 1,
                 "title": "Steps",
                 "type": "array"
@@ -1620,6 +1621,7 @@
             "enum": [
               "text",
               "audio",
+              "visual",
               "initiative"
             ],
             "title": "Inputmode",
@@ -1737,6 +1739,82 @@
           "text"
         ],
         "title": "UserTextPayload",
+        "type": "object"
+      }
+    },
+    "user.visual": {
+      "scope": "turn",
+      "payload": {
+        "$defs": {
+          "VisualAttachmentPayload": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "maxLength": 36,
+                "minLength": 36,
+                "title": "Id",
+                "type": "string"
+              },
+              "mimeType": {
+                "enum": [
+                  "image/jpeg",
+                  "image/png",
+                  "image/webp"
+                ],
+                "title": "Mimetype",
+                "type": "string"
+              },
+              "width": {
+                "exclusiveMinimum": 0,
+                "maximum": 8192,
+                "title": "Width",
+                "type": "integer"
+              },
+              "height": {
+                "exclusiveMinimum": 0,
+                "maximum": 8192,
+                "title": "Height",
+                "type": "integer"
+              },
+              "sizeBytes": {
+                "exclusiveMinimum": 0,
+                "maximum": 33554432,
+                "title": "Sizebytes",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "mimeType",
+              "width",
+              "height",
+              "sizeBytes"
+            ],
+            "title": "VisualAttachmentPayload",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "default": "",
+            "title": "Text",
+            "type": "string"
+          },
+          "attachments": {
+            "items": {
+              "$ref": "#/$defs/VisualAttachmentPayload"
+            },
+            "maxItems": 16,
+            "minItems": 1,
+            "title": "Attachments",
+            "type": "array"
+          }
+        },
+        "required": [
+          "attachments"
+        ],
+        "title": "UserVisualPayload",
         "type": "object"
       }
     }

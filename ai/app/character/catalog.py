@@ -27,6 +27,11 @@ from app.domain.character.personality_profile import (
 
 _IMPORT_LOCK = threading.RLock()
 
+# GPT-SoVITS saves Pro-series weights with the zip PK magic replaced by an
+# ASCII version tag so foreign loaders cannot torch.load them directly.
+# v1/v2 use "00"/"01", v3 "02"/"03", v4 "04", v2Pro "05", v2ProPlus "06".
+_GPT_SOVITS_VERSION_TAGS = {b"00", b"01", b"02", b"03", b"04", b"05", b"06"}
+
 
 @dataclass(frozen=True)
 class CharacterCatalogSnapshot:
@@ -850,11 +855,17 @@ class CharacterCatalog:
     def _validate_weight_file(path: Path, label: str) -> None:
         with path.open("rb") as handle:
             header = handle.read(4)
-        if path.stat().st_size < 1024 or header not in {b"PK\x03\x04", b"05\x03\x04"}:
+        if path.stat().st_size < 1024:
+            raise ValueError(f"{label} weights are not a supported PyTorch checkpoint")
+        if header == b"PK\x03\x04":
+            restore_header = False
+        elif header[:2] in _GPT_SOVITS_VERSION_TAGS and header[2:4] == b"\x03\x04":
+            restore_header = True
+        else:
             raise ValueError(f"{label} weights are not a supported PyTorch checkpoint")
         try:
             with path.open("rb") as handle:
-                view = _CheckpointReader(handle, restore_header=header.startswith(b"05"))
+                view = _CheckpointReader(handle, restore_header=restore_header)
                 with zipfile.ZipFile(view) as archive:
                     if not archive.infolist() or archive.testzip() is not None:
                         raise zipfile.BadZipFile("checkpoint CRC failed")

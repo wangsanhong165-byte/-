@@ -89,7 +89,7 @@ export class RuntimeClient {
       this.currentAudioTurnId = null
       this.sendEvent(
         'session.open',
-        { capabilities: ['text', 'audio', 'character', 'tts'] },
+        { capabilities: ['text', 'visual', 'audio', 'character', 'tts'] },
         null,
       )
       this.startPing()
@@ -199,8 +199,8 @@ export class RuntimeClient {
     eventType: K,
     payload: EventPayloadMap[K],
     turnId: string | null,
-  ): void {
-    if (this.ws?.readyState !== WebSocket.OPEN) return
+  ): boolean {
+    if (this.ws?.readyState !== WebSocket.OPEN) return false
     this.sequenceCounter += 1
     this.ws.send(JSON.stringify(createEnvelope(eventType, payload, {
       sessionId: this.sessionId,
@@ -208,12 +208,24 @@ export class RuntimeClient {
       sequence: this.sequenceCounter,
       source: 'frontend',
     })))
+    return true
   }
 
-  sendText(text: string): void {
+  sendText(text: string): boolean {
     const turnId = `turn_${crypto.randomUUID()}`
     this.currentTurnId = turnId
-    this.sendEvent('user.text', { text }, turnId)
+    return this.sendEvent('user.text', { text }, turnId)
+  }
+
+  sendVisual(text: string, attachments: EventPayloadMap['user.visual']['attachments']): boolean {
+    const turnId = `turn_${crypto.randomUUID()}`
+    this.currentTurnId = turnId
+    return this.sendEvent('user.visual', {
+      text,
+      attachments: attachments.map(({ id, mimeType, width, height, sizeBytes }) => ({
+        id, mimeType, width, height, sizeBytes,
+      })),
+    }, turnId)
   }
 
   sendInterrupt(): void {

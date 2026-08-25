@@ -140,7 +140,7 @@ export interface EventMap {
   }
   'runtime:character.intent': RuntimeCharacterIntent
   'runtime:telemetry.batch': { events: Array<Record<string, unknown>> }
-  'runtime:turn.started': { turnId: string; inputMode: 'text' | 'audio' | 'initiative'; origin: 'user' | 'initiative' | 'tool' | 'system' }
+  'runtime:turn.started': { turnId: string; inputMode: 'text' | 'audio' | 'visual' | 'initiative'; origin: 'user' | 'initiative' | 'tool' | 'system' }
   'runtime:turn.completed': { turnId: string; reason: string }
   'runtime:turn.failed': { turnId: string; code: string; message: string }
   'runtime:turn.cancelled': { turnId: string; reason: string }

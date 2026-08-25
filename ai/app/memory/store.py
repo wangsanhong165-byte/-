@@ -32,6 +32,22 @@ STALE_DAYS = 30
 ARCHIVE_DAYS = 90
 
 
+def _safe_history_metadata(metadata: dict[str, Any] | None) -> dict[str, Any]:
+    """Keep visual history metadata useful while excluding bytes and paths."""
+    visual = (metadata or {}).get("visual") if isinstance(metadata, dict) else None
+    if not isinstance(visual, dict):
+        return {}
+    allowed = {
+        "hasVisionInput", "imageCount", "imageBytes", "mimeTypes", "dimensions",
+        "imageHashes", "attachmentIds", "protocol", "source", "task",
+    }
+    result = {
+        key: value for key, value in visual.items()
+        if key in allowed and isinstance(value, (str, int, float, bool, list, dict, type(None)))
+    }
+    return {"visual": result} if result else {}
+
+
 def _cjk_ngrams(text: str, sizes=(2, 3)) -> list[str]:
     """Generate CJK bigrams/trigrams for FTS5 tokenization."""
     tokens = []
@@ -156,6 +172,7 @@ class MemoryStore:
                 turn_id    TEXT,
                 write_token TEXT,
                 history_uid TEXT,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
                 created_at TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_logs_created ON logs(created_at);
@@ -250,6 +267,8 @@ class MemoryStore:
             conn.execute("ALTER TABLE logs ADD COLUMN write_token TEXT")
         if "history_uid" not in log_columns:
             conn.execute("ALTER TABLE logs ADD COLUMN history_uid TEXT")
+        if "metadata_json" not in log_columns:
+            conn.execute("ALTER TABLE logs ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'")
         memory_columns = {
             row["name"]
             for row in conn.execute("PRAGMA table_info(memories)").fetchall()
@@ -805,6 +824,7 @@ class MemoryStore:
         turn_id: str = "",
         write_token: str = "",
         history_uid: str = "",
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Atomically persist one turn; return False for an idempotent replay."""
         now = datetime.now(timezone.utc).isoformat()
@@ -820,25 +840,28 @@ class MemoryStore:
                 if inserted.rowcount == 0:
                     conn.rollback()
                     return False
+            metadata_json = json.dumps(
+                _safe_history_metadata(metadata), ensure_ascii=False
+            )
             if user_text.strip():
                 conn.execute(
-                    "INSERT INTO logs(role, content, intent, character_id, turn_id, write_token, history_uid, created_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO logs(role, content, intent, character_id, turn_id, write_token, history_uid, metadata_json, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         "user", user_text[:1000], reply.get("intent", "unknown"),
                         character_id, turn_id or None, write_token or None,
-                        history_uid or None, now,
+                        history_uid or None, metadata_json, now,
                     ),
                 )
             reply_text = reply.get("reply_text", "")[:2000]
             if reply_text.strip():
                 conn.execute(
-                    "INSERT INTO logs(role, content, intent, character_id, turn_id, write_token, history_uid, created_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO logs(role, content, intent, character_id, turn_id, write_token, history_uid, metadata_json, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         "assistant", reply_text, reply.get("intent", "reply"),
                         character_id, turn_id or None, write_token or None,
-                        history_uid or None, now,
+                        history_uid or None, metadata_json, now,
                     ),
                 )
             conn.commit()
@@ -852,13 +875,23 @@ class MemoryStore:
         history_uid: str,
         *,
         character_id: str = "",
-    ) -> list[dict[str, str]]:
+    ) -> list[dict[str, Any]]:
         rows = self._get_conn().execute(
-            "SELECT role, content FROM logs "
+            "SELECT role, content, metadata_json FROM logs "
             "WHERE history_uid = ? AND (? = '' OR character_id = ?) ORDER BY id",
             (history_uid, character_id, character_id),
         ).fetchall()
-        return [{"role": row["role"], "content": row["content"]} for row in rows]
+        result = []
+        for row in rows:
+            message: dict[str, Any] = {"role": row["role"], "content": row["content"]}
+            try:
+                metadata = json.loads(row["metadata_json"] or "{}")
+            except (TypeError, ValueError):
+                metadata = {}
+            if isinstance(metadata, dict) and metadata:
+                message["metadata"] = metadata
+            result.append(message)
+        return result
 
     def delete_history(self, history_uid: str, *, character_id: str = "") -> int:
         conn = self._get_conn()

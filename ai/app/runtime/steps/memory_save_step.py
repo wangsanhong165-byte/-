@@ -25,15 +25,19 @@ class MemorySaveStep(Step):
         user_text = ctx.user_text or ctx.event.payload.get("text", "")
         if ctx.input_origin == "initiative":
             user_text = ""
+        visual_attachments = tuple(getattr(ctx.input, "visual_attachments", ()) or ())
+        safe_user_text = user_text or (
+            f"用户发送了 {len(visual_attachments)} 张图片" if visual_attachments else ""
+        )
         reply_text = ctx.reply_text or ""
 
-        if not user_text and not reply_text:
+        if not safe_user_text and not reply_text:
             return
 
         # Store the turn as a memory entry
         character = ctx.character
         memory_payload = {
-            "user": user_text,
+            "user": safe_user_text,
             "assistant": reply_text,
             "emotion": ctx.emotion,
             "origin": ctx.input_origin,
@@ -43,6 +47,20 @@ class MemorySaveStep(Step):
             "character_self": ctx.character_self,
             "turn_id": ctx.turn_id,
             "write_token": "conversation",
+            "visual": {
+                "hasVisionInput": bool(visual_attachments),
+                "imageCount": len(visual_attachments),
+                "mimeTypes": sorted({
+                    str(item.get("mimeType", ""))
+                    for item in visual_attachments
+                    if item.get("mimeType")
+                }),
+                "imageHashes": [
+                    str(item.get("sha256", ""))
+                    for item in visual_attachments
+                    if item.get("sha256")
+                ],
+            } if visual_attachments else {},
         }
         try:
             from app.runtime.management import get_manager
@@ -62,7 +80,7 @@ class MemorySaveStep(Step):
         if memory_payload["history_uid"]:
             try:
                 get_manager().record_turn_metadata(
-                    memory_payload["history_uid"], user_text
+                    memory_payload["history_uid"], safe_user_text
                 )
             except Exception:
                 logging.getLogger("memory_step").exception(

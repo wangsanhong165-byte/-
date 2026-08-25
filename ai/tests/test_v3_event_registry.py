@@ -27,6 +27,16 @@ VALID_PAYLOADS: dict[str, dict] = {
     "configuration.updated": {"config": {"voice": "monika"}},
     "protocol.error": {"code": "invalid_payload", "message": "bad payload"},
     "user.text": {"text": "hello"},
+    "user.visual": {
+        "text": "What is this?",
+        "attachments": [{
+            "id": "att_0123456789abcdef0123456789abcdef",
+            "mimeType": "image/png",
+            "width": 64,
+            "height": 64,
+            "sizeBytes": 1024,
+        }],
+    },
     "user.audio.started": {"sampleRate": 16000, "channels": 1, "format": "pcm_f32"},
     "user.audio.chunk": {"samples": [0.0, 0.25]},
     "user.audio.completed": {"sampleRate": 16000},

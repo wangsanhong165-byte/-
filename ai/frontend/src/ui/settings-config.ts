@@ -7,7 +7,7 @@ export const LLM_ENGINE_OPTIONS: ReadonlyArray<{
 }> = [
   { value: 'deepseek', label: 'DeepSeek', description: 'DeepSeek API 或兼容接口' },
   { value: 'openai', label: 'OpenAI', description: 'OpenAI 或兼容接口' },
-  { value: 'opencode', label: 'OpenCode', description: 'OpenCode 免费模型服务' },
+  { value: 'opencode', label: 'OpenCode · Ox Alpha', description: 'OpenCode 免费视觉模型服务' },
   { value: 'local', label: 'Local', description: '本地或自定义兼容接口' },
 ]
 

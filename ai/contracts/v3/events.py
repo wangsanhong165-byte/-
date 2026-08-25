@@ -67,6 +67,21 @@ class UserTextPayload(PayloadModel):
     text: str = Field(min_length=1)
 
 
+class VisualAttachmentPayload(PayloadModel):
+    attachment_id: str = Field(alias="id", min_length=36, max_length=36)
+    mime_type: Literal["image/jpeg", "image/png", "image/webp"] = Field(alias="mimeType")
+    # Protocol hard ceilings; active user visual settings are enforced after
+    # parsing against the resolved local attachment.
+    width: int = Field(gt=0, le=8192)
+    height: int = Field(gt=0, le=8192)
+    size_bytes: int = Field(alias="sizeBytes", gt=0, le=32 * 1024 * 1024)
+
+
+class UserVisualPayload(PayloadModel):
+    text: str = ""
+    attachments: list[VisualAttachmentPayload] = Field(min_length=1, max_length=16)
+
+
 class UserAudioStartedPayload(PayloadModel):
     sample_rate: int = Field(alias="sampleRate", gt=0)
     channels: int = Field(default=1, gt=0)
@@ -87,7 +102,7 @@ class CancelledPayload(PayloadModel):
 
 class TurnStartedPayload(PayloadModel):
     origin: Literal["user", "initiative", "tool", "system"] = "user"
-    input_mode: Literal["text", "audio", "initiative"] = Field(default="text", alias="inputMode")
+    input_mode: Literal["text", "audio", "visual", "initiative"] = Field(default="text", alias="inputMode")
 
 
 class TurnProgressPayload(PayloadModel):
@@ -311,6 +326,7 @@ EVENT_PAYLOAD_MODELS: dict[str, type[PayloadModel]] = {
     "configuration.updated": ConfigurationUpdatedPayload,
     "protocol.error": ProtocolErrorPayload,
     "user.text": UserTextPayload,
+    "user.visual": UserVisualPayload,
     "user.audio.started": UserAudioStartedPayload,
     "user.audio.chunk": UserAudioChunkPayload,
     "user.audio.completed": UserAudioCompletedPayload,
@@ -354,6 +370,7 @@ EVENT_PAYLOAD_MODELS: dict[str, type[PayloadModel]] = {
 
 TURN_EVENT_TYPES = frozenset({
     "user.text",
+    "user.visual",
     "user.audio.started",
     "user.audio.chunk",
     "user.audio.completed",

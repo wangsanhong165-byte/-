@@ -14,6 +14,7 @@ function Message({ message }: { message: ChatMessage }) {
           minute: '2-digit',
         })}</time>
       </div>
+      {message.imageCount ? <span className="message-attachment">已附加 {message.imageCount} 张图片</span> : null}
       <p>{message.text || (!isUser && !isSystem ? '正在组织语言…' : '')}</p>
     </article>
   )

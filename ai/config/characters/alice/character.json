@@ -15,7 +15,7 @@
   "tts": {
     "engine": "gsvi-v2pro",
     "voice": "Monika",
-    "voice_id": "monika",
+    "voice_id": "amiya",
     "prompt_text": "Like, come on, isn't it obvious? They all want your attention, and, you know, I'm just in the background watching them.",
     "prompt_lang": "en"
   },
@@ -24,5 +24,6 @@
     "avoid": [
       "Markdown"
     ]
-  }
+  },
+  "personality_profile": {}
 }
