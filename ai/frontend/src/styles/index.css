@@ -430,6 +430,116 @@ aside {
   background: rgba(7, 8, 12, 0.28);
 }
 
+/* ── Wallpaper fusion layer ─────────────────────────────────────────────
+   The wallpaper spans the WHOLE window (not just the stage): a fixed layer
+   below the app frame plus a scrim, activated by html[data-wallpaper='on']
+   which the effects controller sets while a background resource is active.
+   While the attribute is absent every rule below is inert — the default UI
+   is pixel-identical to a build without this feature.
+   Compositor red lines (from dsh-wallpaper-engine's kiosk white-flash
+   post-mortems, honored here): no :has() anywhere; filter/transform stay
+   `none` at defaults so no offscreen/transform layers are forced on the
+   full-screen wallpaper video; the glass recipe keeps ONLY backdrop-filter
+   (no always-on transform/will-change layers). */
+.wp-layer {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.wp-layer .wp-media {
+  width: 100%;
+  height: 100%;
+  object-fit: var(--wp-object-fit, cover);
+  display: block;
+  background: transparent;
+  border: 0;
+  /* none at default: a permanent blur(0px) forces an offscreen filter layer
+     on the wallpaper video — a known periodic white-flash source. */
+  filter: var(--wp-media-filter, none);
+  transform: var(--wp-media-transform, none);
+  transform-origin: center;
+}
+
+.wp-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--wp-scrim-color, rgba(7, 8, 12, 0.25));
+}
+
+/* While a wallpaper is active: drop the opaque frame backgrounds so all
+   three columns share the same wallpaper+scrim backdrop. */
+html[data-wallpaper='on'] .workspace-shell,
+html[data-wallpaper='on'] .companion-stage,
+html[data-wallpaper='on'] .title-bar {
+  background: transparent;
+}
+
+/* The five panels become liquid glass. Base tint comes from the THEME's
+   surface token (light theme → light glass, dark → dark), alpha from the
+   glass knob; specular sheen + refraction highlights follow the recipe
+   proven in dsh-wallpaper-engine (MIT, elysia395). */
+html[data-wallpaper='on'] .title-bar,
+html[data-wallpaper='on'] .stage-rail,
+html[data-wallpaper='on'] .stage-drawer {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, calc(var(--wp-sheen, 1) * 0.12)), rgba(255, 255, 255, calc(var(--wp-sheen, 1) * 0.04)) 38%, rgba(255, 255, 255, calc(var(--wp-sheen, 1) * 0.015))),
+    color-mix(in srgb, var(--surface) calc(100% - var(--wp-glass-alpha, 12%)), transparent);
+  -webkit-backdrop-filter: blur(var(--wp-glass-blur, 16px)) saturate(var(--wp-glass-saturate, 1.6)) brightness(1.03);
+  backdrop-filter: blur(var(--wp-glass-blur, 16px)) saturate(var(--wp-glass-saturate, 1.6)) brightness(1.03);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, calc(var(--wp-sheen, 1) * 0.22)),
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+}
+
+/* Conversation dock already had glass; align it with the theme-aware
+   recipe (its old hardcoded dark tint broke light mode). */
+html[data-wallpaper='on'] .conversation-dock {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, calc(var(--wp-sheen, 1) * 0.14)), rgba(255, 255, 255, calc(var(--wp-sheen, 1) * 0.05)) 38%, rgba(255, 255, 255, calc(var(--wp-sheen, 1) * 0.02))),
+    color-mix(in srgb, var(--surface) calc(100% - var(--wp-glass-alpha, 12%) - 8%), transparent);
+  -webkit-backdrop-filter: blur(var(--wp-glass-blur, 16px)) saturate(var(--wp-glass-saturate, 1.6)) brightness(1.03);
+  backdrop-filter: blur(var(--wp-glass-blur, 16px)) saturate(var(--wp-glass-saturate, 1.6)) brightness(1.03);
+}
+
+/* Message bubbles inside the dock: lighter tint, same theme base. */
+html[data-wallpaper='on'] .conversation-dock .chat-message {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, calc(var(--wp-sheen, 1) * 0.10)), rgba(255, 255, 255, calc(var(--wp-sheen, 1) * 0.03))),
+    color-mix(in srgb, var(--surface-2) calc(100% - var(--wp-glass-alpha, 12%) - 6%), transparent);
+  -webkit-backdrop-filter: blur(calc(var(--wp-glass-blur, 16px) * 0.75)) saturate(var(--wp-glass-saturate, 1.6));
+  backdrop-filter: blur(calc(var(--wp-glass-blur, 16px) * 0.75)) saturate(var(--wp-glass-saturate, 1.6));
+}
+
+/* Drawer inner panels (settings/memory/etc. cards) sit on the glass drawer;
+   give them a translucent surface so the glass reads through stacked depth. */
+html[data-wallpaper='on'] .stage-drawer .tab-content > div,
+html[data-wallpaper='on'] .stage-drawer .drawer-panel {
+  background: color-mix(in srgb, var(--surface-2) 72%, transparent);
+}
+
+/* No backdrop-filter support (browser dev mode): near-opaque surfaces so
+   text never sits directly on a busy wallpaper. Electron always supports it. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  html[data-wallpaper='on'] .title-bar,
+  html[data-wallpaper='on'] .stage-rail,
+  html[data-wallpaper='on'] .stage-drawer,
+  html[data-wallpaper='on'] .conversation-dock {
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  html[data-wallpaper='on'] .conversation-dock .chat-message {
+    background: color-mix(in srgb, var(--surface-2) 90%, transparent);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
 .character-stage canvas {
   background: transparent !important;
 }

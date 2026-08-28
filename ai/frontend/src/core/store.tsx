@@ -13,6 +13,8 @@ import {
 import type { ConnectionState, AiActivity, CharacterState, ChatMessage, AudioState } from './types'
 import type { Live2DPerformanceProfileOverrides } from '../character/Live2DPerformanceSettings'
 import type { Live2DActionsByModel } from '../character/MotionAction'
+import type { WallpaperEffectSettings } from './wallpaper-effects'
+import { WALLPAPER_EFFECT_DEFAULTS } from './wallpaper-effects'
 
 // ── History Types ──
 
@@ -48,7 +50,7 @@ export interface AppSettings {
   live2dClickFeedback: boolean
   live2dPerformanceProfiles: Live2DPerformanceProfileOverrides
   live2dActions: Live2DActionsByModel
-  backgroundType: 'none' | 'image' | 'video'
+  backgroundType: 'none' | 'image' | 'video' | 'web'
   backgroundUrl: string
   backgroundPath: string
   backgroundLabel: string
@@ -57,6 +59,8 @@ export interface AppSettings {
   // UI theming (Settings → Appearance)
   uiTheme: 'dark' | 'light' | 'auto'
   accentColor: string
+  // Wallpaper fusion layer (Settings → Appearance → 舞台背景)
+  wallpaperEffects: WallpaperEffectSettings
 }
 
 // ── Conversation State ──
@@ -125,6 +129,8 @@ const INITIAL_SETTINGS: AppSettings = {
   // UI theming: dark matches the app's original look; orange is the original accent.
   uiTheme: 'dark',
   accentColor: 'orange',
+  // Wallpaper fusion-layer effect knobs (scrim/glass/media filters).
+  wallpaperEffects: WALLPAPER_EFFECT_DEFAULTS,
 }
 
 export const INITIAL_STATE: AppState = {

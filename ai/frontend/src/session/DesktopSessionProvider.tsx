@@ -45,6 +45,7 @@ import { persistAndApplyWindowMode } from './window-mode-transition'
 import { electronWindowBridge } from './electron-window-bridge'
 import { PetModelSurface } from '../ui/PetSurfaces'
 import { applyUiTheme, isUiThemeMode, DEFAULT_ACCENT_KEY } from '../core/ui-theme'
+import { applyWallpaperFusion } from '../core/ui-wallpaper'
 
 const WS_URL = runtimeWebSocketUrl(location)
 let idCounter = 0
@@ -703,6 +704,19 @@ export function DesktopSessionWorkspace() {
       : DEFAULT_ACCENT_KEY
     return applyUiTheme(mode, accentKey)
   }, [settings.uiTheme, settings.accentColor])
+
+  // Wallpaper fusion layer: activation attribute + effect CSS variables.
+  // Skipped on the transparent pet-model window (its surface rule kills
+  // backgrounds anyway; keeping the attribute off avoids a glass-vs-
+  // transparent conflict in the shared stylesheet).
+  useEffect(() => {
+    if (surface === 'pet-model') return
+    const active = settings.backgroundType !== 'none' && Boolean(settings.backgroundUrl)
+    const mode = isUiThemeMode(settings.uiTheme) ? settings.uiTheme : 'dark'
+    const systemPrefersLight = typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: light)').matches
+    const effectiveTheme = mode === 'auto' ? (systemPrefersLight ? 'light' : 'dark') : mode
+    return applyWallpaperFusion(active, settings.wallpaperEffects, effectiveTheme)
+  }, [surface, settings.backgroundType, settings.backgroundUrl, settings.wallpaperEffects, settings.uiTheme])
 
   // Persist settings to backend whenever they change
   useEffect(() => {

@@ -9,6 +9,11 @@ import {
   resolveAccentColor,
   resolveThemeMode,
 } from '../core/ui-theme'
+import {
+  sanitizeWallpaperEffects,
+  wallpaperCssVars,
+  type WallpaperEffectSettings,
+} from '../core/wallpaper-effects'
 import type { AppSettings } from '../core/store'
 import { electronWindowBridge, type ElectronPerformanceDiagnostics, type WallpaperResourceResult } from '../session/electron-window-bridge'
 import { eventBus, type EventMap } from '../core/event-bus'
@@ -490,6 +495,16 @@ function AppearanceTab({ settings, onSettingChange }: {
                 onCanPlay={() => setMediaState('ready')}
                 onError={() => setMediaState('error')}
               />
+            ) : settings.backgroundType === 'web' ? (
+              <iframe
+                src={settings.backgroundUrl}
+                title="背景预览"
+                frameBorder={0}
+                scrolling="no"
+                sandbox="allow-scripts"
+                style={styles.backgroundPreviewMedia}
+                onLoad={() => setMediaState('ready')}
+              />
             ) : (
               <img
                 src={settings.backgroundUrl}
@@ -510,7 +525,7 @@ function AppearanceTab({ settings, onSettingChange }: {
         <div style={styles.backgroundResourceRow}>
           <div style={{ minWidth: 0 }}>
             <div style={styles.cardTitle}>{settings.backgroundLabel || '未选择背景'}</div>
-            <div style={styles.cardDesc}>{resourceSelected ? `${settings.backgroundType === 'video' ? '视频' : '图片'} · ${fitLabel}` : '当前使用默认舞台背景'}</div>
+            <div style={styles.cardDesc}>{resourceSelected ? `${settings.backgroundType === 'video' ? '视频' : settings.backgroundType === 'web' ? '网页' : '图片'} · ${fitLabel}` : '当前使用默认舞台背景'}</div>
           </div>
           {resourceSelected && (
             <button type="button" style={styles.iconButton} onClick={clearWallpaper} title="恢复默认背景" aria-label="恢复默认背景">
@@ -552,6 +567,16 @@ function AppearanceTab({ settings, onSettingChange }: {
         </div>
       </div>
 
+      {resourceSelected && (
+        <div style={styles.themeCard}>
+          <div style={styles.themeHeading}>
+            <div style={styles.sectionLabel}>壁纸效果</div>
+            <div style={styles.sectionDesc}>调节壁纸与界面的融合：暗化/边框保文字可读，玻璃让面板透出壁纸，媒体滤镜调整壁纸本身。仅在有壁纸时生效。</div>
+          </div>
+          <WallpaperEffectControls settings={settings} onSettingChange={onSettingChange} />
+        </div>
+      )}
+
       {!electronWindowBridge.available && <div style={styles.backgroundHint}>请在 Electron 桌面版中选择本地 Wallpaper Engine 资源。</div>}
       {message && <div style={styles.backgroundMessage}>{message}</div>}
     </div>
@@ -559,6 +584,87 @@ function AppearanceTab({ settings, onSettingChange }: {
 }
 
 // ── Tab: Vision ──
+
+/**
+ * Wallpaper fusion sliders. During a drag the value is written straight to
+ * the CSS variables (zero React re-renders); on release it lands in the
+ * settings store, which persists it and re-applies via the controller.
+ */
+function WallpaperEffectControls({ settings, onSettingChange }: {
+  settings: AppSettings
+  onSettingChange: (key: string, value: unknown) => void
+}) {
+  const effects = sanitizeWallpaperEffects(settings.wallpaperEffects)
+  const themeMode = isUiThemeMode(settings.uiTheme) ? settings.uiTheme : 'dark'
+  const systemPrefersLight = typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: light)').matches
+  const effectiveTheme = themeMode === 'auto' ? (systemPrefersLight ? 'light' : 'dark') : themeMode
+
+  const setLive = (patch: Partial<WallpaperEffectSettings>) => {
+    const next = { ...effects, ...patch }
+    const vars = wallpaperCssVars(next, effectiveTheme)
+    const root = document.documentElement
+    for (const [name, value] of Object.entries(vars)) root.style.setProperty(name, value)
+  }
+
+  const commit = (patch: Partial<WallpaperEffectSettings>) => {
+    onSettingChange('wallpaperEffects', { ...effects, ...patch })
+  }
+
+  const rows: ReadonlyArray<{
+    key: keyof WallpaperEffectSettings
+    label: string
+    min: number
+    max: number
+    step: number
+    /** Value → slider number (effects store percentages as 0-1 for scrim). */
+    toSlider: (e: WallpaperEffectSettings) => number
+    /** Slider number → effects value. */
+    fromSlider: (v: number) => Partial<WallpaperEffectSettings>
+    format: (v: number) => string
+  }> = [
+    { key: 'scrim', label: '暗化', min: 0, max: 90, step: 5, toSlider: e => Math.round(e.scrim * 100), fromSlider: v => ({ scrim: v / 100 }), format: v => `${v}%` },
+    { key: 'wallpaperBlur', label: '壁纸模糊', min: 0, max: 60, step: 1, toSlider: e => e.wallpaperBlur, fromSlider: v => ({ wallpaperBlur: v }), format: v => `${v}px` },
+    { key: 'brightness', label: '亮度', min: 40, max: 160, step: 5, toSlider: e => e.brightness, fromSlider: v => ({ brightness: v }), format: v => `${v}%` },
+    { key: 'contrast', label: '对比度', min: 40, max: 200, step: 5, toSlider: e => e.contrast, fromSlider: v => ({ contrast: v }), format: v => `${v}%` },
+    { key: 'saturate', label: '饱和度', min: 0, max: 200, step: 5, toSlider: e => e.saturate, fromSlider: v => ({ saturate: v }), format: v => `${v}%` },
+    { key: 'glassBlur', label: '玻璃', min: 0, max: 60, step: 1, toSlider: e => e.glassBlur, fromSlider: v => ({ glassBlur: v }), format: v => `${v}px` },
+  ]
+
+  return (
+    <>
+      {rows.map(row => (
+        <label key={row.key} style={styles.rangeRow}>
+          <span style={styles.rangeLabel}>{row.label}</span>
+          <input
+            aria-label={row.label}
+            style={styles.rangeInput}
+            type="range"
+            value={row.toSlider(effects)}
+            min={row.min}
+            max={row.max}
+            step={row.step}
+            onChange={event => {
+              const value = Number(event.target.value)
+              setLive(row.fromSlider(value))
+            }}
+            onPointerUp={() => commit(row.fromSlider(row.toSlider(effects)))}
+            onKeyUp={() => commit(row.fromSlider(row.toSlider(effects)))}
+          />
+          <span style={styles.rangeValue}>{row.format(row.toSlider(effects))}</span>
+        </label>
+      ))}
+      <SettingRow label="水平翻转" desc="镜像壁纸画面（对视频和图片生效）">
+        <Toggle
+          checked={effects.flip}
+          onChange={value => {
+            setLive({ flip: value })
+            commit({ flip: value })
+          }}
+        />
+      </SettingRow>
+    </>
+  )
+}
 
 function VisionTab({ envConfig, settings, onSettingChange, llmProviders }: {
   envConfig: EnvConfigState
