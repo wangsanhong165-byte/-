@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { AlertCircle, CheckCircle2, ExternalLink, Eye, FileImage, FolderOpen, Info, LibraryBig, LoaderCircle, Palette, RotateCcw, Settings2, X, type LucideIcon } from 'lucide-react'
 import { theme } from '../core/theme'
 import {
@@ -537,7 +538,13 @@ function AppearanceTab({ settings, onSettingChange }: {
         </div>
 
         <div style={styles.backgroundActions}>
-          <button type="button" style={styles.primaryButton} disabled={!electronWindowBridge.available} onClick={() => setLibraryOpen(true)}>
+          <button
+            type="button"
+            style={styles.primaryButton}
+            disabled={!electronWindowBridge.available}
+            title={electronWindowBridge.available ? undefined : '壁纸库需要桌面版（Electron）环境'}
+            onClick={() => setLibraryOpen(true)}
+          >
             <LibraryBig size={14} /> 从壁纸库选择（Wallpaper Engine）
           </button>
           <button type="button" style={styles.secondaryButton} disabled={busy || !electronWindowBridge.available} onClick={() => void selectWallpaper('directory')}>
@@ -585,7 +592,7 @@ function AppearanceTab({ settings, onSettingChange }: {
       {!electronWindowBridge.available && <div style={styles.backgroundHint}>请在 Electron 桌面版中选择本地 Wallpaper Engine 资源。</div>}
       {message && <div style={styles.backgroundMessage}>{message}</div>}
 
-      {libraryOpen && (
+      {libraryOpen && createPortal(
         <div style={styles.libraryOverlay} role="dialog" aria-label="Wallpaper Engine 壁纸库" onClick={event => {
           if (event.target === event.currentTarget) setLibraryOpen(false)
         }}>
@@ -603,7 +610,8 @@ function AppearanceTab({ settings, onSettingChange }: {
               }} />
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )

@@ -762,7 +762,10 @@ function registerWallpaperProtocol() {
 
   protocol.handle('wallpaper', async request => {
     const target = resolveWallpaperAsset(request.url)
-    if (!target) return new Response('Wallpaper resource unavailable', { status: 404 })
+    if (!target) {
+      console.log('[Wallpaper] 404 (not whitelisted):', request.url.slice(0, 120))
+      return new Response('Wallpaper resource unavailable', { status: 404 })
+    }
     let stat
     try { stat = fs.statSync(target.filePath) } catch {
       return new Response('Wallpaper resource unavailable', { status: 404 })
@@ -773,6 +776,7 @@ function registerWallpaperProtocol() {
     if (!target.dirScope) {
       const inspected = inspectWallpaperPath(target.filePath)
       if (!inspected.ok || inspected.type === undefined || inspected.path !== target.filePath) {
+        console.log('[Wallpaper] 404 (inspector rejected):', target.filePath)
         return new Response('Wallpaper resource unavailable', { status: 404 })
       }
     }
