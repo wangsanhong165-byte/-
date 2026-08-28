@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { AppSettings } from '../core/store'
 import { eventBus } from '../core/event-bus'
+import { electronWindowBridge } from '../session/electron-window-bridge'
 
 /**
  * Wallpaper fusion layer.
@@ -11,22 +12,119 @@ import { eventBus } from '../core/event-bus'
  * live in CSS keyed off html[data-wallpaper='on']. This replaces the old
  * stage-scoped background so all three columns share one backdrop.
  *
+ * Playback control (WE-style occlusion pause):
+ *   - pauseOnHidden: window minimized / tab switched away → decode stops.
+ *   - pauseOnBlur: another app took focus (wallpaper likely covered).
+ *   - pauseOnVision: vision-turn audio sampling + LLM inference in flight —
+ *     the freed decode budget goes to the camera/inference pipeline.
+ *   - playbackRate: native speed multiplier (muted media, no A/V sync cost).
+ *
  * Media kinds:
- *   image  → <img>
- *   video  → <video> (loop, muted, paused while occluded — Phase 3)
- *   web    → <iframe sandbox="allow-scripts"> + WE API no-op shim (Phase 2)
- *   scene  → embedded MP4 when the host extracted one, else static preview
+ *   image → <img>
+ *   video → <video> (hardware-decoded loop; scene wallpapers arrive here
+ *           too when the host extracted an embedded MP4)
+ *   web   → <iframe sandbox="allow-scripts"> (WE API shim injected by host)
  */
 export function StageBackground({ settings }: { settings: AppSettings }) {
   const [, setLoadState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const pausedByRef = useRef<{ hidden: boolean; blur: boolean; vision: boolean }>({
+    hidden: false, blur: false, vision: false,
+  })
+
+  const url = settings.backgroundUrl
+  const kind = settings.backgroundType
+
+  // ── fps-cap transcode upgrade: play the original now, swap when ready ────
+  // The transcode runs once on the host (path+mtime+fps cached); switching
+  // sources mid-play just replaces the src (muted loop, no continuity cost).
+  const [sourceUrl, setSourceUrl] = useState(url)
+  useEffect(() => {
+    setSourceUrl(url)
+    if (kind !== 'video' || !url || !settings.wallpaperFpsCap || !electronWindowBridge.available) return
+    if (!settings.backgroundPath) return
+    let disposed = false
+    void (async () => {
+      const info = await electronWindowBridge.wallpaperMediaInfo(settings.backgroundPath)
+      if (disposed || !info.ok || !info.info?.fps || info.info.fps <= settings.wallpaperFpsCap + 0.01) return
+      const result = await electronWindowBridge.wallpaperTranscode(settings.backgroundPath, settings.wallpaperFpsCap)
+      if (!disposed && result.ok && result.url) setSourceUrl(result.url)
+    })()
+    return () => { disposed = true }
+  }, [url, kind, settings.backgroundPath, settings.wallpaperFpsCap])
 
   useEffect(() => {
     setLoadState('loading')
     eventBus.emit('background:status', { state: 'loading' })
   }, [settings.backgroundUrl, settings.backgroundType])
 
-  const url = settings.backgroundUrl
-  const kind = settings.backgroundType
+  // ── Playback controller: pause when ANY active condition holds ──────────
+  const syncPlayback = useRef(() => {
+    const video = videoRef.current
+    if (!video) return
+    const pausedBy = pausedByRef.current
+    const shouldPause = pausedBy.hidden || pausedBy.blur || pausedBy.vision
+    if (shouldPause) {
+      if (!video.paused) video.pause()
+    } else if (video.paused && !document.hidden) {
+      // Resume only via play() promise — autoplay policy needs the catch.
+      video.play().catch(() => {})
+    }
+  }).current
+
+  useEffect(() => {
+    const onVisibility = () => {
+      pausedByRef.current.hidden = settings.wallpaperPauseOnHidden && document.hidden
+      syncPlayback()
+    }
+    const onBlur = () => {
+      pausedByRef.current.blur = settings.wallpaperPauseOnBlur && !document.hasFocus()
+      syncPlayback()
+    }
+    const onFocus = () => {
+      pausedByRef.current.blur = false
+      syncPlayback()
+    }
+    let offVisionStart = () => {}
+    if (settings.wallpaperPauseOnVision) {
+      offVisionStart = eventBus.on('vision:turn', ({ active }) => {
+        pausedByRef.current.vision = active
+        syncPlayback()
+      })
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('blur', onBlur)
+    window.addEventListener('focus', onFocus)
+    // Initial state.
+    pausedByRef.current.hidden = settings.wallpaperPauseOnHidden && document.hidden
+    pausedByRef.current.blur = settings.wallpaperPauseOnBlur && !document.hasFocus()
+    pausedByRef.current.vision = false
+    syncPlayback()
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('blur', onBlur)
+      window.removeEventListener('focus', onFocus)
+      offVisionStart()
+    }
+  }, [
+    settings.wallpaperPauseOnHidden,
+    settings.wallpaperPauseOnBlur,
+    settings.wallpaperPauseOnVision,
+    settings.backgroundType,
+    settings.backgroundUrl,
+    syncPlayback,
+  ])
+
+  // Playback rate follows settings instantly (no media reload needed).
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    const rate = Number(settings.wallpaperPlaybackRate)
+    if (Number.isFinite(rate) && rate > 0 && rate <= 4) {
+      try { video.playbackRate = rate } catch { /* unsupported value */ }
+    }
+  }, [settings.wallpaperPlaybackRate, sourceUrl])
+
   const active = kind !== 'none' && Boolean(url)
 
   if (!active) return null
@@ -38,9 +136,10 @@ export function StageBackground({ settings }: { settings: AppSettings }) {
       <div className="wp-layer" aria-hidden="true">
         {kind === 'video' ? (
           <video
-            key={url}
+            ref={videoRef}
+            key={sourceUrl}
             className="wp-media"
-            src={url}
+            src={sourceUrl}
             style={style}
             autoPlay
             loop

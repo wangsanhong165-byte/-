@@ -37,6 +37,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openWallpaperWorkshop: () => ipcRenderer.invoke('wallpaper:openWorkshop'),
   wallpaperInventory: () => ipcRenderer.invoke('wallpaper:inventory'),
   wallpaperPick: (wallpaper) => ipcRenderer.invoke('wallpaper:pick', wallpaper),
+  wallpaperMediaInfo: (filePath) => ipcRenderer.invoke('wallpaper:media-info', filePath),
+  wallpaperTranscode: (filePath, fps) => ipcRenderer.invoke('wallpaper:transcode', filePath, fps),
+  wallpaperTranscodeProgress: (filePath, fps) => ipcRenderer.invoke('wallpaper:transcode-progress', filePath, fps),
 
   // ── ProcessManager / backend lifecycle ──
   getStatus: () => ipcRenderer.invoke('get-status'),

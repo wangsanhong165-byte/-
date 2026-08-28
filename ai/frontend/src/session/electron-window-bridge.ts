@@ -45,6 +45,9 @@ declare global {
       openWallpaperWorkshop?: () => Promise<{ ok: boolean; path?: string; message?: string }>
       wallpaperInventory?: () => Promise<WallpaperInventoryResult>
       wallpaperPick?: (wallpaper: WallpaperLibraryEntry) => Promise<WallpaperResourceResult>
+      wallpaperMediaInfo?: (filePath: string) => Promise<{ ok: boolean; info?: MediaInfo | null }>
+      wallpaperTranscode?: (filePath: string, fps: number) => Promise<{ ok: boolean; url?: string; path?: string; reason?: string }>
+      wallpaperTranscodeProgress?: (filePath: string, fps: number) => Promise<{ ok: boolean; progress?: { phase: string; percent: number } | null }>
       getStatus?: () => Promise<{ services?: Array<Record<string, unknown>> }>
       onLifecycleSnapshot?: (callback: (snapshot: {
         availability?: string
@@ -124,6 +127,15 @@ export interface WallpaperInventoryResult {
   }
 }
 
+/** MP4 metadata from the host's moov-box probe. */
+export interface MediaInfo {
+  width: number
+  height: number
+  codec: string | null
+  fps: number | null
+  duration?: number
+}
+
 export class ElectronWindowBridge {
   get available(): boolean {
     return typeof window !== 'undefined' && Boolean(window.electronAPI)
@@ -161,6 +173,17 @@ export class ElectronWindowBridge {
   wallpaperPick(wallpaper: WallpaperLibraryEntry) {
     return window.electronAPI?.wallpaperPick?.(wallpaper)
       ?? Promise.resolve<WallpaperResourceResult>({ ok: false, code: 'unavailable' })
+  }
+  wallpaperMediaInfo(filePath: string) {
+    return window.electronAPI?.wallpaperMediaInfo?.(filePath) ?? Promise.resolve({ ok: false })
+  }
+  wallpaperTranscode(filePath: string, fps: number) {
+    return window.electronAPI?.wallpaperTranscode?.(filePath, fps)
+      ?? Promise.resolve({ ok: false, reason: 'unavailable' })
+  }
+  wallpaperTranscodeProgress(filePath: string, fps: number) {
+    return window.electronAPI?.wallpaperTranscodeProgress?.(filePath, fps)
+      ?? Promise.resolve({ ok: false, progress: null })
   }
   getStatus() {
     return window.electronAPI?.getStatus?.() ?? Promise.resolve({ ready: false, services: [] })

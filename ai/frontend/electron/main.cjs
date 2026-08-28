@@ -32,6 +32,7 @@ const {
 } = require('./wallpaper-dialog.cjs')
 const { buildInventory } = require('./wallpaper-library.cjs')
 const { extractSceneMedia, extractSceneMediaFromDir } = require('./wallpaper-pkg.cjs')
+const { getMediaInfo, transcodeProgress, transcodeToFps } = require('./wallpaper-transcode.cjs')
 const {
   resolveWallpaperAsset: protocolResolve,
   wallpaperMime,
@@ -471,6 +472,41 @@ function setupIPC() {
       return await pickWallpaperFromLibrary(wallpaper)
     } catch (error) {
       return { ok: false, message: `选择壁纸失败：${error instanceof Error ? error.message : String(error)}` }
+    }
+  })
+
+  // Video wallpaper metadata (resolution/codec/fps) for the fps-cap decision.
+  ipcMain.handle('wallpaper:media-info', async (_event, filePath) => {
+    if (typeof filePath !== 'string' || !allowedWallpaperPaths.has(path.resolve(filePath))) {
+      return { ok: false }
+    }
+    return { ok: true, info: getMediaInfo(filePath) }
+  })
+
+  // Frame-skip transcode to a capped fps; returns the transcoded file URL
+  // (whitelisted) or ok:false with a reason — the client keeps the original.
+  ipcMain.handle('wallpaper:transcode', async (_event, filePath, fps) => {
+    if (typeof filePath !== 'string' || !allowedWallpaperPaths.has(path.resolve(filePath))) {
+      return { ok: false, reason: 'not-whitelisted' }
+    }
+    try {
+      const out = await transcodeToFps(path.resolve(filePath), Number(fps))
+      if (!out) return { ok: false, reason: 'not-needed-or-failed' }
+      allowedWallpaperPaths.add(path.resolve(out))
+      return { ok: true, url: wallpaperResourceUrl(out), path: out }
+    } catch (error) {
+      return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
+  ipcMain.handle('wallpaper:transcode-progress', (_event, filePath, fps) => {
+    if (typeof filePath !== 'string' || !allowedWallpaperPaths.has(path.resolve(filePath))) {
+      return { ok: false }
+    }
+    try {
+      return { ok: true, progress: transcodeProgress(path.resolve(filePath), Number(fps)) }
+    } catch {
+      return { ok: true, progress: null }
     }
   })
 

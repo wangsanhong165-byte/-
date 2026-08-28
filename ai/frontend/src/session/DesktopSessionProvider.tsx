@@ -413,7 +413,12 @@ export function DesktopSessionWorkspace() {
           cameraSession.stop()
         }
       },
-      onStateChange(state) { setRecorderState(state) },
+      onStateChange(state) {
+        setRecorderState(state)
+        // Vision-turn suspension signal for the wallpaper layer: recording
+        // (camera sampling + upcoming inference) = pause, idle = resume.
+        eventBus.emit('vision:turn', { active: state === 'recording' })
+      },
     })
     return () => {
       recorder.stop()

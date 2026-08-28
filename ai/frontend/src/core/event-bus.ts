@@ -121,6 +121,7 @@ export interface EventMap {
     volumeSamples?: number
   }
   'connection:change': { connected: boolean }
+  'vision:turn': { active: boolean }
   'runtime:status': { status: string; message?: string }
   'runtime:error': { code: string; message: string; requestId?: string }
   'runtime:message': { text: string; reasoning?: string; segments?: Array<{ text: string; emotion: string; behavior: string }>; diagnostics?: Record<string, unknown> }

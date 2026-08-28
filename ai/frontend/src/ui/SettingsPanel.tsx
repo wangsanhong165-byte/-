@@ -688,6 +688,48 @@ function WallpaperEffectControls({ settings, onSettingChange }: {
           }}
         />
       </SettingRow>
+
+      <SettingRow label="倍速" desc="视频壁纸播放速度（网页壁纸不受影响）">
+        <div style={styles.chipRow} role="radiogroup" aria-label="倍速">
+          {[0.5, 0.75, 1, 1.25, 1.5, 2].map(rate => (
+            <button
+              key={rate}
+              type="button"
+              style={{ ...styles.themeModeButton, ...(settings.wallpaperPlaybackRate === rate ? styles.themeModeButtonActive : {}) }}
+              aria-pressed={settings.wallpaperPlaybackRate === rate}
+              onClick={() => onSettingChange('wallpaperPlaybackRate', rate)}
+            >
+              {String(rate).replace(/\.?0+$/, '')}x
+            </button>
+          ))}
+        </div>
+      </SettingRow>
+
+      <SettingRow label="帧率上限" desc="高于上限的视频会被一次性转码到该帧率（解码占用随帧率线性下降；需要 ffmpeg，失败时保持原片）">
+        <div style={styles.chipRow} role="radiogroup" aria-label="帧率上限">
+          {[0, 24, 30, 48, 60].map(cap => (
+            <button
+              key={cap}
+              type="button"
+              style={{ ...styles.themeModeButton, ...(settings.wallpaperFpsCap === cap ? styles.themeModeButtonActive : {}) }}
+              aria-pressed={settings.wallpaperFpsCap === cap}
+              onClick={() => onSettingChange('wallpaperFpsCap', cap)}
+            >
+              {cap === 0 ? '不限' : `${cap}fps`}
+            </button>
+          ))}
+        </div>
+      </SettingRow>
+
+      <SettingRow label="最小化/切页时暂停" desc="窗口不可见时停止视频解码（省电，默认开）">
+        <Toggle checked={settings.wallpaperPauseOnHidden !== false} onChange={value => onSettingChange('wallpaperPauseOnHidden', value)} />
+      </SettingRow>
+      <SettingRow label="失焦时暂停" desc="切到其它应用时暂停（壁纸可能被遮挡）">
+        <Toggle checked={settings.wallpaperPauseOnBlur === true} onChange={value => onSettingChange('wallpaperPauseOnBlur', value)} />
+      </SettingRow>
+      <SettingRow label="语音对话时暂停" desc="录音/推理期间暂停视频解码，把解码算力让给摄像头与模型">
+        <Toggle checked={settings.wallpaperPauseOnVision !== false} onChange={value => onSettingChange('wallpaperPauseOnVision', value)} />
+      </SettingRow>
     </>
   )
 }
@@ -2135,6 +2177,9 @@ const styles: Record<string, React.CSSProperties> = {
   themeHeading: { display: 'flex', flexDirection: 'column', gap: 2 },
   themeModeRow: {
     display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: theme.spacing.xs,
+  },
+  chipRow: {
+    display: 'flex', flexWrap: 'wrap' as const, gap: theme.spacing.xs, justifyContent: 'flex-end' as const,
   },
   themeModeButton: {
     minWidth: 0, padding: '6px 10px',

@@ -61,6 +61,13 @@ export interface AppSettings {
   accentColor: string
   // Wallpaper fusion layer (Settings → Appearance → 舞台背景)
   wallpaperEffects: WallpaperEffectSettings
+  // Wallpaper playback (Settings → Appearance → 壁纸效果)
+  wallpaperPauseOnHidden: boolean
+  wallpaperPauseOnBlur: boolean
+  wallpaperPauseOnVision: boolean
+  wallpaperPlaybackRate: number
+  /** Decode-side fps cap (0 = unlimited) — one-time host transcode. */
+  wallpaperFpsCap: number
 }
 
 // ── Conversation State ──
@@ -131,6 +138,14 @@ const INITIAL_SETTINGS: AppSettings = {
   accentColor: 'orange',
   // Wallpaper fusion-layer effect knobs (scrim/glass/media filters).
   wallpaperEffects: WALLPAPER_EFFECT_DEFAULTS,
+  // Playback: pause while minimized/tab-hidden (default on, mirrors WE's
+  // occlusion pause), pause on focus loss (off), pause during vision turns
+  // (on — the GPU budget is better spent on inference), speed multiplier.
+  wallpaperPauseOnHidden: true,
+  wallpaperPauseOnBlur: false,
+  wallpaperPauseOnVision: true,
+  wallpaperPlaybackRate: 1,
+  wallpaperFpsCap: 0,
 }
 
 export const INITIAL_STATE: AppState = {
