@@ -371,65 +371,6 @@ aside {
   z-index: 1;
 }
 
-.stage-background {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  overflow: hidden;
-  pointer-events: none;
-  background: var(--bg);
-}
-
-.stage-background-media,
-.stage-background-shade {
-  position: absolute;
-}
-
-.stage-background-media {
-  top: 50%;
-  left: 50%;
-  display: block;
-  width: auto;
-  height: auto;
-  max-width: 100%;
-  max-height: 100%;
-  transform: translate(-50%, -50%);
-  object-fit: contain;
-  object-position: center;
-  transition: opacity 180ms ease;
-}
-
-/* Contain keeps the source ratio and, unlike a 100% x 100% media box,
-   never enlarges a small image past its native dimensions. */
-.stage-background.fit-cover .stage-background-media,
-.stage-background.fit-fill .stage-background-media {
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  max-width: none;
-  max-height: none;
-  transform: none;
-}
-
-.stage-background.fit-cover .stage-background-media { object-fit: cover; }
-.stage-background.fit-fill .stage-background-media { object-fit: fill; }
-
-.stage-background.is-loading .stage-background-media,
-.stage-background.is-idle .stage-background-media {
-  opacity: 0;
-}
-
-.stage-background.is-error .stage-background-media {
-  opacity: 0;
-}
-
-.stage-background-shade {
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(7, 8, 12, 0.28);
-}
-
 /* ── Wallpaper fusion layer ─────────────────────────────────────────────
    The wallpaper spans the WHOLE window (not just the stage): a fixed layer
    below the app frame plus a scrim, activated by html[data-wallpaper='on']
@@ -472,7 +413,14 @@ aside {
 }
 
 /* While a wallpaper is active: drop the opaque frame backgrounds so all
-   three columns share the same wallpaper+scrim backdrop. */
+   three columns share the same wallpaper+scrim backdrop. CRITICAL: body's
+   own background must go transparent too — an in-flow body background
+   paints ABOVE negative-z-index descendants, and body is exactly what was
+   covering the fixed wallpaper layer (z-index -2). */
+html[data-wallpaper='on'] body {
+  background: transparent;
+}
+
 html[data-wallpaper='on'] .workspace-shell,
 html[data-wallpaper='on'] .companion-stage,
 html[data-wallpaper='on'] .title-bar {

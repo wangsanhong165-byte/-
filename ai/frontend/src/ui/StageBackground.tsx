@@ -129,7 +129,15 @@ export function StageBackground({ settings }: { settings: AppSettings }) {
 
   if (!active) return null
 
-  const style = { opacity: settings.backgroundOpacity } as const
+  // Media element style: legacy opacity knob + the fit-mode setting wired to
+  // the CSS variable the fusion stylesheet reads (--wp-object-fit).
+  const fit = settings.backgroundFit === 'cover' || settings.backgroundFit === 'fill'
+    ? settings.backgroundFit
+    : 'contain'
+  const style = {
+    opacity: settings.backgroundOpacity,
+    ['--wp-object-fit' as string]: fit,
+  } as React.CSSProperties
 
   return createPortal(
     <>
