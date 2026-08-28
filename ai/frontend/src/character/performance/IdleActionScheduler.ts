@@ -13,6 +13,7 @@ export type IdleActionLabel =
   | 'gentle-lean'
   | 'sigh-sink'
   | 'slow-blink'
+  | 'reposition'
 
 export interface IdleActionPose {
   headX: number
@@ -58,6 +59,7 @@ export interface IdleActionState {
 const labels: IdleActionLabel[] = [
   'small-nod', 'head-tilt', 'weight-shift',
   'gentle-lean', 'sigh-sink', 'slow-blink',
+  'reposition',
 ]
 
 export class IdleActionScheduler {
@@ -162,25 +164,30 @@ function buildKeyframes(
   const side = direction || 1
   let frames: PoseKeyframe[]
   if (label === 'small-nod') {
-    frames = [frame(0, {}), frame(.2, { headY: 3.4, bodyY: .5 }),
-      frame(.42, { headY: -1.1 }), frame(.68, { headY: .7 }), frame(1, {})]
+    frames = [frame(0, {}), frame(.2, { headY: 6.5, bodyY: 1 }),
+      frame(.42, { headY: -2.2 }), frame(.68, { headY: 1.4 }), frame(1, {})]
   } else if (label === 'head-tilt') {
-    frames = [frame(0, {}), frame(.28, { headX: side * .85, headZ: side * 4.2, eyeX: -side * .12 }),
-      frame(.64, { headZ: side * 3.4 }), frame(1, {})]
+    frames = [frame(0, {}), frame(.28, { headX: side * 1.6, headZ: side * 8, eyeX: -side * .22 }),
+      frame(.64, { headZ: side * 6.4 }), frame(1, {})]
   } else if (label === 'weight-shift') {
-    frames = [frame(0, {}), frame(.34, { bodyX: side * 3.4, headX: -side * .85, headZ: -side * 1.6 }),
-      frame(.7, { bodyX: side * 2.8, headZ: -side * 1.3 }), frame(1, {})]
+    frames = [frame(0, {}), frame(.34, { bodyX: side * 6.5, headX: -side * 1.6, headZ: -side * 3 }),
+      frame(.7, { bodyX: side * 5.2, headZ: -side * 2.4 }), frame(1, {})]
   } else if (label === 'gentle-lean') {
-    frames = [frame(0, {}), frame(.3, { bodyY: side * 2, headY: side * 1.6, eyeY: side * .08 }),
-      frame(.58, { bodyY: side * 1.7, headY: side * 1.3 }),
-      frame(.8, { bodyY: -side * .3 }), frame(1, {})]
+    frames = [frame(0, {}), frame(.3, { bodyY: side * 3.8, headY: side * 3, eyeY: side * .15 }),
+      frame(.58, { bodyY: side * 3.2, headY: side * 2.4 }),
+      frame(.8, { bodyY: -side * .6 }), frame(1, {})]
   } else if (label === 'sigh-sink') {
-    frames = [frame(0, {}), frame(.2, { eyeClose: .08 }),
-      frame(.48, { headY: -2.6, bodyY: -1.5, eyeY: -.15, eyeClose: .22 }),
-      frame(.73, { headY: -1.9, bodyY: -1.1, eyeClose: .06 }), frame(1, {})]
+    frames = [frame(0, {}), frame(.2, { eyeClose: .12 }),
+      frame(.48, { headY: -5, bodyY: -2.9, eyeY: -.28, eyeClose: .34 }),
+      frame(.73, { headY: -3.6, bodyY: -2.1, eyeClose: .1 }), frame(1, {})]
+  } else if (label === 'reposition') {
+    // Occasional large posture change — supplies the "long tail" of motion the
+    // reference performance shows (rare 10°+ moves between many small ones).
+    frames = [frame(0, {}), frame(.32, { bodyX: side * 9.5, headX: -side * 2.2, headZ: -side * 3.6 }),
+      frame(.66, { bodyX: side * 7.6, headZ: -side * 2.8 }), frame(1, {})]
   } else {
-    frames = [frame(0, {}), frame(.3, { eyeClose: .82, headY: -.3 }),
-      frame(.47, { eyeClose: 1, headY: -.42 }),
+    frames = [frame(0, {}), frame(.3, { eyeClose: .82, headY: -.55 }),
+      frame(.47, { eyeClose: 1, headY: -.75 }),
       frame(.72, { eyeClose: .18 }), frame(1, {})]
   }
   return frames.map(item => ({
@@ -209,7 +216,7 @@ function evaluateKeyframes(frames: PoseKeyframe[], progress: number): IdleAction
 function isAvailable(label: IdleActionLabel, capabilities?: AvatarPerformanceCapabilities): boolean {
   if (!capabilities) return true
   if (label === 'slow-blink') return capabilities.eyeBlink !== false
-  if (label === 'weight-shift' || label === 'gentle-lean') return capabilities.bodyControl !== false
+  if (label === 'weight-shift' || label === 'gentle-lean' || label === 'reposition') return capabilities.bodyControl !== false
   return capabilities.headControl !== false
 }
 
@@ -242,6 +249,7 @@ function durationFor(label: IdleActionLabel, random: RandomSource): number {
     'small-nod': [.82, 1.2], 'head-tilt': [1.35, 2.15],
     'weight-shift': [1.65, 2.65], 'gentle-lean': [1.25, 2.05],
     'sigh-sink': [1.7, 2.8], 'slow-blink': [.72, 1.08],
+    'reposition': [2.2, 3.4],
   }
   const [min, max] = ranges[label]
   return min + (max - min) * random()
@@ -254,7 +262,7 @@ function neutralPose(): IdleActionPose {
   return { headX: 0, headY: 0, headZ: 0, bodyX: 0, bodyY: 0, eyeX: 0, eyeY: 0, eyeClose: 0 }
 }
 function isDirectional(label: IdleActionLabel): boolean {
-  return ['head-tilt', 'weight-shift', 'gentle-lean'].includes(label)
+  return ['head-tilt', 'weight-shift', 'gentle-lean', 'reposition'].includes(label)
 }
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))

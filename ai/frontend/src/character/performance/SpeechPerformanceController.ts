@@ -17,6 +17,10 @@ export class SpeechPerformanceController {
   private previousAudioLevel = 0
   private state: SpeechPerformanceSample['state'] = 'idle'
   private style: Pick<ResolvedMotionStyle, 'speechAccentGain'> = { speechAccentGain: 1 }
+  // Phase accumulator for the accent beat. A fixed-frequency oscillator reads
+  // as a metronome; the rate drifts slowly so nods land on slightly uneven
+  // intervals while staying phase-continuous.
+  private beatPhase = 0
 
   configure(style: Pick<ResolvedMotionStyle, 'speechAccentGain'>): void {
     this.style = style
@@ -36,6 +40,7 @@ export class SpeechPerformanceController {
     this.elapsed = 0
     this.releaseStartedAt = 0
     this.previousAudioLevel = 0
+    this.beatPhase = 0
     this.state = 'idle'
   }
 
@@ -54,7 +59,9 @@ export class SpeechPerformanceController {
     if (this.state === 'releasing' && releaseEnvelope <= 0.001) this.state = 'idle'
 
     const levelRise = Math.max(0, level - this.previousAudioLevel)
-    const beat = Math.max(0, Math.sin(this.elapsed * Math.PI * 2.15))
+    const beatRate = 2.15 + Math.sin(this.elapsed * 0.37) * 0.55
+    this.beatPhase += Math.PI * 2 * beatRate * Math.max(0, dt)
+    const beat = Math.max(0, Math.sin(this.beatPhase))
     const accentEnvelope = clamp(levelRise * 2.8 + level * beat * 0.32, 0, 1)
       * this.style.speechAccentGain
     this.previousAudioLevel += (level - this.previousAudioLevel)
@@ -67,16 +74,16 @@ export class SpeechPerformanceController {
     const phraseDrift = Math.sin(this.elapsed * 0.72 + 0.35)
     const counterDrift = Math.sin(this.elapsed * 1.18 + 1.6)
     return {
-      headX: (Math.sin(this.elapsed * 1.92 + 0.7) * 1.28 + phraseDrift * 0.78)
+      headX: (Math.sin(this.elapsed * 1.92 + 0.7) * 3.2 + phraseDrift * 1.6)
         * voiceEnergy * weight,
-      headY: (Math.sin(this.elapsed * 3.45) * 0.92 + accentEnvelope * 2.35)
+      headY: (Math.sin(this.elapsed * 3.45) * 1.8 + accentEnvelope * 4.6)
         * weight,
-      headZ: (Math.sin(this.elapsed * 2.35 + 0.25) * 0.74 + counterDrift * 0.3)
+      headZ: (Math.sin(this.elapsed * 2.35 + 0.25) * 1.8 + counterDrift * 0.6)
         * voiceEnergy * weight,
-      bodyX: (-phraseDrift * 0.92 + counterDrift * 0.36) * voiceEnergy * weight,
-      bodyY: (Math.sin(this.elapsed * 1.12) * 0.5 + accentEnvelope * 0.72)
+      bodyX: (-phraseDrift * 2 + counterDrift * 0.7) * voiceEnergy * weight,
+      bodyY: (Math.sin(this.elapsed * 1.12) * 1 + accentEnvelope * 1.3)
         * weight,
-      bodyZ: (-phraseDrift * 0.58 + counterDrift * 0.25) * voiceEnergy * weight,
+      bodyZ: (-phraseDrift * 1.2 + counterDrift * 0.5) * voiceEnergy * weight,
       weight,
       state: this.state,
     }

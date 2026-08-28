@@ -108,8 +108,11 @@ export class IdleBehaviorController {
     const microGain = this._legacy ? 1 : this._style.microMotionGain
     const amplitude = this._legacy
       ? { headX: 0.18, headY: 0.12, headZ: 0.12, eyeX: 0.18, eyeY: 0.1 }
-      : { headX: 0.48, headY: 0.34, headZ: 0.3, eyeX: 0.24, eyeY: 0.14 }
-    const headWeight = weight * (1 - clamp(focusWeights.head, 0, 1) * 0.88)
+      : { headX: 1, headY: 0.7, headZ: 0.8, eyeX: 0.34, eyeY: 0.2 }
+    // Tracking still owns gaze/head priority, but idle body language keeps
+    // most of its weight — a full suppress reads as a statue the instant the
+    // pointer moves.
+    const headWeight = weight * (1 - clamp(focusWeights.head, 0, 1) * 0.45)
     const gazeWeight = weight * (1 - clamp(focusWeights.gaze, 0, 1))
     const bodyWeight = weight * (1 - clamp(focusWeights.body, 0, 1) * 0.35)
     this._snapshot = {

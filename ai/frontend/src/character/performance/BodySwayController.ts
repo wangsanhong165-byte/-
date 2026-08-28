@@ -17,11 +17,11 @@ interface BodySwayRanges {
 }
 
 const defaultRanges: BodySwayRanges = {
-  headX: [-0.8, 0.8],
-  headY: [-0.5, 0.55],
-  headZ: [-1.1, 1.1],
-  bodyX: [-1.7, 1.7],
-  bodyY: [-0.75, 0.75],
+  headX: [-3, 3],
+  headY: [-1.8, 1.9],
+  headZ: [-3.5, 3.5],
+  bodyX: [-4.5, 4.5],
+  bodyY: [-1.8, 1.8],
 }
 
 export class BodySwayController {
@@ -80,7 +80,7 @@ export class BodySwayController {
       headY: clamp(this.pickValue('headY') + bodyY * 0.42, ...this.ranges.headY),
       headZ: clamp(this.pickValue('headZ') - bodyX * 0.24, ...this.ranges.headZ),
     }
-    this.holdUntil = timeSeconds + 2.4 + this.random() * 3.8
+    this.holdUntil = timeSeconds + 1.8 + this.random() * 2.7
   }
 
   private pickValue(key: keyof BodySwayRanges): number {
