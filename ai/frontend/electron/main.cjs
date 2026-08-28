@@ -31,7 +31,7 @@ const {
   wallpaperDialogOptions,
 } = require('./wallpaper-dialog.cjs')
 const { buildInventory } = require('./wallpaper-library.cjs')
-const { extractSceneMedia, extractSceneMediaFromDir } = require('./wallpaper-pkg.cjs')
+const { extractSceneMedia } = require('./wallpaper-pkg.cjs')
 const { getMediaInfo, transcodeProgress, transcodeToFps } = require('./wallpaper-transcode.cjs')
 const {
   resolveWallpaperAsset: protocolResolve,

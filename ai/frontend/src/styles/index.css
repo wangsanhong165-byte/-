@@ -692,7 +692,7 @@ html[data-wallpaper='on'] .stage-drawer .drawer-panel {
   overflow: visible;
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
-  background: rgba(35, 43, 61, 0.88);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
   box-shadow: var(--shadow-2);
   backdrop-filter: blur(16px) saturate(115%);
   pointer-events: auto;
@@ -713,7 +713,7 @@ html[data-wallpaper='on'] .stage-drawer .drawer-panel {
   padding: 8px 12px;
   border: 0;
   border-radius: var(--r-lg) var(--r-lg) var(--r-lg) var(--r-xs);
-  background: rgba(45, 55, 75, 0.86);
+  background: color-mix(in srgb, var(--surface-2) 86%, transparent);
   animation: dock-message-in 220ms ease-out both;
 }
 
