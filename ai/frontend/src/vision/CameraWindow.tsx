@@ -57,11 +57,21 @@ export interface CameraWindowProps {
 }
 
 export function CameraWindow({ open, onClose }: CameraWindowProps) {
+  const rootRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const dragRef = useRef<{ startX: number; startY: number; left: number; top: number } | null>(null)
   const [position, setPosition] = useState<CameraWindowPosition | null>(readSavedPosition)
   const [error, setError] = useState('')
   const [starting, setStarting] = useState(false)
+
+  function applyDragPosition(next: CameraWindowPosition) {
+    const node = rootRef.current
+    if (!node || typeof next.left !== 'number' || typeof next.top !== 'number') return
+    node.style.left = `${next.left}px`
+    node.style.top = `${next.top}px`
+    node.style.right = 'auto'
+    node.style.bottom = 'auto'
+  }
 
   const startPreview = useCallback(() => {
     setError('')
@@ -117,7 +127,7 @@ export function CameraWindow({ open, onClose }: CameraWindowProps) {
   function moveDrag(event: PointerEvent) {
     const drag = dragRef.current
     if (!drag) return
-    setPosition(clampPosition({
+    applyDragPosition(clampPosition({
       left: drag.left + event.clientX - drag.startX,
       top: drag.top + event.clientY - drag.startY,
     }))
@@ -131,6 +141,7 @@ export function CameraWindow({ open, onClose }: CameraWindowProps) {
       top: drag.top + event.clientY - drag.startY,
     })
     dragRef.current = null
+    applyDragPosition(next)
     setPosition(next)
     try {
       localStorage.setItem(POSITION_KEY, JSON.stringify(next))
@@ -158,16 +169,19 @@ export function CameraWindow({ open, onClose }: CameraWindowProps) {
   }
 
   return (
-    <div className="camera-window" style={style} role="dialog" aria-label="摄像头预览">
+    <div ref={rootRef} className="camera-window" style={style} role="dialog" aria-label="摄像头预览">
       <div className="camera-window-header" onPointerDown={(event) => {
         event.preventDefault()
         const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+        const startLeft = current.left ?? rect.left
+        const startTop = current.top ?? rect.top
         dragRef.current = {
           startX: event.clientX,
           startY: event.clientY,
-          left: current.left ?? rect.left,
-          top: current.top ?? rect.top,
+          left: startLeft,
+          top: startTop,
         }
+        applyDragPosition({ left: startLeft, top: startTop })
         window.addEventListener('pointermove', moveDrag)
         window.addEventListener('pointerup', endDrag)
       }}>
