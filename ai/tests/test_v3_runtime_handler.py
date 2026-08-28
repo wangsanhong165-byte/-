@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import io
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+from PIL import Image
 
 from app.runtime.character_turn import CharacterTurn, TurnInput, TurnOrigin, TurnPhase
+from app.runtime.visual_attachments import VisualAttachmentStore
 from app.transport.websocket.handler import RuntimeEventHandler
 from contracts.v3.registry import EventRegistry
 
@@ -79,6 +85,87 @@ def test_text_event_reaches_domain_with_session_and_turn_identity() -> None:
         for response in responses
         if response.event_type not in {"runtime.status", "protocol.error"}
     )
+
+
+def _png_bytes() -> bytes:
+    buffer = io.BytesIO()
+    Image.new("RGB", (4, 3), (255, 120, 20)).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def _screen_public_frame() -> dict:
+    return {
+        "id": "att_0123456789abcdef0123456789abcdef",
+        "source": "screen_watcher",
+        "mimeType": "image/png",
+        "width": 8,
+        "height": 6,
+        "sizeBytes": 10,
+    }
+
+
+def test_user_visual_event_appends_text_screen_frame_when_enabled(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("SOULLINK_VISUAL_ATTACHMENT_DIR", str(tmp_path))
+    attachment = VisualAttachmentStore(tmp_path).save_bytes(_png_bytes(), "image/png")
+    screen_frame = _screen_public_frame()
+
+    runtime = RuntimeProbe()
+    runtime._text_screen_enabled = True
+    runtime.screen_watcher = SimpleNamespace(
+        latest_frame=lambda **kwargs: screen_frame
+    )
+    handler = RuntimeEventHandler(runtime=runtime)
+
+    responses = asyncio.run(handler.handle_event(event("user.visual", {
+        "text": "hello",
+        "attachments": [{
+            "id": attachment.attachment_id,
+            "mimeType": attachment.mime_type,
+            "width": attachment.width,
+            "height": attachment.height,
+            "sizeBytes": attachment.size_bytes,
+        }],
+    })))
+
+    assert len(runtime.inputs) == 1
+    turn_input = runtime.inputs[0]
+    assert turn_input.text == "hello"
+    assert [item["id"] for item in turn_input.visual_attachments] == [
+        attachment.attachment_id,
+        screen_frame["id"],
+    ]
+    assert turn_input.visual_attachments[1] == screen_frame
+    assert responses
+
+
+def test_user_visual_event_does_not_append_screen_frame_when_disabled(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("SOULLINK_VISUAL_ATTACHMENT_DIR", str(tmp_path))
+    attachment = VisualAttachmentStore(tmp_path).save_bytes(_png_bytes(), "image/png")
+
+    runtime = RuntimeProbe()
+    runtime._text_screen_enabled = False
+    runtime.screen_watcher = SimpleNamespace(
+        latest_frame=lambda **kwargs: _screen_public_frame()
+    )
+    handler = RuntimeEventHandler(runtime=runtime)
+
+    responses = asyncio.run(handler.handle_event(event("user.visual", {
+        "text": "hello",
+        "attachments": [{
+            "id": attachment.attachment_id,
+            "mimeType": attachment.mime_type,
+            "width": attachment.width,
+            "height": attachment.height,
+            "sizeBytes": attachment.size_bytes,
+        }],
+    })))
+
+    assert len(runtime.inputs) == 1
+    turn_input = runtime.inputs[0]
+    assert [item["id"] for item in turn_input.visual_attachments] == [
+        attachment.attachment_id
+    ]
+    assert responses
 
 
 def test_audio_events_assemble_one_turn_without_v2_messages() -> None:

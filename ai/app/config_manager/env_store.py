@@ -21,6 +21,8 @@ EXPOSED_KEYS: dict[str, list[str]] = {
         "LLM_ENABLE_VISION",
         "LLM_VISUAL_MAX_IMAGES", "LLM_VISUAL_MAX_MB",
         "LLM_VISUAL_MAX_PIXELS", "LLM_VISUAL_MAX_EDGE",
+        "SCREEN_CAPTURE_MIN_INTERVAL", "SCREEN_CHAT_MAX_AGE_SECONDS",
+        "LLM_CAMERA_SAMPLE_INTERVAL_MS", "LLM_CAMERA_MAX_FRAMES",
         "DEEPSEEK_API_KEY", "OPENAI_API_KEY", "OPENAI_BASE_URL",
         "OPENCODE_API_KEY", "OPENCODE_BASE_URL", "OPENCODE_MODEL",
         "LLM_TEMPERATURE", "LLM_REASONING_EFFORT", "LLM_TIMEOUT_SECONDS",
@@ -59,6 +61,10 @@ def write_env_values(updates: dict[str, Any]) -> dict[str, dict[str, str]]:
         "LLM_VISUAL_MAX_MB",
         "LLM_VISUAL_MAX_PIXELS",
         "LLM_VISUAL_MAX_EDGE",
+        "SCREEN_CAPTURE_MIN_INTERVAL",
+        "SCREEN_CHAT_MAX_AGE_SECONDS",
+        "LLM_CAMERA_SAMPLE_INTERVAL_MS",
+        "LLM_CAMERA_MAX_FRAMES",
     )
     # Visual policy is read at request/upload time, so these settings apply to
     # the already-running process; engine/model changes keep their old lifecycle.

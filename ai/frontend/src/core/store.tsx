@@ -27,6 +27,12 @@ export interface HistoryEntry {
 export interface AppSettings {
   alwaysOnTop: boolean
   voiceInputEnabled: boolean
+  cameraEnabled: boolean
+  screenVisionEnabled: boolean
+  voiceCameraEnabled: boolean
+  voiceScreenEnabled: boolean
+  textCameraEnabled: boolean
+  textScreenEnabled: boolean
   activeCharacterId: string
   live2dModel: string
   windowMode: 'window' | 'pet'
@@ -48,6 +54,9 @@ export interface AppSettings {
   backgroundLabel: string
   backgroundFit: 'cover' | 'contain' | 'fill'
   backgroundOpacity: number
+  // UI theming (Settings → Appearance)
+  uiTheme: 'dark' | 'light' | 'auto'
+  accentColor: string
 }
 
 // ── Conversation State ──
@@ -85,6 +94,12 @@ const INITIAL_CHARACTER: CharacterState = {
 const INITIAL_SETTINGS: AppSettings = {
   alwaysOnTop: false,
   voiceInputEnabled: true,
+  cameraEnabled: true,
+  screenVisionEnabled: true,
+  voiceCameraEnabled: true,
+  voiceScreenEnabled: true,
+  textCameraEnabled: false,
+  textScreenEnabled: false,
   activeCharacterId: 'monika',
   live2dModel: 'shirone',
   windowMode: 'window',
@@ -107,6 +122,9 @@ const INITIAL_SETTINGS: AppSettings = {
   // Preserve the source ratio and avoid enlarging small background assets.
   backgroundFit: 'contain',
   backgroundOpacity: 1,
+  // UI theming: dark matches the app's original look; orange is the original accent.
+  uiTheme: 'dark',
+  accentColor: 'orange',
 }
 
 export const INITIAL_STATE: AppState = {

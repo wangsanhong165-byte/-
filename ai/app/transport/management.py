@@ -206,6 +206,15 @@ class ManagementHandler:
             seconds = int(params.get("seconds", 120))
             self._manager.set_proactive_idle(seconds)
             return {"seconds": seconds}
+        if action == "set_screen_vision":
+            enabled = bool(params.get("enabled", True))
+            self._manager.set_screen_vision(enabled)
+            return {"enabled": enabled}
+        if action == "set_vision_source":
+            source = str(params.get("source", ""))
+            enabled = bool(params.get("enabled", True))
+            self._manager.set_vision_source(source, enabled)
+            return {"source": source, "enabled": enabled}
 
         raise ManagementFailure(
             "unknown_action",

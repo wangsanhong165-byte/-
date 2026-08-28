@@ -1,4 +1,4 @@
-import { ImagePlus, Mic, Send, Square, X } from 'lucide-react'
+import { Camera, ImagePlus, Mic, Send, Square, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, ClipboardEvent, DragEvent, FormEvent } from 'react'
 
@@ -21,11 +21,13 @@ export type VisualComposerInput = {
 }
 
 export interface InputBarProps {
-  onSend: (input: VisualComposerInput) => boolean | void
+  onSend: (input: VisualComposerInput) => boolean | void | Promise<boolean | void>
   onInterrupt: () => void
   recorderState: RecorderState
   recordingSupported: boolean
   onToggleRecording: () => void | Promise<void>
+  cameraWindowOpen?: boolean
+  onToggleCameraWindow?: () => void
 }
 
 export function InputBar({
@@ -34,6 +36,8 @@ export function InputBar({
   recorderState,
   recordingSupported,
   onToggleRecording,
+  cameraWindowOpen = false,
+  onToggleCameraWindow,
 }: InputBarProps) {
   const [value, setValue] = useState('')
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([])
@@ -111,7 +115,7 @@ export function InputBar({
       for (const item of pendingImages) {
         attachments.push(await uploadVisualAttachment(item.file))
       }
-      const sent = onSend({ text, images: attachments })
+      const sent = await onSend({ text, images: attachments })
       if (sent === false) throw new Error('运行时未连接，草稿和图片已保留')
       setValue('')
       pendingImages.forEach(item => URL.revokeObjectURL(item.previewUrl))
@@ -203,6 +207,18 @@ export function InputBar({
           >
             <ImagePlus size={theme.icon.action} strokeWidth={theme.icon.strokeWidth} aria-hidden="true" />
           </button>
+          {settings.cameraEnabled && onToggleCameraWindow && (
+            <button
+              type="button"
+              className={`composer-action${cameraWindowOpen ? ' is-active' : ''}`}
+              onClick={onToggleCameraWindow}
+              aria-label={cameraWindowOpen ? '关闭摄像头' : '打开摄像头'}
+              title={cameraWindowOpen ? '关闭摄像头浮动窗' : '在人物模型旁打开摄像头浮动窗'}
+              disabled={uploading}
+            >
+              <Camera size={theme.icon.action} strokeWidth={theme.icon.strokeWidth} aria-hidden="true" />
+            </button>
+          )}
           {recordingSupported && settings.voiceInputEnabled && (
             <button
               type="button"

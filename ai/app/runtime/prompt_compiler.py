@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
@@ -45,6 +46,7 @@ class PromptCompiler:
         presentation_registry: Live2DPresentationRegistry | None = None,
         context_budget: ContextBudget | None = None,
         visual_attachment_store: VisualAttachmentStore | None = None,
+        pinned_dir: Path | None = None,
     ) -> None:
         prompt_dir = Path(__file__).resolve().parents[2] / "data" / "prompts"
         self._legacy_planner = planner
@@ -53,6 +55,23 @@ class PromptCompiler:
         self._presentation_registry = presentation_registry or get_presentation_registry()
         self._context_budget = context_budget or ContextBudget()
         self._visual_attachment_store = visual_attachment_store or VisualAttachmentStore()
+        # Per-character pinned.md lives under config/characters/{id}/, the
+        # same file the management layer's get/set_pinned API writes.
+        self._pinned_dir = pinned_dir or (
+            Path(__file__).resolve().parents[2] / "config" / "characters"
+        )
+
+    def _load_pinned(self, character_id: str) -> str:
+        """Read the active character's pinned.md (user-pinned fixed memory)."""
+        if not character_id or not re.fullmatch(r"[A-Za-z0-9_-]+", character_id):
+            return ""
+        try:
+            path = self._pinned_dir / character_id / "pinned.md"
+            if path.exists():
+                return path.read_text("utf-8").strip()
+        except OSError:
+            return ""
+        return ""
 
     @property
     def context_budget(self) -> ContextBudget:
@@ -131,6 +150,12 @@ class PromptCompiler:
         )
         behaviors = ", ".join(sorted(BEHAVIORS - {"idle"}))
         append_system("output_protocol", self._output_protocol(language, allowed_emotions, behaviors))
+
+        # User-pinned fixed memory: injected ahead of compiled/rolling memory
+        # so manually pinned content always reaches the LLM when not disabled
+        # or replaced per-character via the prompt config store.
+        pinned = self._load_pinned(character_id)
+        append_system("pinned", f"[固定记忆]\n{pinned}" if pinned else "")
 
         compiled_memory, memory_parts = ContextAssembler().assemble_memories(ctx.memories)
         append_system("memory_summary", "Compiled memory context:\n" + compiled_memory if compiled_memory else "")

@@ -19,6 +19,14 @@ def test_turn_input_requires_exactly_one_primary_payload():
     with pytest.raises(ValueError, match="exactly one"):
         TurnInput(text="hello", audio=b"wav")
 
+    audio_with_visual = TurnInput(
+        audio=b"wav",
+        sample_rate=16000,
+        visual_attachments=({"id": "att_0123456789abcdef0123456789abcdef"},),
+    )
+    assert audio_with_visual.audio == b"wav"
+    assert len(audio_with_visual.visual_attachments) == 1
+
 
 def test_character_turn_has_stable_id_and_valid_phase_transitions():
     turn = CharacterTurn(input=TurnInput(text="hello"))

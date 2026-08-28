@@ -25,6 +25,7 @@ from app.runtime.visual_attachments import (
     VisualAttachmentStore,
     validate_visual_attachment_policy,
 )
+from app.runtime.visual_context import TurnVisualContext
 from app.transport.domain_event import DomainEvent
 from app.transport.emitter import TransportEmitter
 from contracts.v3.envelope import EventEnvelope, error_envelope
@@ -88,6 +89,21 @@ class RuntimeEventHandler:
         if self._active_task and not self._active_task.done():
             self._active_task.cancel()
 
+    def _resolve_visual_attachments(self, attachments: list) -> tuple[dict, ...]:
+        validate_visual_attachment_policy(count=len(attachments))
+        store = VisualAttachmentStore()
+        return tuple(
+            store.resolve(item.attachment_id).to_public_dict()
+            for item in attachments
+        )
+
+    def _screen_frame_for_turn(self, source: str) -> tuple[dict, ...]:
+        runtime = getattr(self, "runtime", None)
+        if runtime is None or not getattr(runtime, f"_{source}_enabled", False):
+            return ()
+        frame = TurnVisualContext(runtime).screen_frame()
+        return (frame,) if frame else ()
+
     async def handle_event(self, event: EventEnvelope) -> list[RuntimeResponse]:
         event_type = event.event_type
 
@@ -95,6 +111,7 @@ class RuntimeEventHandler:
             payload = self._payload(event, UserTextPayload)
             turn_input = TurnInput(
                 text=payload.text,
+                visual_attachments=self._screen_frame_for_turn("text_screen"),
                 session_id=event.session_id,
                 turn_id=event.turn_id or "",
             )
@@ -103,12 +120,15 @@ class RuntimeEventHandler:
         if event_type == "user.visual":
             payload = self._payload(event, UserVisualPayload)
             try:
-                validate_visual_attachment_policy(count=len(payload.attachments))
                 store = VisualAttachmentStore()
                 attachments = tuple(
                     store.resolve(item.attachment_id).to_public_dict()
                     for item in payload.attachments
                 )
+                visual_attachments = (
+                    attachments + self._screen_frame_for_turn("text_screen")
+                )
+                validate_visual_attachment_policy(count=len(visual_attachments))
             except VisualAttachmentError as exc:
                 return [error_envelope(
                     "visual_attachment_invalid",
@@ -118,7 +138,7 @@ class RuntimeEventHandler:
                 )]
             return await self._start_or_run_turn(TurnInput(
                 text=payload.text,
-                visual_attachments=attachments,
+                visual_attachments=visual_attachments,
                 session_id=event.session_id,
                 turn_id=event.turn_id or "",
             ))
@@ -158,9 +178,25 @@ class RuntimeEventHandler:
                     session_id=event.session_id,
                     turn_id=event.turn_id or "",
                 )]
+            try:
+                camera_attachments = self._resolve_visual_attachments(
+                    payload.attachments
+                )
+            except VisualAttachmentError as exc:
+                self._set_user_input_active(False)
+                return [error_envelope(
+                    "visual_attachment_invalid",
+                    str(exc),
+                    session_id=event.session_id,
+                    turn_id=event.turn_id or "",
+                )]
+            visual_attachments = (
+                camera_attachments + self._screen_frame_for_turn("voice_screen")
+            )
             return await self._start_or_run_turn(TurnInput(
                 audio=audio,
                 sample_rate=self._sample_rate,
+                visual_attachments=visual_attachments,
                 session_id=event.session_id,
                 turn_id=event.turn_id or "",
             ))

@@ -19,6 +19,10 @@ import {
   LipSyncDiagnosticProbe,
 } from '../audio/diagnostic'
 import { AudioRecorder, type RecorderState } from '../audio/recorder'
+import { DEFAULT_VISUAL_POLICY, fetchVisualPolicy, uploadVisualAttachment, type VisualPolicy } from '../runtime/visual'
+import type { VisualAttachment } from '../runtime/event-types'
+import { cameraSession } from '../vision/camera-session'
+import { CameraWindow } from '../vision/CameraWindow'
 import { StatusBar } from '../ui/StatusBar'
 import { TitleBar } from '../ui/TitleBar'
 import type { HistoryEntry } from '../conversation/HistoryPanel'
@@ -40,6 +44,7 @@ import {
 import { persistAndApplyWindowMode } from './window-mode-transition'
 import { electronWindowBridge } from './electron-window-bridge'
 import { PetModelSurface } from '../ui/PetSurfaces'
+import { applyUiTheme, isUiThemeMode, DEFAULT_ACCENT_KEY } from '../core/ui-theme'
 
 const WS_URL = runtimeWebSocketUrl(location)
 let idCounter = 0
@@ -67,6 +72,11 @@ export function DesktopSessionWorkspace() {
   const statusMessage = useSelector(selectStatusMessage)
   const settingsRef = useRef(settings)
   settingsRef.current = settings
+  const [cameraWindowOpen, setCameraWindowOpen] = useState(false)
+  const cameraAttachmentsRef = useRef<VisualAttachment[]>([])
+  const cameraSampleTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const cameraAutoOpenedRef = useRef(false)
+  const visualPolicyRef = useRef<VisualPolicy>(DEFAULT_VISUAL_POLICY)
 
   // Initialize Runtime adapter and Audio player
   useEffect(() => {
@@ -81,6 +91,7 @@ export function DesktopSessionWorkspace() {
     } | null = null
     clientRef.current = client
     audioRef.current = audio
+    void fetchVisualPolicy().then(policy => { visualPolicyRef.current = policy }).catch(() => {})
 
     const unsub1 = eventBus.on('connection:change', ({ connected }) => {
       actions.setConnection(connected ? 'connected' : 'disconnected')
@@ -90,6 +101,11 @@ export function DesktopSessionWorkspace() {
         const s = settingsRef.current
         client.sendCommand('set_proactive', { enabled: s.proactive })
         client.sendCommand('set_proactive_idle', { seconds: s.proactiveIdleTime })
+        client.sendCommand('set_screen_vision', { enabled: s.screenVisionEnabled })
+        client.sendCommand('set_vision_source', { source: 'voice_camera', enabled: s.voiceCameraEnabled })
+        client.sendCommand('set_vision_source', { source: 'voice_screen', enabled: s.voiceScreenEnabled })
+        client.sendCommand('set_vision_source', { source: 'text_camera', enabled: s.textCameraEnabled })
+        client.sendCommand('set_vision_source', { source: 'text_screen', enabled: s.textScreenEnabled })
       }
     })
 
@@ -311,6 +327,21 @@ export function DesktopSessionWorkspace() {
         if ('proactiveIdleTime' in s) {
           clientRef.current.sendCommand('set_proactive_idle', { seconds: s.proactiveIdleTime })
         }
+        if ('screenVisionEnabled' in s) {
+          clientRef.current.sendCommand('set_screen_vision', { enabled: s.screenVisionEnabled })
+        }
+        if ('voiceCameraEnabled' in s) {
+          clientRef.current.sendCommand('set_vision_source', { source: 'voice_camera', enabled: s.voiceCameraEnabled })
+        }
+        if ('voiceScreenEnabled' in s) {
+          clientRef.current.sendCommand('set_vision_source', { source: 'voice_screen', enabled: s.voiceScreenEnabled })
+        }
+        if ('textCameraEnabled' in s) {
+          clientRef.current.sendCommand('set_vision_source', { source: 'text_camera', enabled: s.textCameraEnabled })
+        }
+        if ('textScreenEnabled' in s) {
+          clientRef.current.sendCommand('set_vision_source', { source: 'text_screen', enabled: s.textScreenEnabled })
+        }
       }
       if ('alwaysOnTop' in s) {
         window.electronAPI?.setAlwaysOnTop(Boolean(s.alwaysOnTop))
@@ -348,6 +379,8 @@ export function DesktopSessionWorkspace() {
       unsubAccessoryLoaded(); unsubAccessoryChanged()
       if (diagnosticRun?.stopTimer) clearTimeout(diagnosticRun.stopTimer)
       if (diagnosticRun?.finishTimer) clearTimeout(diagnosticRun.finishTimer)
+      if (cameraSampleTimerRef.current) clearInterval(cameraSampleTimerRef.current)
+      cameraSession.stop()
       client.disconnect(); void audio.dispose()
     }
   }, [])
@@ -358,8 +391,27 @@ export function DesktopSessionWorkspace() {
     recorderRef.current = recorder
     recorder.setCallbacks({
       onData(samples, sampleRate) { clientRef.current?.sendAudioSamples(samples, sampleRate) },
-      onEnd() { clientRef.current?.sendAudioEnd() },
-      onError(message) { console.warn('[Mic]', message) },
+      onEnd() {
+        stopCameraSampling()
+        const attachments = cameraAttachmentsRef.current
+        cameraAttachmentsRef.current = []
+        clientRef.current?.sendAudioEnd(attachments)
+        if (cameraAutoOpenedRef.current) {
+          cameraAutoOpenedRef.current = false
+          setCameraWindowOpen(false)
+          cameraSession.stop()
+        }
+      },
+      onError(message) {
+        console.warn('[Mic]', message)
+        stopCameraSampling()
+        cameraAttachmentsRef.current = []
+        if (cameraAutoOpenedRef.current) {
+          cameraAutoOpenedRef.current = false
+          setCameraWindowOpen(false)
+          cameraSession.stop()
+        }
+      },
       onStateChange(state) { setRecorderState(state) },
     })
     return () => {
@@ -368,13 +420,77 @@ export function DesktopSessionWorkspace() {
     }
   }, [])
 
-  const handleSend = useCallback((input: VisualComposerInput): boolean => {
+  const stopCameraSampling = useCallback(() => {
+    if (cameraSampleTimerRef.current) {
+      clearInterval(cameraSampleTimerRef.current)
+      cameraSampleTimerRef.current = null
+    }
+  }, [])
+
+  const ensureCameraSamplingStarted = useCallback(() => {
+    stopCameraSampling()
+    cameraAttachmentsRef.current = []
+    const policy = visualPolicyRef.current
+    const interval = policy.cameraSampleIntervalMs ?? DEFAULT_VISUAL_POLICY.cameraSampleIntervalMs ?? 2000
+    const maxFrames = policy.cameraMaxFrames ?? DEFAULT_VISUAL_POLICY.cameraMaxFrames ?? 4
+    cameraSampleTimerRef.current = setInterval(() => {
+      if (cameraAttachmentsRef.current.length >= maxFrames) {
+        stopCameraSampling()
+        return
+      }
+      void cameraSession.captureFrame()
+        .then(file => file ? uploadVisualAttachment(file, 'camera') : null)
+        .then(attachment => {
+          if (attachment) cameraAttachmentsRef.current.push(attachment)
+        })
+        .catch(() => {})
+    }, interval)
+  }, [stopCameraSampling])
+
+  const closeCameraWindow = useCallback(() => {
+    setCameraWindowOpen(false)
+    cameraSession.stop()
+    stopCameraSampling()
+    cameraAttachmentsRef.current = []
+    cameraAutoOpenedRef.current = false
+  }, [stopCameraSampling])
+
+  const toggleCameraWindow = useCallback(() => {
+    if (cameraWindowOpen) {
+      closeCameraWindow()
+      return
+    }
+    setCameraWindowOpen(true)
+  }, [cameraWindowOpen, closeCameraWindow])
+
+  const handleSend = useCallback(async (input: VisualComposerInput): Promise<boolean> => {
     const { text, images } = input
     const client = clientRef.current
     const audio = audioRef.current
     if (!client) return false
-    const sent = images.length > 0
-      ? client.sendVisual(text, images)
+
+    const attachments = [...images]
+    const cameraKeptOpen = cameraWindowOpen || cameraAutoOpenedRef.current
+    if (settingsRef.current.cameraEnabled && settingsRef.current.textCameraEnabled) {
+      try {
+        const policy = visualPolicyRef.current
+        const maxImages = policy.maxImages ?? DEFAULT_VISUAL_POLICY.maxImages ?? 4
+        if (attachments.length < maxImages) {
+          const frame = await cameraSession.captureFrame()
+          if (frame) {
+            const attachment = await uploadVisualAttachment(frame, 'camera')
+            if (attachment) attachments.push(attachment)
+          }
+        }
+      } catch (error) {
+        console.warn('[Camera] text turn camera frame skipped', error)
+      } finally {
+        if (!cameraKeptOpen) cameraSession.stop()
+      }
+    }
+
+    const sent = attachments.length > 0
+      ? client.sendVisual(text, attachments)
       : client.sendText(text)
     if (!sent) return false
     // Ensure AudioContext is ready (browser autoplay policy)
@@ -384,12 +500,12 @@ export function DesktopSessionWorkspace() {
       id: nextId(),
       role: 'user',
       text,
-      imageCount: images.length || undefined,
+      imageCount: attachments.length || undefined,
       timestamp: Date.now(),
     })
     actions.addMessage({ id: nextId(), role: 'assistant', text: '', timestamp: Date.now() })
     return true
-  }, [])
+  }, [actions, cameraWindowOpen])
 
   const handleInterrupt = useCallback(() => {
     const client = clientRef.current
@@ -402,9 +518,19 @@ export function DesktopSessionWorkspace() {
   const handleToggleRecording = useCallback(async () => {
     const recorder = recorderRef.current
     if (!recorder) return
-    if (recorder.state === 'recording') recorder.stop()
-    else await recorder.start()
-  }, [])
+    if (recorder.state === 'recording') {
+      recorder.stop()
+      return
+    }
+    const s = settingsRef.current
+    if (s.cameraEnabled && s.voiceCameraEnabled) {
+      cameraAutoOpenedRef.current = true
+      setCameraWindowOpen(true)
+      await cameraSession.ensureStarted().catch(() => {})
+      ensureCameraSamplingStarted()
+    }
+    await recorder.start()
+  }, [ensureCameraSamplingStarted])
 
   const handleAccessoryToggle = useCallback((label: string, enabled: boolean) => {
     // Keep the controlled checkbox responsive even if the renderer is between
@@ -434,6 +560,20 @@ export function DesktopSessionWorkspace() {
       client?.sendCommand('set_proactive', { enabled: value })
     } else if (key === 'proactiveIdleTime') {
       client?.sendCommand('set_proactive_idle', { seconds: value })
+    } else if (key === 'screenVisionEnabled') {
+      client?.sendCommand('set_screen_vision', { enabled: value })
+    } else if (key === 'cameraEnabled') {
+      if (!value) closeCameraWindow()
+      client?.sendCommand('set_vision_source', { source: 'voice_camera', enabled: Boolean(value) && settings.voiceCameraEnabled })
+      client?.sendCommand('set_vision_source', { source: 'text_camera', enabled: Boolean(value) && settings.textCameraEnabled })
+    } else if (key === 'voiceCameraEnabled') {
+      client?.sendCommand('set_vision_source', { source: 'voice_camera', enabled: value })
+    } else if (key === 'voiceScreenEnabled') {
+      client?.sendCommand('set_vision_source', { source: 'voice_screen', enabled: value })
+    } else if (key === 'textCameraEnabled') {
+      client?.sendCommand('set_vision_source', { source: 'text_camera', enabled: value })
+    } else if (key === 'textScreenEnabled') {
+      client?.sendCommand('set_vision_source', { source: 'text_screen', enabled: value })
     } else if (key === 'windowMode') {
       const windowMode = value === 'pet' ? 'pet' : 'window'
       const previousWindowMode = settings.windowMode === 'pet' ? 'pet' : 'window'
@@ -456,7 +596,7 @@ export function DesktopSessionWorkspace() {
         actions.setStatusMessage(`窗口模式切换失败：${error instanceof Error ? error.message : String(error)}`)
       })
     }
-  }, [actions, settings])
+  }, [actions, settings, closeCameraWindow])
 
   useEffect(() => {
     return window.electronAPI?.onPetExitRequest?.(() => {
@@ -552,6 +692,18 @@ export function DesktopSessionWorkspace() {
     }
   }, [actions, settings.live2dModel])
 
+  // Apply the UI theme (dark/light/auto + accent preset). Server-persisted
+  // settings are authoritative once loaded; invalid or missing values fall
+  // back to the dark defaults. applyUiTheme also refreshes the localStorage
+  // cache consumed by the pre-mount anti-flash script in index.html.
+  useEffect(() => {
+    const mode = isUiThemeMode(settings.uiTheme) ? settings.uiTheme : 'dark'
+    const accentKey = typeof settings.accentColor === 'string' && settings.accentColor
+      ? settings.accentColor
+      : DEFAULT_ACCENT_KEY
+    return applyUiTheme(mode, accentKey)
+  }, [settings.uiTheme, settings.accentColor])
+
   // Persist settings to backend whenever they change
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -609,6 +761,8 @@ export function DesktopSessionWorkspace() {
         recorderState={recorderState}
         recordingSupported={AudioRecorder.isSupported()}
          onToggleRecording={handleToggleRecording}
+        cameraWindowOpen={cameraWindowOpen}
+        onCameraWindowToggle={toggleCameraWindow}
         histories={histories}
         historyUid={historyUid}
         historyLoading={historyLoading}
@@ -639,6 +793,7 @@ export function DesktopSessionWorkspace() {
         onAccessoryToggle={handleAccessoryToggle}
       />
       {settings.windowMode !== 'pet' && <StatusBar />}
+      <CameraWindow open={cameraWindowOpen} onClose={closeCameraWindow} />
       <PermissionDialog />
     </div>
   )

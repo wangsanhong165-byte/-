@@ -8,7 +8,7 @@ function Message({ message }: { message: ChatMessage }) {
   return (
     <article className={`chat-message ${isUser ? 'is-user' : ''} ${isSystem ? 'is-system' : ''}`}>
       <div className="message-meta">
-        <strong>{isUser ? '你' : isSystem ? '系统' : 'SoulLink'}</strong>
+        <strong>{isUser ? '你' : isSystem ? '系统' : 'Aurora'}</strong>
         <time>{new Date(message.timestamp).toLocaleTimeString('zh-CN', {
           hour: '2-digit',
           minute: '2-digit',

@@ -111,7 +111,7 @@ export interface EventPayloadMap {
   'user.visual': { text: string; attachments: VisualAttachment[] }
   'user.audio.started': { sampleRate: number; channels: number; format: 'pcm_f32' | 'pcm_s16' | 'wav' }
   'user.audio.chunk': { samples: number[] }
-  'user.audio.completed': { sampleRate?: number | null }
+  'user.audio.completed': { sampleRate?: number | null; attachments?: VisualAttachment[] }
   'user.audio.cancelled': CancelledPayload
   'turn.started': { origin: 'user' | 'initiative' | 'tool' | 'system'; inputMode: 'text' | 'audio' | 'visual' | 'initiative' }
   'turn.progress': { stage: string; message: string }

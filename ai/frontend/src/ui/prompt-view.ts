@@ -72,6 +72,7 @@ export type PromptConfigView = {
 const PREFIXES_TO_HIDE = [
   'LANGUAGE LOCK:',
   'Additional project instructions for this character:',
+  '[固定记忆]',
   'Compiled memory context:',
   'Relevant past context:',
   'Current emotion:',
@@ -110,6 +111,7 @@ export function describePromptMessage(message: PromptMessageLike): PromptMessage
     language: { kind: 'language', title: '语言规则', badge: '规则', defaultOpen: false },
     persona: { kind: 'persona', title: '角色设定', badge: '角色', defaultOpen: false },
     addition: { kind: 'override', title: '附加提示词', badge: '自定义', defaultOpen: false },
+    pinned: { kind: 'memory', title: '固定记忆', badge: '记忆', defaultOpen: false },
     memory_summary: { kind: 'memory', title: '记忆摘要', badge: '记忆', defaultOpen: false },
     relevant_memory: { kind: 'memory', title: '相关记忆', badge: '记忆', defaultOpen: false },
     emotion: { kind: 'state', title: '当前情绪', badge: '状态', defaultOpen: false },

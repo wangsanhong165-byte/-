@@ -113,10 +113,24 @@ class OpenAILLMProvider(LLMInterface):
         base_url: str | None = None,
         model: str | None = None,
     ):
+        # Resolve the ACTIVE provider profile and pass its values explicitly so
+        # the adapter never guesses across providers (each provider carries its
+        # own api_key/base_url/model atomically).
+        from app.config_manager.llm_providers import resolve_active_llm_config
+
+        cfg = resolve_active_llm_config()
+        temperature = cfg.get("temperature")
+        self._temperature = float(temperature) if temperature is not None else 0.3
+        self._reasoning_effort = cfg.get("reasoning_effort")
+        self._max_tokens = cfg.get("max_tokens")
+
         self._adapter = OpenAILLMAdapter(
-            api_key=api_key,
-            base_url=base_url,
-            model=model,
+            api_key=api_key or cfg.get("api_key"),
+            base_url=base_url or cfg.get("base_url"),
+            model=model or cfg.get("model"),
+            temperature=self._temperature,
+            engine=cfg.get("engine"),
+            timeout=cfg.get("timeout"),
         )
 
     @property
@@ -153,16 +167,28 @@ class OpenAILLMProvider(LLMInterface):
         """
         max_tokens = kwargs.get("max_tokens")
         if max_tokens is None:
-            raw = os.environ.get("LLM_MAX_TOKENS", "")
-            max_tokens = int(raw) if raw.isdigit() else _DEFAULT_MAX_TOKENS
+            # Per-provider value wins; fall back to env (also handles providers
+            # instantiated via object.__new__ in tests, which have no attrs).
+            configured = getattr(self, "_max_tokens", None)
+            if configured is not None:
+                max_tokens = int(configured)
+            else:
+                raw = os.environ.get("LLM_MAX_TOKENS", "")
+                max_tokens = int(raw) if raw.isdigit() else _DEFAULT_MAX_TOKENS
+        reasoning_effort = (
+            getattr(self, "_reasoning_effort", None)
+            or os.environ.get("LLM_REASONING_EFFORT")
+            or None
+        )
+        temperature = kwargs.get("temperature", getattr(self, "_temperature", 0.3))
         result = await asyncio.to_thread(
             self._adapter.generate,
             messages,
-            temperature=kwargs.get("temperature", 0.3),
+            temperature=temperature,
             tools=tools,
             max_tool_rounds=1,  # single round per call; loop handled by DecisionStep
             max_tokens=max_tokens,
-            reasoning_effort=os.environ.get("LLM_REASONING_EFFORT") or None,
+            reasoning_effort=reasoning_effort,
         )
 
         return self._normalize(result, messages)

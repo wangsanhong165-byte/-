@@ -1,15 +1,51 @@
-export type LlmEngine = 'deepseek' | 'openai' | 'opencode' | 'local'
+export type LlmProviderKind = 'openai' | 'opencode'
 
-export const LLM_ENGINE_OPTIONS: ReadonlyArray<{
-  value: LlmEngine
+export interface LlmProvider {
+  id: string
+  name: string
+  kind: LlmProviderKind
+  base_url: string
+  model: string
+  api_key: string
+  temperature: number | null
+  reasoning_effort: string | null
+  timeout: number | null
+  max_tokens: number | null
+}
+
+export interface LlmProvidersResponse {
+  active: string
+  providers: LlmProvider[]
+}
+
+export const LLM_PROVIDER_KIND_OPTIONS: ReadonlyArray<{
+  value: LlmProviderKind
   label: string
-  description: string
 }> = [
-  { value: 'deepseek', label: 'DeepSeek', description: 'DeepSeek API 或兼容接口' },
-  { value: 'openai', label: 'OpenAI', description: 'OpenAI 或兼容接口' },
-  { value: 'opencode', label: 'OpenCode · Ox Alpha', description: 'OpenCode 免费视觉模型服务' },
-  { value: 'local', label: 'Local', description: '本地或自定义兼容接口' },
+  { value: 'openai', label: 'OpenAI 兼容' },
+  { value: 'opencode', label: 'OpenCode' },
 ]
+
+export function emptyLlmProvider(id: string): LlmProvider {
+  return {
+    id,
+    name: '新供应商',
+    kind: 'openai',
+    base_url: '',
+    model: '',
+    api_key: '',
+    temperature: null,
+    reasoning_effort: null,
+    timeout: null,
+    max_tokens: null,
+  }
+}
+
+export function nextLlmProviderId(existingIds: string[]): string {
+  let i = 1
+  while (existingIds.includes(`provider-${i}`)) i += 1
+  return `provider-${i}`
+}
 
 export type VoiceSectionId = 'asr' | 'tts' | 'gsvi'
 
@@ -22,25 +58,6 @@ export const VOICE_SECTION_OPTIONS: ReadonlyArray<{
   { value: 'tts', label: 'TTS', description: '语音合成' },
   { value: 'gsvi', label: 'GSVI', description: 'GPT-SoVITS 服务' },
 ]
-
-export function normalizeLlmEngine(value: string): LlmEngine {
-  return LLM_ENGINE_OPTIONS.some(option => option.value === value)
-    ? value as LlmEngine
-    : 'deepseek'
-}
-
-export function getLlmProviderKeys(engine: LlmEngine): readonly string[] {
-  switch (engine) {
-    case 'deepseek':
-      return ['LLM_BASE_URL', 'LLM_MODEL', 'DEEPSEEK_API_KEY']
-    case 'openai':
-      return ['LLM_BASE_URL', 'LLM_MODEL', 'OPENAI_API_KEY']
-    case 'opencode':
-      return ['OPENCODE_BASE_URL', 'OPENCODE_MODEL', 'OPENCODE_API_KEY']
-    case 'local':
-      return ['LLM_BASE_URL', 'LLM_MODEL']
-  }
-}
 
 export function getVoiceKeys(section: VoiceSectionId): readonly string[] {
   switch (section) {

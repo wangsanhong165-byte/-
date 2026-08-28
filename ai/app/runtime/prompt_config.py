@@ -25,6 +25,13 @@ PROMPT_SOURCE_DEFINITIONS: tuple[dict[str, Any], ...] = (
         "editable": True,
     },
     {
+        "id": "pinned",
+        "title": "固定记忆",
+        "description": "用户手动置顶的固定记忆，每轮必进上下文，不会被压缩丢失。",
+        "dynamic": True,
+        "editable": True,
+    },
+    {
         "id": "memory_summary",
         "title": "记忆摘要",
         "description": "每轮根据当前角色记忆动态生成的长期上下文。",

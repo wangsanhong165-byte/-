@@ -19,6 +19,7 @@ def test_sqlite_memory_fallback_is_reported_as_degraded(monkeypatch, tmp_path):
         "persistent": False,
         "mode": "memory_fallback",
         "reason": "database path is unavailable",
+        "compression": "disabled",
     }
 
     runtime = SimpleNamespace(
@@ -34,4 +35,5 @@ def test_sqlite_memory_fallback_is_reported_as_degraded(monkeypatch, tmp_path):
         "status": "degraded",
         "adapter": "SQLiteMemory",
         "detail": "database path is unavailable",
+        "compression": "disabled",
     }]

@@ -394,8 +394,8 @@ export class RuntimeAdapter {
     this.client.sendAudioSamples(samples, sampleRate)
   }
 
-  sendAudioEnd(): void {
-    this.client.sendAudioEnd()
+  sendAudioEnd(attachments: EventPayloadMap['user.audio.completed']['attachments'] = []): void {
+    this.client.sendAudioEnd(attachments)
   }
 
   sendCommand(action: string, params: Record<string, unknown> = {}): void {

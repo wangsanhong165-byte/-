@@ -10,16 +10,18 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, HTTPException, Response, UploadFile, WebSocket
+from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from starlette.responses import FileResponse
 
 from app.config_manager.service_config import service_config
 from app.runtime.visual_attachments import (
+    ALLOWED_ATTACHMENT_SOURCES,
     VisualAttachmentError,
     VisualAttachmentStore,
     get_visual_limits,
+    validate_attachment_source,
 )
 
 
@@ -388,14 +390,17 @@ def _get_model_switcher_script():
 # ── API Endpoints ───────────────────────────────────────────────────────
 
 @app.post("/api/visual-attachments")
-async def upload_visual_attachment(file: UploadFile = File(...)):
+async def upload_visual_attachment(
+    file: UploadFile = File(...),
+    source: str = Form("user_upload"),
+):
     """Validate and persist one ephemeral image for a later user.visual turn."""
     data = await file.read(get_visual_limits()["maxImageBytes"] + 1)
     try:
         attachment = VisualAttachmentStore().save_bytes(
             data,
             file.content_type,
-            source="user_upload",
+            source=validate_attachment_source(source),
         )
     except VisualAttachmentError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -405,11 +410,20 @@ async def upload_visual_attachment(file: UploadFile = File(...)):
 @app.get("/api/visual-policy")
 async def get_visual_policy():
     """Expose the effective local visual limits to the composer."""
-    from app.runtime.visual_attachments import SUPPORTED_MIME_TYPES
+    from app.runtime.visual_attachments import (
+        SUPPORTED_MIME_TYPES,
+        get_camera_policy,
+    )
+    from app.runtime.visual_context import screen_chat_max_age_seconds
 
+    camera_policy = get_camera_policy()
     return {
         **get_visual_limits(),
         "supportedMimeTypes": sorted(SUPPORTED_MIME_TYPES),
+        "supportedSources": sorted(ALLOWED_ATTACHMENT_SOURCES),
+        "cameraSampleIntervalMs": camera_policy["sampleIntervalMs"],
+        "cameraMaxFrames": camera_policy["maxFrames"],
+        "screenChatMaxAgeSeconds": screen_chat_max_age_seconds(),
     }
 
 @app.on_event("startup")
@@ -543,6 +557,60 @@ async def save_env_config(data: dict):
     from app.config_manager.env_store import write_env_values
     config = write_env_values(data.get("config", {}))
     return {"status": "ok", "config": config}
+
+
+@app.get("/api/config/llm-providers")
+async def get_llm_providers():
+    """Return the LLM provider list and active id for the settings UI."""
+    from app.config_manager.llm_providers import llm_provider_store
+    store = llm_provider_store
+    store.load()
+    return {
+        "active": store.active_id(),
+        "providers": [p.to_dict() for p in store.list_providers()],
+    }
+
+
+@app.post("/api/config/llm-providers")
+async def save_llm_providers(data: dict):
+    """Add/update/delete/activate an LLM provider, then persist to disk."""
+    from app.config_manager.llm_providers import coerce_provider, llm_provider_store
+    store = llm_provider_store
+    store.load()
+
+    action = data.get("action", "upsert")
+    provider_id = str(data.get("id", "")).strip()
+    ok = True
+    error = ""
+
+    if action == "set_active":
+        ok = bool(provider_id) and store.set_active(provider_id)
+        if not ok:
+            error = "provider not found"
+    elif action == "delete":
+        ok = bool(provider_id) and store.delete(provider_id)
+        if not ok:
+            error = "provider not found"
+    else:  # upsert
+        provider = coerce_provider(data.get("provider"))
+        if provider is None:
+            ok = False
+            error = "provider requires a non-empty id"
+        else:
+            store.upsert(provider)
+
+    if ok:
+        try:
+            store.save()
+        except OSError as exc:  # keep UI responsive on write failure
+            logger.warning("[LLMProviders] save failed: %s", exc)
+
+    return {
+        "status": "ok" if ok else "error",
+        "error": error,
+        "active": store.active_id(),
+        "providers": [p.to_dict() for p in store.list_providers()],
+    }
 
 
 # ── Canonical Runtime V3 WebSocket ─────────────────────────────────────

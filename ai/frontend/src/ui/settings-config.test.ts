@@ -1,21 +1,28 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  getLlmProviderKeys,
+  emptyLlmProvider,
   getVoiceKeys,
-  normalizeLlmEngine,
+  nextLlmProviderId,
 } from './settings-config.ts'
 
-test('engine selection exposes only the selected provider fields', () => {
-  assert.deepEqual(getLlmProviderKeys('deepseek'), ['LLM_BASE_URL', 'LLM_MODEL', 'DEEPSEEK_API_KEY'])
-  assert.deepEqual(getLlmProviderKeys('openai'), ['LLM_BASE_URL', 'LLM_MODEL', 'OPENAI_API_KEY'])
-  assert.deepEqual(getLlmProviderKeys('opencode'), ['OPENCODE_BASE_URL', 'OPENCODE_MODEL', 'OPENCODE_API_KEY'])
-  assert.deepEqual(getLlmProviderKeys('local'), ['LLM_BASE_URL', 'LLM_MODEL'])
+test('new provider ids avoid collisions', () => {
+  assert.equal(nextLlmProviderId([]), 'provider-1')
+  assert.equal(nextLlmProviderId(['provider-1', 'provider-2']), 'provider-3')
+  assert.equal(nextLlmProviderId(['provider-2']), 'provider-1')
 })
 
-test('unknown persisted engine values fall back to the supported default', () => {
-  assert.equal(normalizeLlmEngine('unknown'), 'deepseek')
-  assert.equal(normalizeLlmEngine('opencode'), 'opencode')
+test('an empty provider starts as an openai-compatible profile', () => {
+  const p = emptyLlmProvider('provider-1')
+  assert.equal(p.id, 'provider-1')
+  assert.equal(p.kind, 'openai')
+  assert.equal(p.base_url, '')
+  assert.equal(p.model, '')
+  assert.equal(p.api_key, '')
+  assert.equal(p.temperature, null)
+  assert.equal(p.reasoning_effort, null)
+  assert.equal(p.timeout, null)
+  assert.equal(p.max_tokens, null)
 })
 
 test('voice selection exposes only the selected service fields', () => {

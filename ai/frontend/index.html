@@ -3,9 +3,29 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Monika - Companion</title>
+    <title>Aurora</title>
+    <script>
+      // Anti-flash: paint the persisted theme before any stylesheet or React
+      // code runs. The cache is refreshed by the ThemeController; the server
+      // remains the source of truth and re-applies after settings load.
+      (function () {
+        try {
+          var mode = localStorage.getItem('ui_theme_mode') || 'dark'
+          var prefersLight = window.matchMedia
+            && window.matchMedia('(prefers-color-scheme: light)').matches
+          var effective = mode === 'light' || (mode === 'auto' && prefersLight)
+            ? 'light'
+            : 'dark'
+          var root = document.documentElement
+          root.dataset.theme = effective
+          root.style.backgroundColor = effective === 'light' ? '#eceff5' : '#1a2030'
+        } catch (error) {
+          document.documentElement.dataset.theme = 'dark'
+        }
+      })()
+    </script>
   </head>
-  <body style="background-color:#1a1a1e;margin:0;overflow:hidden">
+  <body style="margin:0;overflow:hidden">
     <div id="root"></div>
     <script src="/libs/live2dcubismcore.min.js"></script>
     <script src="/libs/live2dcore-compat.js"></script>

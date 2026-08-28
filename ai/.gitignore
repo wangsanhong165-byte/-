@@ -12,8 +12,12 @@ __pycache__/
 .claude/settings.local.json
 .pytest_cache/
 .pytest-*/
+soullink-pytest-*/
 .test-runs/
 .tmp/
+.tmp_video/
+_cache/
+_runs/
 
 .uv_cache/
 .uv_tools/
@@ -33,6 +37,7 @@ tts_outputs/
 # Environment files with secrets
 .env
 config/.env
+config/llm_providers.json
 config/runtime.local.json
 
 olv_extracted/

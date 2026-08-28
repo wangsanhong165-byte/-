@@ -41,6 +41,8 @@ export interface CompanionWorkspaceProps {
   recorderState: RecorderState
   recordingSupported: boolean
   onToggleRecording: () => void | Promise<void>
+  cameraWindowOpen: boolean
+  onCameraWindowToggle: () => void
   histories: HistoryEntry[]
   historyUid: string
   historyLoading: boolean
@@ -49,7 +51,7 @@ export interface CompanionWorkspaceProps {
   subtitleSpeaking: boolean
   accessoryParts: Record<string, string>
   accessoryState: Record<string, boolean>
-  onSend: (input: VisualComposerInput) => boolean | void
+  onSend: (input: VisualComposerInput) => boolean | void | Promise<boolean | void>
   onInterrupt: () => void
   onLoadHistory: (uid: string) => void
   onDeleteHistory: (uid: string) => void
@@ -140,6 +142,8 @@ export function CompanionWorkspace(props: CompanionWorkspaceProps) {
             recorderState={props.recorderState}
             recordingSupported={props.recordingSupported}
             onToggleRecording={props.onToggleRecording}
+            cameraWindowOpen={props.cameraWindowOpen}
+            onToggleCameraWindow={props.onCameraWindowToggle}
           />
         </div>
       )}

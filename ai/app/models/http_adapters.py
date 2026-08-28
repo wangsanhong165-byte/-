@@ -173,12 +173,17 @@ class OpenAILLMAdapter:
         model: str | None = None,
         temperature: float = 0.3,
         max_tool_rounds: int = 5,
+        engine: str | None = None,
+        timeout: float | None = None,
     ) -> None:
         from openai import OpenAI
 
-        engine = os.environ.get("LLM_ENGINE", "").strip().lower()
+        # Explicit `engine` (from the active provider profile) wins; otherwise
+        # fall back to the legacy LLM_ENGINE env var. Each engine now resolves
+        # ITS OWN key, so the openai engine never steals the DeepSeek key.
+        engine = (engine or os.environ.get("LLM_ENGINE", "")).strip().lower()
         self._engine = engine or "deepseek"
-        if engine == "opencode":
+        if self._engine == "opencode":
             # OpenCode serve — OpenAI-compatible local server (default port 4096
             # per opencode.json server.port). Uses a placeholder key.
             self._api_key = api_key or os.environ.get("OPENCODE_API_KEY", "local")
@@ -186,18 +191,28 @@ class OpenAILLMAdapter:
                 "OPENCODE_BASE_URL", "http://127.0.0.1:4096/v1"
             )
             self._model = model or os.environ.get("OPENCODE_MODEL", "opencode")
+        elif self._engine == "openai":
+            # OpenAI / OpenAI-compatible custom providers.
+            self._api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
+            self._base_url = base_url or os.environ.get("LLM_BASE_URL", "https://api.openai.com/v1")
+            self._model = model or os.environ.get("LLM_MODEL", "gpt-4o")
         else:
-            # deepseek (default) / openai via the shared LLM_BASE_URL/LLM_MODEL.
-            self._api_key = api_key or os.environ.get("DEEPSEEK_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+            # deepseek (default).
+            self._api_key = api_key or os.environ.get(
+                "DEEPSEEK_API_KEY", os.environ.get("OPENAI_API_KEY", "")
+            )
             self._base_url = base_url or os.environ.get("LLM_BASE_URL", "https://api.deepseek.com")
             self._model = model or os.environ.get("LLM_MODEL", "deepseek-v4-flash")
         self._vision_enabled = _env_flag("LLM_ENABLE_VISION")
         self._temperature = temperature
         self._max_tool_rounds = max_tool_rounds
+        self._timeout = timeout
         client_kwargs: dict[str, Any] = {
             "api_key": self._api_key,
             "base_url": self._base_url,
         }
+        if self._timeout:
+            client_kwargs["timeout"] = self._timeout
         if self._engine == "opencode":
             # OpenCode Zen's current free stealth route rejects the SDK's
             # default user-agent with an HTML error page. Keep this scoped to

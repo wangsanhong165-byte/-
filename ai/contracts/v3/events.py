@@ -94,6 +94,10 @@ class UserAudioChunkPayload(PayloadModel):
 
 class UserAudioCompletedPayload(PayloadModel):
     sample_rate: int | None = Field(default=None, alias="sampleRate", gt=0)
+    attachments: list[VisualAttachmentPayload] = Field(
+        default_factory=list,
+        max_length=16,
+    )
 
 
 class CancelledPayload(PayloadModel):

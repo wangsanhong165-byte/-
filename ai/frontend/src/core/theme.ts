@@ -1,39 +1,37 @@
-// Design tokens for the Companion frontend
-// Single source of truth for colors, spacing, typography
+// Design tokens for the Companion frontend.
+//
+// Color values are CSS variable references, so inline styles follow the
+// active theme (html[data-theme='dark'|'light']) and the user's accent
+// override injected by the ThemeController. Radius, spacing, and typography
+// are theme-independent and stay as literal values; the radius scale mirrors
+// the --r-* tokens in styles/index.css (4/6/8/12/16/full).
 
 export const theme = {
   colors: {
     bg: {
-      root: '#1a2030',
-      panel: '#232b3d',
-      surface: '#2d374b',
-      hover: '#37435a',
-      elevated: '#414f69',
+      root: 'var(--bg)',
+      panel: 'var(--surface)',
+      surface: 'var(--surface-2)',
+      hover: 'var(--surface-hover)',
+      elevated: 'var(--surface-3)',
     },
     text: {
-      primary: '#eef0f7',
-      secondary: '#aab2c2',
-      muted: '#7f899c',
-      accent: '#d97757',
-    },
-    chat: {
-      user: 'rgba(217, 119, 87, 0.20)',
-      assistant: 'rgba(36, 43, 58, 0.90)',
-      system: 'rgba(210, 220, 255, 0.08)',
+      primary: 'var(--text)',
+      secondary: 'var(--muted)',
+      muted: 'var(--faint)',
+      accent: 'var(--accent)',
     },
     status: {
-      connected: '#7dc9a0',
-      connecting: '#e0b06c',
-      disconnected: '#df858b',
-      thinking: '#d97757',
-      speaking: '#83d5dc',
-      idle: '#7f899c',
+      connected: 'var(--good)',
+      connecting: 'var(--warn)',
+      disconnected: 'var(--danger)',
+      thinking: 'var(--accent)',
+      speaking: 'var(--info)',
+      idle: 'var(--faint)',
     },
-    border: '#30394b',
-    accent: '#d97757',
-    accentHover: '#e39576',
-    danger: '#df858b',
-    dangerHover: '#ef9ba0',
+    border: 'var(--line)',
+    accent: 'var(--accent)',
+    danger: 'var(--danger)',
   },
   spacing: {
     xs: 4,
@@ -43,7 +41,8 @@ export const theme = {
     xl: 24,
   },
   radius: {
-    sm: 4,
+    xs: 4,
+    sm: 6,
     md: 8,
     lg: 12,
     xl: 16,

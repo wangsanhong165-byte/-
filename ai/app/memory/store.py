@@ -524,10 +524,24 @@ class MemoryStore:
             item["created_ts"] = _ts(item.get("created_at"))
             item["updated_ts"] = _ts(item.get("updated_at"))
             score, reasons = score_memory(query, item)
-            if score >= 0.24:
-                item["score"] = round(score, 4)
-                item["reasons"] = reasons or ["importance"]
-                ranked.append(item)
+            if score < 0.24:
+                continue
+            # Retrieval noise gate: without lexical evidence an entry passes
+            # purely on its weights (importance/confidence/recency/familiarity
+            # sum to 0.34 > 0.24), which let unrelated-but-important memories
+            # crowd the limited retrieval slots every turn. Pinned-level
+            # importance (>= 0.9) is exempt so user-pinned rows always surface.
+            lexical_evidence = bool(
+                {"direct_match", "semantic_overlap"} & set(reasons)
+            )
+            if (
+                not lexical_evidence
+                and float(item.get("importance", 0.5) or 0.5) < 0.9
+            ):
+                continue
+            item["score"] = round(score, 4)
+            item["reasons"] = reasons or ["importance"]
+            ranked.append(item)
         ranked.sort(key=lambda row: row["score"], reverse=True)
         results = ranked[:limit]
         now = datetime.now(timezone.utc).isoformat()

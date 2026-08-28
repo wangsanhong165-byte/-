@@ -20,6 +20,10 @@ def pytest_configure(config) -> None:
     os.environ["MEMORY_DB_PATH"] = str(
         runtime_temp / "memory" / "memory.db"
     )
+    # LLM provider profiles hold secrets; tests must never read the live file.
+    os.environ["LLM_PROVIDERS_PATH"] = str(
+        runtime_temp / "config" / "llm_providers.json"
+    )
 
 
 def pytest_unconfigure(config) -> None:

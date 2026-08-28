@@ -23,12 +23,17 @@ class MemorySaveStep(Step):
     async def run(self, ctx: CharacterTurn) -> None:
         # Get user text from ASR (voice) or event payload (text input)
         user_text = ctx.user_text or ctx.event.payload.get("text", "")
+        visual_attachments = tuple(getattr(ctx.input, "visual_attachments", ()) or ())
         if ctx.input_origin == "initiative":
             user_text = ""
-        visual_attachments = tuple(getattr(ctx.input, "visual_attachments", ()) or ())
-        safe_user_text = user_text or (
-            f"用户发送了 {len(visual_attachments)} 张图片" if visual_attachments else ""
-        )
+            safe_user_text = (
+                f"Aurora 注意到屏幕变化并附加了 {len(visual_attachments)} 帧画面"
+                if visual_attachments else ""
+            )
+        else:
+            safe_user_text = user_text or (
+                f"用户发送了 {len(visual_attachments)} 张图片" if visual_attachments else ""
+            )
         reply_text = ctx.reply_text or ""
 
         if not safe_user_text and not reply_text:

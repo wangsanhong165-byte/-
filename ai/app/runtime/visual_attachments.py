@@ -31,6 +31,13 @@ _HARD_MAX_ATTACHMENT_EDGE = 8192
 _HARD_MAX_ATTACHMENT_COUNT = 16
 ATTACHMENT_TTL_SECONDS = 30 * 60
 SUPPORTED_MIME_TYPES = frozenset({"image/jpeg", "image/png", "image/webp"})
+ALLOWED_ATTACHMENT_SOURCES = frozenset({
+    "user_upload",
+    "camera",
+    "screen_capture",
+    "screen_watcher",
+    "screen_chat",
+})
 _ATTACHMENT_ID = re.compile(r"^att_[a-f0-9]{32}$")
 _FORMAT_TO_MIME = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}
 _MIME_TO_SUFFIX = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
@@ -38,6 +45,16 @@ _MIME_TO_SUFFIX = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".we
 
 class VisualAttachmentError(ValueError):
     """Raised when an uploaded or referenced image is not safe to use."""
+
+
+def validate_attachment_source(source: str | None) -> str:
+    """Normalize and allowlist the producer of a visual attachment."""
+    value = (source or "").strip().lower()
+    if value not in ALLOWED_ATTACHMENT_SOURCES:
+        raise VisualAttachmentError(
+            f"Unsupported visual attachment source: {value or '<empty>'}"
+        )
+    return value
 
 
 def _bounded_int(name: str, default: int, minimum: int, maximum: int) -> int:
@@ -76,6 +93,24 @@ def get_visual_limits() -> dict[str, int]:
             MAX_ATTACHMENT_EDGE,
             256,
             _HARD_MAX_ATTACHMENT_EDGE,
+        ),
+    }
+
+
+def get_camera_policy() -> dict[str, int]:
+    """Return bounded camera sampling settings for voice turns."""
+    return {
+        "sampleIntervalMs": _bounded_int(
+            "LLM_CAMERA_SAMPLE_INTERVAL_MS",
+            2000,
+            500,
+            5000,
+        ),
+        "maxFrames": _bounded_int(
+            "LLM_CAMERA_MAX_FRAMES",
+            4,
+            1,
+            _HARD_MAX_ATTACHMENT_COUNT,
         ),
     }
 

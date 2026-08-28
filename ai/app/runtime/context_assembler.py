@@ -72,9 +72,30 @@ class ContextAssembler:
                 liked.append(content)
         return liked[:5], disliked[:3]
 
+    @staticmethod
+    def _affinity_stage(affinity: float, interactions: int = 0) -> str:
+        """Map the raw affinity number onto a stage the LLM can act on.
+
+        A bare 0.52 means nothing to a model; "熟悉" does. The 0.5 default
+        with zero interactions is NOT familiarity, so a never-interacted
+        character reads 初识 instead of 熟悉.
+        """
+        if interactions <= 0:
+            return "初识"
+        for threshold, label in (
+            (0.85, "挚友"), (0.70, "亲密"), (0.50, "熟悉"), (0.30, "初识"),
+        ):
+            if affinity >= threshold:
+                return label
+        return "陌生"
+
     def assemble_character_state(self, character, memories=None) -> str:
         relationship = character.relationship.to_dict()
         affinity = relationship.get("affinity", {}).get("default", 0.5)
+        interactions = int(
+            relationship.get("interaction_count", {}).get("default", 0) or 0
+        )
+        stage = self._affinity_stage(affinity, interactions)
         goals = [g.description for g in character.goals.top(3)]
         if memories:
             liked, disliked = self._preferences_from_memories(memories)
@@ -86,7 +107,8 @@ class ContextAssembler:
         lines = [
             "[Dynamic learned user and relationship state]",
             f"- mood: {character.mood.current}",
-            f"- relationship affinity: {affinity:.2f}",
+            f"- relationship: {stage} (affinity {affinity:.2f}, "
+            f"{interactions} interactions)",
         ]
         if goals:
             lines.append("- active goals: " + "; ".join(goals))

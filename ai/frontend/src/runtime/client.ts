@@ -263,9 +263,13 @@ export class RuntimeClient {
     )
   }
 
-  sendAudioEnd(): void {
+  sendAudioEnd(attachments: EventPayloadMap['user.audio.completed']['attachments'] = []): void {
     if (!this.currentAudioTurnId) return
-    this.sendEvent('user.audio.completed', {}, this.currentAudioTurnId)
+    this.sendEvent('user.audio.completed', {
+      attachments: (attachments ?? []).map(({ id, mimeType, width, height, sizeBytes }) => ({
+        id, mimeType, width, height, sizeBytes,
+      })),
+    }, this.currentAudioTurnId)
     this.currentAudioTurnId = null
   }
 

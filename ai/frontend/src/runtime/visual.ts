@@ -1,11 +1,22 @@
 import type { VisualAttachment } from './event-types.ts'
 
+export type VisualAttachmentSource =
+  | 'user_upload'
+  | 'camera'
+  | 'screen_capture'
+  | 'screen_watcher'
+  | 'screen_chat'
+
 export type VisualPolicy = {
   maxImages: number
   maxImageBytes: number
   maxImagePixels: number
   maxImageEdge: number
   supportedMimeTypes: string[]
+  supportedSources?: string[]
+  cameraSampleIntervalMs?: number
+  cameraMaxFrames?: number
+  screenChatMaxAgeSeconds?: number
 }
 
 export const DEFAULT_VISUAL_POLICY: VisualPolicy = {
@@ -14,6 +25,10 @@ export const DEFAULT_VISUAL_POLICY: VisualPolicy = {
   maxImagePixels: 12_000_000,
   maxImageEdge: 2048,
   supportedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
+  supportedSources: ['user_upload', 'camera', 'screen_capture', 'screen_watcher', 'screen_chat'],
+  cameraSampleIntervalMs: 2000,
+  cameraMaxFrames: 4,
+  screenChatMaxAgeSeconds: 8,
 }
 
 export async function fetchVisualPolicy(): Promise<VisualPolicy> {
@@ -26,10 +41,16 @@ export async function fetchVisualPolicy(): Promise<VisualPolicy> {
     supportedMimeTypes: Array.isArray(policy.supportedMimeTypes)
       ? policy.supportedMimeTypes
       : DEFAULT_VISUAL_POLICY.supportedMimeTypes,
+    supportedSources: Array.isArray(policy.supportedSources)
+      ? policy.supportedSources
+      : DEFAULT_VISUAL_POLICY.supportedSources,
   }
 }
 
-export async function uploadVisualAttachment(file: File): Promise<VisualAttachment> {
+export async function uploadVisualAttachment(
+  file: File,
+  source: VisualAttachmentSource = 'user_upload',
+): Promise<VisualAttachment> {
   const policy = await fetchVisualPolicy()
   if (file.size > policy.maxImageBytes) {
     throw new Error('图片不能超过 ' + formatMegabytes(policy.maxImageBytes) + ' MB')
@@ -40,6 +61,7 @@ export async function uploadVisualAttachment(file: File): Promise<VisualAttachme
 
   const body = new FormData()
   body.append('file', file)
+  body.append('source', source)
   const response = await fetch('/api/visual-attachments', { method: 'POST', body })
   const payload = await response.json().catch(() => ({})) as {
     attachment?: VisualAttachment

@@ -52,7 +52,7 @@ class TurnInput:
         has_text = bool(self.text.strip())
         has_audio = bool(self.audio)
         has_visual = bool(self.visual_attachments)
-        if has_audio and (has_text or has_visual):
+        if has_audio and has_text:
             raise ValueError("TurnInput requires exactly one primary payload")
         if not has_audio and not has_text and not has_visual:
             raise ValueError("TurnInput requires exactly one primary payload")

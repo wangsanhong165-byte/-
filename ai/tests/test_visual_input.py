@@ -69,6 +69,35 @@ def test_visual_attachment_store_rejects_mismatched_and_invalid_images(tmp_path)
         store.resolve("att_0123456789abcdef0123456789abcdef")
 
 
+def test_visual_attachment_source_allowlist(tmp_path):
+    from app.runtime.visual_attachments import (
+        ALLOWED_ATTACHMENT_SOURCES,
+        validate_attachment_source,
+    )
+
+    assert ALLOWED_ATTACHMENT_SOURCES == {
+        "user_upload",
+        "camera",
+        "screen_capture",
+        "screen_watcher",
+        "screen_chat",
+    }
+    assert validate_attachment_source("camera") == "camera"
+    assert validate_attachment_source("  Screen_Capture ") == "screen_capture"
+    with pytest.raises(VisualAttachmentError, match="Unsupported"):
+        validate_attachment_source("microphone")
+    with pytest.raises(VisualAttachmentError, match="Unsupported"):
+        validate_attachment_source("")
+
+    store = VisualAttachmentStore(tmp_path)
+    attachment = store.save_bytes(
+        _png_bytes(),
+        "image/png",
+        source=validate_attachment_source("camera"),
+    )
+    assert attachment.source == "camera"
+
+
 def test_prompt_compiler_injects_provider_image_blocks_without_exposing_them_in_snapshot():
     class FakeStore:
         def load_data_url(self, attachment_id: str) -> str:

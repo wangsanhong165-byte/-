@@ -805,7 +805,7 @@ class RuntimeManager:
             if callable(diagnostics):
                 for key in (
                     "engine", "model", "base_url", "api_key_configured",
-                    "visionEnabled", "visualPolicy",
+                    "visionEnabled", "visualPolicy", "compression",
                 ):
                     if key in provider_diagnostics:
                         provider_status[key] = provider_diagnostics[key]
@@ -1090,6 +1090,41 @@ class RuntimeManager:
                 logger.info("[Proactive] Idle threshold set to %ds", ic.idle_threshold)
         except Exception as e:
             logger.error("[Proactive] Error setting idle threshold: %s", e)
+
+    def set_screen_vision(self, enabled: bool) -> None:
+        """Enable or disable screen-frame grounding for proactive turns."""
+        try:
+            runtime = self._runtime
+            if hasattr(runtime, "_screen_vision_enabled"):
+                runtime._screen_vision_enabled = bool(enabled)
+            logger.info("[ScreenVision] %s", "enabled" if enabled else "disabled")
+        except Exception as e:
+            logger.error("[ScreenVision] Error: %s", e)
+
+    def set_vision_source(self, source: str, enabled: bool) -> None:
+        """Enable or disable a visual source for user turns.
+
+        Valid sources: ``voice_camera`` (frontend-only hint), ``voice_screen``
+        (attach a desktop frame to voice turns), ``text_camera`` (frontend-only
+        hint, camera frames are uploaded and sent with the text turn) and
+        ``text_screen`` (attach a desktop frame to text turns).
+        """
+        key = {
+            "voice_camera": "_voice_camera_enabled",
+            "voice_screen": "_voice_screen_enabled",
+            "text_camera": "_text_camera_enabled",
+            "text_screen": "_text_screen_enabled",
+        }.get(source)
+        if not key:
+            logger.error("[VisionSource] Unknown source: %s", source)
+            return
+        try:
+            runtime = self._runtime
+            if hasattr(runtime, key):
+                setattr(runtime, key, bool(enabled))
+            logger.info("[VisionSource] %s=%s", source, "on" if enabled else "off")
+        except Exception as e:
+            logger.error("[VisionSource] Error: %s", e)
 
 
 # Module-level singleton for convenience

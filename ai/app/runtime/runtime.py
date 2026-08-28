@@ -58,6 +58,11 @@ class CharacterRuntime:
         self._turn_lock = None
         self._runtime_idle = True
         self._user_input_active = False
+        self._screen_vision_enabled = True
+        self._voice_camera_enabled = True
+        self._voice_screen_enabled = True
+        self._text_camera_enabled = False
+        self._text_screen_enabled = False
         self._active_turn: CharacterTurn | None = None
         self._last_prompt_snapshot: dict[str, Any] | None = None
         self._initiative_task: Any = None  # asyncio Task for draining
@@ -478,6 +483,14 @@ class CharacterRuntime:
             "memory_reason": candidate.get("memory_reason", ""),
             "memory_id": candidate.get("memory_id"),
         }
+
+        # Carry a freshly captured screen frame (if any) into the proactive
+        # turn so Aurora can ground its initiative in what is on the desktop.
+        if self._screen_vision_enabled:
+            screen_frame = self._first_screen_frame(events)
+            if screen_frame is not None:
+                initiative["visual_attachment"] = screen_frame
+
         self._initiative_queue.enqueue(
             InitiativeCandidate.create(
                 source="initiative_checker",
@@ -489,14 +502,42 @@ class CharacterRuntime:
             )
         )
 
+    @staticmethod
+    def _first_screen_frame(events: list) -> dict | None:
+        """Return the first valid screen_watcher visual attachment in events."""
+        for event in events:
+            payload = getattr(event, "payload", None)
+            if not isinstance(payload, dict):
+                continue
+            frame = payload.get("visual_attachment")
+            if isinstance(frame, dict) and frame.get("id"):
+                return frame
+        return None
+
     async def _dispatch_initiative(self, pending: InitiativeCandidate) -> None:
         """Create and dispatch an INITIATIVE_TRIGGERED event."""
         prompt = str(pending.payload.get("prompt", pending.topic))
         initiative = dict(pending.payload.get("initiative", {}))
+
+        visual_attachments: tuple[dict, ...] = ()
+        screen_frame = initiative.get("visual_attachment")
+        if isinstance(screen_frame, dict) and screen_frame.get("id"):
+            try:
+                from app.runtime.visual_attachments import VisualAttachmentStore
+
+                resolved = VisualAttachmentStore().resolve(
+                    str(screen_frame["id"])
+                ).to_public_dict()
+                visual_attachments = (resolved,)
+            except Exception:
+                # The frame may have expired or been cleaned up; still speak.
+                visual_attachments = ()
+
         turn = await self.handle_turn(
             TurnInput(
                 text=prompt,
                 origin=TurnOrigin.INITIATIVE,
+                visual_attachments=visual_attachments,
                 metadata={"initiative": initiative},
             )
         )
@@ -541,12 +582,14 @@ class CharacterRuntime:
             # Auto-infer activity from app
             activity = ScreenWatcher._APP_ACTIVITY_MAP.get(app, "idle")
             core_state_store.update(activity=activity, context=app)
+            visual_attachment = new.get("visual_attachment")
             # Push to initiative queue
             initiative_queue.push(
                 "screen_change",
                 {"from_app": old.get("app", ""), "to_app": new.get("app", ""),
                  "from_title": old.get("title", ""), "to_title": new.get("title", ""),
-                 "inferred_activity": activity},
+                 "inferred_activity": activity,
+                 "visual_attachment": visual_attachment},
                 priority=2,
             )
 

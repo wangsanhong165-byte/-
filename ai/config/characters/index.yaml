@@ -5,4 +5,7 @@ characters:
 - id: alice
   name: Alice
   path: characters/alice/character.json
-default: alice
+- id: jingyu
+  name: 鲸鱼娘
+  path: characters/jingyu/character.json
+default: jingyu

@@ -45,20 +45,28 @@ def system_fact_extraction() -> str:
 
 规则：
 1. 只提取用户画像和粗颗粒近况相关的客观事实
-   用户画像包括：身份、人格特质、审美、兴趣、喜欢或讨厌的事物、长期关系、长期关注方向
+   用户画像包括：身份、人格特质、审美、兴趣、喜欢或讨厌的事物、长期关系、长期关注方向、
+   作息习惯（如深夜活跃、早起型）、性格特质（如急性子、耐心、内敛、爱开玩笑）、
+   雷区话题（用户明确不想被提起的事）、情绪触发点（什么容易让用户开心、烦躁、有压力）
 2. 不要提取工作方式偏好、协作流程偏好、工具偏好、文件名、命令、执行细节
 3. 每条事实必须是原子的（一条只记一件事）
 4. 标签用于后续检索，选择有辨识度的关键词，2~5个
 5. 如果摘要中没有值得提取的新内容，返回空数组 []
+   宁缺毋滥：只在用户自己明确表现出该特质时才记录，不要从单次对话猜测性格
 6. type 只能是 fact、preference、recent_state、episode、relationship
    注意：不要提取 open_loop（未完成话题由系统从 [还悬着] 段自动提取，这里不要输出）
+   维度到 type 的映射：作息习惯、性格特质、身份、长期方向 → fact；
+   雷区话题、情绪触发点、喜好厌恶 → preference
 7. 不要理会 [还悬着] [现状] [已聊透] 这些结构标记本身，只从内容里提取事实
-8. predicate 表示可被后续事实替换的稳定属性，例如 city、favorite_food、current_project
+8. predicate 表示可被后续事实替换的稳定属性，例如 city、favorite_food、current_project、
+   sleep_schedule、personality_trait、sensitive_topic、mood_trigger
 9. stable_key 使用 type:user:predicate；同一属性发生变化时必须返回相同 stable_key
 
 输出格式（严格的 JSON 数组，不要 markdown 代码块）：
 [
-  {"fact": "...", "type": "fact", "subject": "user", "predicate": "...", "stable_key": "fact:user:...", "confidence": 0.8, "importance": 0.7, "tags": ["tag1", "tag2"], "time": null}
+  {"fact": "...", "type": "fact", "subject": "user", "predicate": "...", "stable_key": "fact:user:...", "confidence": 0.8, "importance": 0.7, "tags": ["tag1", "tag2"], "time": null},
+  {"fact": "用户习惯深夜活跃，常在凌晨两点后还在聊天", "type": "fact", "subject": "user", "predicate": "sleep_schedule", "stable_key": "fact:user:sleep_schedule", "confidence": 0.75, "importance": 0.6, "tags": ["作息", "熬夜"], "time": null},
+  {"fact": "用户不想被提起工作失误的往事", "type": "preference", "subject": "user", "predicate": "sensitive_topic", "stable_key": "preference:user:sensitive_topic", "confidence": 0.8, "importance": 0.85, "tags": ["雷区"], "time": null}
 ]"""
 
 def system_compile_today(char_name: str = "") -> str:

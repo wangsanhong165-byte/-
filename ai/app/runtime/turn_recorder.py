@@ -64,6 +64,10 @@ def _visual_project(turn: CharacterTurn) -> dict[str, Any]:
             sorted({str(item.get("mimeType", "")) for item in attachments if item.get("mimeType")}),
         )
         projected.setdefault(
+            "sources",
+            sorted({str(item.get("source", "")) for item in attachments if item.get("source")}),
+        )
+        projected.setdefault(
             "dimensions",
             [
                 {"width": int(item.get("width", 0) or 0), "height": int(item.get("height", 0) or 0)}

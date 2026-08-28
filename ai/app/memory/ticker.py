@@ -18,6 +18,7 @@ import os
 import threading
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Optional, Callable
 
 from app.memory.store import memory_store
@@ -38,6 +39,31 @@ _DAILY_CHECK_SECONDS = 3600  # check every hour for date change
 logger = logging.getLogger("memory.ticker")
 
 
+def _daily_stamp_path() -> Path:
+    """Stamp file recording when the daily batch last completed (local date)."""
+    # Imported lazily so tests that monkeypatch compiler._get_base are honored.
+    from app.memory.compiler import _get_base
+    return _get_base() / "data" / "memory" / "compiled" / ".last_daily"
+
+
+def _read_daily_stamp() -> str:
+    try:
+        return _daily_stamp_path().read_text("utf-8").strip()
+    except OSError:
+        return ""
+
+
+def _write_daily_stamp() -> None:
+    path = _daily_stamp_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(datetime.now().date().isoformat(), "utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        logger.exception("Failed to persist daily batch stamp")
+
+
 class MemoryTicker:
     """Turn-based memory scheduler (fire-and-forget background tasks)."""
 
@@ -49,7 +75,10 @@ class MemoryTicker:
     ):
         self._llm_adapter = llm_adapter
         self._turn_counts: dict[str, int] = {}
-        self._last_date = datetime.now(timezone.utc).date()
+        # Local date, matching today_digest's local-midnight semantics; a UTC
+        # day boundary (08:00 for UTC+8) would never roll over for an
+        # evening-only usage pattern.
+        self._last_date = datetime.now().date()
         self._last_extraction_time: dict[str, float] = {}
         self._last_review_time: dict[str, float] = {}
         self._character_ids_getter = character_ids_getter or (lambda: [])
@@ -106,8 +135,9 @@ class MemoryTicker:
         )
 
     def start(self):
-        """Start the daily check timer."""
+        """Start the daily check timer and catch up a missed daily batch."""
         self._stopped = False
+        self._catchup_daily()
         self._daily_check()
 
     def stop(self, wait: bool = False):
@@ -260,9 +290,25 @@ class MemoryTicker:
 
     # ── daily job ─────────────────────────────────────────────────
 
+    def _catchup_daily(self):
+        """Queue the daily batch when it has not run yet today (local date).
+
+        The in-run date-change trigger only fires when the app stays up across
+        midnight; a start-stop usage pattern would otherwise never compile the
+        week/longterm layers. A completed batch writes a date stamp, so the
+        same-day startup costs nothing until the next day; fingerprint caches
+        also make a redundant pass nearly LLM-free.
+        """
+        if self._stopped or not self._llm_adapter:
+            return
+        today = datetime.now().date().isoformat()
+        if _read_daily_stamp() == today:
+            return
+        self._run_background(self._on_daily)
+
     def _check_date_change(self):
         """Check if the date has changed. If so, run daily batch."""
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now().date()
         if today != self._last_date:
             self._last_date = today
             self._run_background(self._on_daily)
@@ -286,6 +332,10 @@ class MemoryTicker:
                 self._store.delete_memories_before(
                     cutoff, character_id=character_id
                 )
+        # Written only after the loop finishes, so a batch that crashes midway
+        # stays "not run today" and the next startup retries it (sections
+        # already compiled hit their fingerprint caches for free).
+        _write_daily_stamp()
 
     def _daily_check(self):
         """Periodic timer to catch date changes during idle periods."""

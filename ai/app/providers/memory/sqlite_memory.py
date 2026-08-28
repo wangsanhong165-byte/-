@@ -47,18 +47,23 @@ class SQLiteMemory(MemoryInterface):
 
     def diagnostics(self) -> dict[str, Any]:
         """Expose whether memory is durable instead of hiding fallback mode."""
+        # The ticker skips all compression work without an LLM adapter;
+        # surface that instead of failing silently.
+        compression = "ready" if self._llm_adapter is not None else "disabled"
         if self._store is None:
             return {
                 "status": "degraded",
                 "persistent": False,
                 "mode": "memory_fallback",
                 "reason": self._fallback_reason or "SQLite store unavailable",
+                "compression": compression,
             }
         return {
             "status": "ready",
             "persistent": True,
             "mode": "sqlite",
             "reason": "",
+            "compression": compression,
         }
 
     def start(self, character_registry: Any = None, llm_provider: Any = None) -> None:
@@ -166,12 +171,18 @@ class SQLiteMemory(MemoryInterface):
             if adapter is not None and hasattr(adapter, "generate_text"):
                 return adapter
 
-        # Fallback: create standalone adapter from env config
-        api_key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
-        if api_key:
+        # Fallback: create standalone adapter from the active provider config.
+        from app.config_manager.llm_providers import resolve_active_llm_config
+        cfg = resolve_active_llm_config()
+        if cfg.get("base_url") or cfg.get("api_key"):
             try:
                 from app.models.http_adapters import OpenAILLMAdapter
-                return OpenAILLMAdapter()
+                return OpenAILLMAdapter(
+                    api_key=cfg.get("api_key"),
+                    base_url=cfg.get("base_url"),
+                    model=cfg.get("model"),
+                    engine=cfg.get("engine"),
+                )
             except Exception:
                 return None
         return None

@@ -2,7 +2,7 @@ import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const root = process.cwd();
-const out = path.join(root, 'output', 'playwright');
+const out = path.join(root, '_runs', 'output', 'playwright');
 await mkdir(out, { recursive: true });
 
 const escape = (value) => value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');

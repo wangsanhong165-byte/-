@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { AlertCircle, CheckCircle2, ExternalLink, Eye, FileImage, FolderOpen, Info, LoaderCircle, Palette, RotateCcw, Settings2, type LucideIcon } from 'lucide-react'
 import { theme } from '../core/theme'
+import {
+  ACCENT_PRESETS,
+  DEFAULT_ACCENT_KEY,
+  THEME_MODE_OPTIONS,
+  isUiThemeMode,
+  resolveAccentColor,
+  resolveThemeMode,
+} from '../core/ui-theme'
 import type { AppSettings } from '../core/store'
 import { electronWindowBridge, type ElectronPerformanceDiagnostics, type WallpaperResourceResult } from '../session/electron-window-bridge'
 import { eventBus, type EventMap } from '../core/event-bus'
@@ -11,12 +19,13 @@ import {
 } from '../character/Live2DPerformanceSettings'
 import { Live2DActionStudio } from './Live2DActionStudio'
 import {
-  getLlmProviderKeys,
+  emptyLlmProvider,
   getVoiceKeys,
-  LLM_ENGINE_OPTIONS,
-  normalizeLlmEngine,
+  LLM_PROVIDER_KIND_OPTIONS,
+  nextLlmProviderId,
   VOICE_SECTION_OPTIONS,
-  type LlmEngine,
+  type LlmProvider,
+  type LlmProviderKind,
   type VoiceSectionId,
 } from './settings-config'
 
@@ -156,6 +165,88 @@ function useEnvConfig(): EnvConfigState {
   return { env, setEnvKey, envSaveLabel }
 }
 
+interface LlmProvidersState {
+  providers: LlmProvider[]
+  active: string
+  activeProvider: LlmProvider | null
+  saveLabel: string
+  selectActive: (id: string) => void
+  addProvider: () => void
+  deleteProvider: (id: string) => void
+  patchActive: (patch: Partial<LlmProvider>) => void
+}
+
+function useLlmProviders(): LlmProvidersState {
+  const [state, setState] = useState<{ active: string; providers: LlmProvider[] }>({ active: '', providers: [] })
+  const [saveState, setSaveState] = useState<EnvSaveState>('loading')
+
+  const apply = (body: { active?: string; providers?: LlmProvider[] }) => {
+    setState(prev => ({
+      active: body.active ?? prev.active,
+      providers: body.providers ?? prev.providers,
+    }))
+  }
+
+  useEffect(() => {
+    let disposed = false
+    void fetch('/api/config/llm-providers')
+      .then(r => r.ok ? r.json() : Promise.reject(new Error('unavailable')))
+      .then((body: { active?: string; providers?: LlmProvider[] }) => {
+        if (disposed) return
+        apply(body)
+        setSaveState('saved')
+      })
+      .catch(() => { if (!disposed) setSaveState('error') })
+    return () => { disposed = true }
+  }, [])
+
+  const post = async (payload: unknown) => {
+    setSaveState('saving')
+    const res = await fetch('/api/config/llm-providers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    const body = await res.json() as { status?: string; active?: string; providers?: LlmProvider[] }
+    apply(body)
+    setSaveState(body.status === 'ok' ? 'saved' : 'error')
+  }
+
+  const selectActive = (id: string) => { void post({ action: 'set_active', id }) }
+
+  const addProvider = () => {
+    const id = nextLlmProviderId(state.providers.map(p => p.id))
+    const provider = emptyLlmProvider(id)
+    setState(prev => ({ active: id, providers: [...prev.providers, provider] }))
+    void post({ action: 'upsert', provider }).then(() => post({ action: 'set_active', id }))
+  }
+
+  const deleteProvider = (id: string) => { void post({ action: 'delete', id }) }
+
+  const patchActive = (patch: Partial<LlmProvider>) => {
+    const current = state.providers.find(p => p.id === state.active)
+    if (!current) return
+    const updated = { ...current, ...patch }
+    setState(prev => ({
+      ...prev,
+      providers: prev.providers.map(p => (p.id === updated.id ? updated : p)),
+    }))
+    void post({ action: 'upsert', provider: updated })
+  }
+
+  const activeProvider = state.providers.find(p => p.id === state.active) ?? null
+
+  const saveLabel = saveState === 'loading'
+    ? '读取供应商…'
+    : saveState === 'saving' || saveState === 'pending'
+      ? '保存中…'
+      : saveState === 'error'
+        ? '保存失败，请重试'
+        : '已自动保存'
+
+  return { providers: state.providers, active: state.active, activeProvider, saveLabel, selectActive, addProvider, deleteProvider, patchActive }
+}
+
 export function SettingsPanel({
   open,
   onClose,
@@ -165,6 +256,7 @@ export function SettingsPanel({
 }: SettingsPanelProps) {
   const [activeTab, setActiveTab] = useState<TabId>('general')
   const envConfig = useEnvConfig()
+  const llmProviders = useLlmProviders()
 
   if (!open) return null
 
@@ -208,9 +300,11 @@ export function SettingsPanel({
           {/* Tab content */}
           <div style={styles.content}>
             {activeTab === 'general' && (
-              <GeneralTab settings={settings} onSettingChange={onSettingChange} envConfig={envConfig} />
+              <GeneralTab settings={settings} onSettingChange={onSettingChange} envConfig={envConfig} llmProviders={llmProviders} />
             )}
-            {activeTab === 'vision' && <VisionTab envConfig={envConfig} />}
+            {activeTab === 'vision' && (
+              <VisionTab envConfig={envConfig} settings={settings} onSettingChange={onSettingChange} llmProviders={llmProviders} />
+            )}
             {activeTab === 'appearance' && (
               <AppearanceTab settings={settings} onSettingChange={onSettingChange} />
             )}
@@ -298,6 +392,13 @@ function AppearanceTab({ settings, onSettingChange }: {
   }
 
   const resourceSelected = settings.backgroundType !== 'none' && Boolean(settings.backgroundUrl)
+
+  // Theme values are normalized the same way the ThemeController does, so the
+  // controls show the effective state even for stale persisted settings.
+  const themeMode = isUiThemeMode(settings.uiTheme) ? settings.uiTheme : 'dark'
+  const accentKey = typeof settings.accentColor === 'string' && settings.accentColor ? settings.accentColor : DEFAULT_ACCENT_KEY
+  const systemPrefersLight = typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: light)').matches
+  const effectiveTheme = resolveThemeMode(themeMode, systemPrefersLight)
   const fitLabel = settings.backgroundFit === 'cover'
     ? '铺满裁切'
     : settings.backgroundFit === 'fill'
@@ -320,6 +421,49 @@ function AppearanceTab({ settings, onSettingChange }: {
 
   return (
     <div style={styles.tabContent}>
+      <div style={styles.themeCard}>
+        <div style={styles.themeHeading}>
+          <div style={styles.sectionLabel}>界面主题</div>
+          <div style={styles.sectionDesc}>整体配色与强调色，切换立即生效，不影响界面布局。</div>
+        </div>
+
+        <SettingRow label="主题模式" desc="跟随系统时随 Windows 深浅设置自动切换">
+          <div style={styles.themeModeRow} role="radiogroup" aria-label="主题模式">
+            {THEME_MODE_OPTIONS.map(option => (
+              <button
+                key={option.value}
+                type="button"
+                style={{ ...styles.themeModeButton, ...(themeMode === option.value ? styles.themeModeButtonActive : {}) }}
+                aria-pressed={themeMode === option.value}
+                onClick={() => onSettingChange('uiTheme', option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </SettingRow>
+
+        <SettingRow label="强调色" desc="按钮、选中态与高亮使用的颜色">
+          <div style={styles.accentSwatchRow} role="radiogroup" aria-label="强调色">
+            {ACCENT_PRESETS.map(preset => (
+              <button
+                key={preset.key}
+                type="button"
+                title={preset.label}
+                aria-label={preset.label}
+                aria-pressed={accentKey === preset.key}
+                style={{
+                  ...styles.accentSwatch,
+                  backgroundColor: resolveAccentColor(preset.key, effectiveTheme),
+                  ...(accentKey === preset.key ? styles.accentSwatchActive : {}),
+                }}
+                onClick={() => onSettingChange('accentColor', preset.key)}
+              />
+            ))}
+          </div>
+        </SettingRow>
+      </div>
+
       <div style={styles.backgroundCard}>
         <div style={styles.backgroundHeader}>
           <div style={styles.backgroundHeading}>
@@ -416,13 +560,15 @@ function AppearanceTab({ settings, onSettingChange }: {
 
 // ── Tab: Vision ──
 
-function VisionTab({ envConfig }: { envConfig: EnvConfigState }) {
+function VisionTab({ envConfig, settings, onSettingChange, llmProviders }: {
+  envConfig: EnvConfigState
+  settings: AppSettings
+  onSettingChange: (key: string, value: unknown) => void
+  llmProviders: LlmProvidersState
+}) {
   const { env, setEnvKey, envSaveLabel } = envConfig
-  const engine = normalizeLlmEngine(env.llm?.LLM_ENGINE ?? '')
-  const engineLabel = LLM_ENGINE_OPTIONS.find(option => option.value === engine)?.label ?? engine
-  const activeModel = engine === 'opencode'
-    ? env.llm?.OPENCODE_MODEL
-    : env.llm?.LLM_MODEL
+  const activeProviderName = llmProviders.activeProvider?.name || llmProviders.active || '未选择供应商'
+  const activeModel = llmProviders.activeProvider?.model || '未填写模型'
   const visionEnabled = ['1', 'true', 'yes', 'on'].includes((env.llm?.LLM_ENABLE_VISION ?? '').trim().toLowerCase())
 
   return (
@@ -430,11 +576,12 @@ function VisionTab({ envConfig }: { envConfig: EnvConfigState }) {
       <div style={styles.settingsGroupHeader}>
         <div>
           <div style={styles.sectionLabel}>视觉输入</div>
-          <div style={styles.sectionDesc}>视觉请求跟随语言模型页选择的引擎和模型；这里集中管理图片能力与传输限制。</div>
+          <div style={styles.sectionDesc}>图片、摄像头与屏幕感知的统一设置；视觉请求跟随语言模型页选择的供应商和模型。</div>
         </div>
         <span style={styles.profileBadge}>{envSaveLabel}</span>
       </div>
 
+      <div style={styles.subSectionLabel}>能力与开关</div>
       <div style={styles.settingGroup}>
         <SettingRow label="启用视觉输入" desc="关闭时不会把图片发送给模型；修改会立即保存并生效">
           <Toggle
@@ -443,11 +590,86 @@ function VisionTab({ envConfig }: { envConfig: EnvConfigState }) {
           />
         </SettingRow>
 
+        <SettingRow label="启用摄像头输入" desc="开启后聊天栏显示摄像头按钮，可在人物模型旁打开浮动窗">
+          <Toggle
+            checked={settings.cameraEnabled}
+            onChange={(value) => onSettingChange('cameraEnabled', value)}
+          />
+        </SettingRow>
+
+        <SettingRow label="启用屏幕感知" desc="前台窗口变化时截取一帧，作为主动对话的视觉上下文；关闭后仅在用户提问时截图">
+          <Toggle
+            checked={settings.screenVisionEnabled}
+            onChange={(value) => onSettingChange('screenVisionEnabled', value)}
+          />
+        </SettingRow>
+
         <div style={styles.engineSummary}>
           <span style={styles.engineSummaryLabel}>当前视觉路由</span>
-          <span style={styles.engineSummaryDesc}>{engineLabel} · {activeModel || '未填写模型'}</span>
+          <span style={styles.engineSummaryDesc}>{activeProviderName} · {activeModel}</span>
         </div>
+      </div>
 
+      <div style={styles.subSectionLabel}>实时感知</div>
+      <div style={styles.settingGroup}>
+        <SettingRow label="语音时自动开启摄像头" desc="按下录音时自动打开摄像头浮动窗，并按下方间隔采样帧随语音回合发送">
+          <Toggle
+            checked={settings.voiceCameraEnabled}
+            onChange={(value) => onSettingChange('voiceCameraEnabled', value)}
+          />
+        </SettingRow>
+
+        <SettingRow label="语音时附带屏幕帧" desc="语音结束时自动截取/复用当前桌面一帧，随语音回合发送">
+          <Toggle
+            checked={settings.voiceScreenEnabled}
+            onChange={(value) => onSettingChange('voiceScreenEnabled', value)}
+          />
+        </SettingRow>
+
+        <SettingRow label="文字时自动附加摄像头帧" desc="发送文字时自动采一帧摄像头画面随文字回合发送">
+          <Toggle
+            checked={settings.textCameraEnabled}
+            onChange={(value) => onSettingChange('textCameraEnabled', value)}
+          />
+        </SettingRow>
+
+        <SettingRow label="文字时自动附带桌面帧" desc="发送文字时优先复用最近屏幕帧，太旧则现截一帧">
+          <Toggle
+            checked={settings.textScreenEnabled}
+            onChange={(value) => onSettingChange('textScreenEnabled', value)}
+          />
+        </SettingRow>
+
+        <EnvRow
+          label="摄像头采样间隔"
+          desc="单位毫秒；语音期间每间隔采样一帧，可设置 500–5000 ms，默认 2000 ms"
+          group="llm"
+          keyName="LLM_CAMERA_SAMPLE_INTERVAL_MS"
+          value={env.llm?.LLM_CAMERA_SAMPLE_INTERVAL_MS ?? ''}
+          onChange={setEnvKey}
+          type="number"
+          min={500}
+          max={5000}
+          step={250}
+          placeholder="2000"
+        />
+        <EnvRow
+          label="摄像头最大帧数"
+          desc="单个语音回合最多附带几帧；1–16 帧，默认 4 帧"
+          group="llm"
+          keyName="LLM_CAMERA_MAX_FRAMES"
+          value={env.llm?.LLM_CAMERA_MAX_FRAMES ?? ''}
+          onChange={setEnvKey}
+          type="number"
+          min={1}
+          max={16}
+          step={1}
+          placeholder="4"
+        />
+      </div>
+
+      <div style={styles.subSectionLabel}>传输限制</div>
+      <div style={styles.settingGroup}>
         <EnvRow
           label="最多附加图片"
           desc="单次视觉请求最多几张；可设置 1–16 张，默认 4 张"
@@ -500,10 +722,36 @@ function VisionTab({ envConfig }: { envConfig: EnvConfigState }) {
           step={256}
           placeholder="2048"
         />
+        <EnvRow
+          label="屏幕截帧最小间隔"
+          desc="单位秒；前台窗口变化时至少间隔这么久才截取一帧，默认 30 秒"
+          group="llm"
+          keyName="SCREEN_CAPTURE_MIN_INTERVAL"
+          value={env.llm?.SCREEN_CAPTURE_MIN_INTERVAL ?? ''}
+          onChange={setEnvKey}
+          type="number"
+          min={5}
+          max={600}
+          step={5}
+          placeholder="30"
+        />
+        <EnvRow
+          label="桌面帧新鲜度阈值"
+          desc="单位秒；回合附屏时优先复用最近多少秒内的屏幕帧，超时才现截，默认 8 秒"
+          group="llm"
+          keyName="SCREEN_CHAT_MAX_AGE_SECONDS"
+          value={env.llm?.SCREEN_CHAT_MAX_AGE_SECONDS ?? ''}
+          onChange={setEnvKey}
+          type="number"
+          min={0}
+          max={120}
+          step={1}
+          placeholder="8"
+        />
       </div>
 
       <div style={styles.backgroundHint}>
-        支持格式：PNG、JPEG、WebP。输入为空或超出安全范围时，会回退/收敛到默认安全值；开发者工作台会显示当前实际生效值。
+        支持格式：PNG、JPEG、WebP。输入为空或超出安全范围时，会回退/收敛到默认安全值；开发者工作台会显示当前实际生效值。屏幕感知截帧仍受启用视觉输入总开关约束。
       </div>
     </div>
   )
@@ -511,17 +759,15 @@ function VisionTab({ envConfig }: { envConfig: EnvConfigState }) {
 
 // ── Tab: General ──
 
-function GeneralTab({ settings, onSettingChange, envConfig }: {
+function GeneralTab({ settings, onSettingChange, envConfig, llmProviders }: {
   settings: AppSettings
   onSettingChange: (key: string, value: unknown) => void
   envConfig: EnvConfigState
+  llmProviders: LlmProvidersState
 }) {
   const [activeSection, setActiveSection] = useState<GeneralSectionId>('llm')
   const [voiceSection, setVoiceSection] = useState<VoiceSectionId>('asr')
   const { env, setEnvKey, envSaveLabel } = envConfig
-  const engine: LlmEngine = normalizeLlmEngine(env.llm?.LLM_ENGINE ?? '')
-  const engineLabel = LLM_ENGINE_OPTIONS.find(option => option.value === engine)?.label ?? engine
-  const llmFieldVisible = (key: string) => getLlmProviderKeys(engine).includes(key)
   const voiceFieldVisible = (key: string) => getVoiceKeys(voiceSection).includes(key)
 
   return (
@@ -612,54 +858,85 @@ function GeneralTab({ settings, onSettingChange, envConfig }: {
           <div style={styles.settingsGroupHeader}>
             <div>
               <div style={styles.sectionLabel}>语言模型</div>
-              <div style={styles.sectionDesc}>选择引擎后只显示该引擎需要的配置；修改会自动保存到 config/.env。</div>
+              <div style={styles.sectionDesc}>选中哪个供应商就用哪套配置（Base URL、模型、密钥与生成参数）；可新增/删除，修改会自动保存。</div>
             </div>
-            <span style={styles.profileBadge}>{envSaveLabel}</span>
+            <span style={styles.profileBadge}>{llmProviders.saveLabel}</span>
           </div>
 
-          <EnvRow
-            label="当前引擎"
-            desc="切换后立即使用对应引擎配置"
-            group="llm"
-            keyName="LLM_ENGINE"
-            value={engine}
-            onChange={setEnvKey}
-            options={LLM_ENGINE_OPTIONS}
-          />
-          <div style={styles.engineSummary}>
-            <span style={styles.engineSummaryLabel}>{engineLabel}</span>
-            <span style={styles.engineSummaryDesc}>{LLM_ENGINE_OPTIONS.find(option => option.value === engine)?.description}</span>
-          </div>
+          <SettingRow label="当前供应商" desc="切换后整套生效；删除会切到剩余的供应商">
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <select
+                style={styles.select}
+                value={llmProviders.active}
+                onChange={(e) => llmProviders.selectActive(e.target.value)}
+                disabled={llmProviders.providers.length === 0}
+              >
+                {llmProviders.providers.map(p => (
+                  <option key={p.id} value={p.id}>{p.name || p.id}</option>
+                ))}
+              </select>
+              <button type="button" style={styles.smallBtn} onClick={llmProviders.addProvider}>+ 新增</button>
+              <button
+                type="button"
+                style={styles.smallBtnDanger}
+                onClick={() => { if (llmProviders.active) llmProviders.deleteProvider(llmProviders.active) }}
+                disabled={llmProviders.providers.length <= 1}
+              >
+                删除
+              </button>
+            </div>
+          </SettingRow>
 
-          {llmFieldVisible('LLM_BASE_URL') && (
-            <EnvRow label="Base URL" group="llm" keyName="LLM_BASE_URL" value={env.llm?.LLM_BASE_URL ?? ''} onChange={setEnvKey} />
-          )}
-          {llmFieldVisible('LLM_MODEL') && (
-            <EnvRow label="Model" group="llm" keyName="LLM_MODEL" value={env.llm?.LLM_MODEL ?? ''} onChange={setEnvKey} />
-          )}
-          {llmFieldVisible('DEEPSEEK_API_KEY') && (
-            <EnvRow label="DeepSeek API Key" group="llm" keyName="DEEPSEEK_API_KEY" value={env.llm?.DEEPSEEK_API_KEY ?? ''} onChange={setEnvKey} type="password" />
-          )}
-          {llmFieldVisible('OPENAI_API_KEY') && (
-            <EnvRow label="OpenAI API Key" group="llm" keyName="OPENAI_API_KEY" value={env.llm?.OPENAI_API_KEY ?? ''} onChange={setEnvKey} type="password" />
-          )}
-          {llmFieldVisible('OPENCODE_BASE_URL') && (
-            <EnvRow label="OpenCode Base URL" group="llm" keyName="OPENCODE_BASE_URL" value={env.llm?.OPENCODE_BASE_URL ?? ''} onChange={setEnvKey} placeholder="http://127.0.0.1:4096/v1" />
-          )}
-          {llmFieldVisible('OPENCODE_MODEL') && (
-            <EnvRow label="OpenCode Model · Ox Alpha" group="llm" keyName="OPENCODE_MODEL" value={env.llm?.OPENCODE_MODEL ?? ''} onChange={setEnvKey} placeholder="x-preview-f-free" />
-          )}
-          {llmFieldVisible('OPENCODE_API_KEY') && (
-            <EnvRow label="OpenCode API Key" group="llm" keyName="OPENCODE_API_KEY" value={env.llm?.OPENCODE_API_KEY ?? ''} onChange={setEnvKey} type="password" placeholder="local" />
+          {llmProviders.activeProvider ? (
+            <>
+              <ProviderField label="名称" value={llmProviders.activeProvider.name} onChange={v => llmProviders.patchActive({ name: v })} />
+              <ProviderField
+                label="类型"
+                value={llmProviders.activeProvider.kind}
+                onChange={v => llmProviders.patchActive({ kind: v as LlmProviderKind })}
+                options={LLM_PROVIDER_KIND_OPTIONS}
+              />
+              <ProviderField
+                label="Base URL"
+                desc="OpenAI 兼容端点（调用前必须填写）"
+                value={llmProviders.activeProvider.base_url}
+                onChange={v => llmProviders.patchActive({ base_url: v })}
+                placeholder="https://api.example.com/v1"
+              />
+              <ProviderField label="Model" value={llmProviders.activeProvider.model} onChange={v => llmProviders.patchActive({ model: v })} />
+              <ProviderField label="API Key" value={llmProviders.activeProvider.api_key} onChange={v => llmProviders.patchActive({ api_key: v })} type="password" />
+              <ProviderField
+                label="Temperature"
+                value={llmProviders.activeProvider.temperature == null ? '' : String(llmProviders.activeProvider.temperature)}
+                onChange={v => llmProviders.patchActive({ temperature: v.trim() === '' ? null : Number(v) })}
+                placeholder="0.3"
+              />
+              <ProviderField
+                label="Reasoning Effort"
+                value={llmProviders.activeProvider.reasoning_effort ?? ''}
+                onChange={v => llmProviders.patchActive({ reasoning_effort: v })}
+                options={['low', 'medium', 'high']}
+              />
+              <ProviderField
+                label="Timeout (s)"
+                value={llmProviders.activeProvider.timeout == null ? '' : String(llmProviders.activeProvider.timeout)}
+                onChange={v => llmProviders.patchActive({ timeout: v.trim() === '' ? null : Number(v) })}
+                placeholder="60"
+              />
+              <ProviderField
+                label="Max Output Tokens"
+                value={llmProviders.activeProvider.max_tokens == null ? '' : String(llmProviders.activeProvider.max_tokens)}
+                onChange={v => llmProviders.patchActive({ max_tokens: v.trim() === '' ? null : parseInt(v, 10) })}
+                placeholder="8192"
+              />
+            </>
+          ) : (
+            <div style={styles.backgroundHint}>还没有供应商，点击「+ 新增」创建一个。</div>
           )}
 
           <details style={styles.advancedDetails}>
-            <summary style={styles.advancedSummary}>通用生成参数</summary>
+            <summary style={styles.advancedSummary}>通用（全局兜底）</summary>
             <div style={styles.advancedContent}>
-              <EnvRow label="Temperature" group="llm" keyName="LLM_TEMPERATURE" value={env.llm?.LLM_TEMPERATURE ?? ''} onChange={setEnvKey} />
-              <EnvRow label="Reasoning Effort" group="llm" keyName="LLM_REASONING_EFFORT" value={env.llm?.LLM_REASONING_EFFORT ?? ''} onChange={setEnvKey} options={['low', 'medium', 'high']} />
-              <EnvRow label="Timeout (s)" group="llm" keyName="LLM_TIMEOUT_SECONDS" value={env.llm?.LLM_TIMEOUT_SECONDS ?? ''} onChange={setEnvKey} />
-              <EnvRow label="Max Output Tokens" group="llm" keyName="LLM_MAX_TOKENS" value={env.llm?.LLM_MAX_TOKENS ?? ''} onChange={setEnvKey} placeholder="8192" />
               <EnvRow label="Empty Reply Fallback" group="llm" keyName="LLM_EMPTY_REPLY_FALLBACK" value={env.llm?.LLM_EMPTY_REPLY_FALLBACK ?? ''} onChange={setEnvKey} placeholder="我刚才走神了，能再跟我说一遍吗？" />
             </div>
           </details>
@@ -749,6 +1026,43 @@ function EnvRow({ label, desc, group, keyName, value, onChange, options, type, p
           min={min}
           max={max}
           step={step}
+          spellCheck={false}
+        />
+      )}
+    </SettingRow>
+  )
+}
+
+function ProviderField({ label, desc, value, onChange, options, type, placeholder }: {
+  label: string
+  desc?: string
+  value: string
+  onChange: (value: string) => void
+  options?: ReadonlyArray<string | { value: string; label: string }>
+  type?: string
+  placeholder?: string
+}) {
+  return (
+    <SettingRow label={label} desc={desc}>
+      {options ? (
+        <select
+          style={styles.select}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        >
+          {options.map((option) => {
+            const optionValue = typeof option === 'string' ? option : option.value
+            const optionLabel = typeof option === 'string' ? option : option.label
+            return <option key={optionValue} value={optionValue}>{optionLabel}</option>
+          })}
+        </select>
+      ) : (
+        <input
+          style={{ ...styles.select, width: '100%', boxSizing: 'border-box' }}
+          type={type || 'text'}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
           spellCheck={false}
         />
       )}
@@ -989,11 +1303,15 @@ function AnimationTab({ settings, onSettingChange, accessoryParts, accessoryStat
             style={{
               ...styles.calibrationButton,
               opacity: audioDiagnostic.phase === 'running' ? 0.6 : 1,
-              backgroundColor: audioDiagnostic.phase === 'passed'
-                ? '#246b4a'
-                : audioDiagnostic.phase === 'failed'
-                  ? '#7a3542'
-                  : theme.colors.bg.surface,
+              ...(audioDiagnostic.phase === 'passed' ? {
+                color: 'var(--good)',
+                borderColor: 'color-mix(in srgb, var(--good) 45%, var(--line))',
+                backgroundColor: 'color-mix(in srgb, var(--good) 14%, transparent)',
+              } : audioDiagnostic.phase === 'failed' ? {
+                color: 'var(--danger)',
+                borderColor: 'color-mix(in srgb, var(--danger) 45%, var(--line))',
+                backgroundColor: 'color-mix(in srgb, var(--danger) 14%, transparent)',
+              } : { backgroundColor: theme.colors.bg.surface }),
             }}
             onClick={() => {
               const requestId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -1143,7 +1461,7 @@ function Live2DRuntimeMonitor({ model }: { model: string }) {
           <div style={styles.cardTitle}>实时表现监控</div>
           <div style={styles.cardDesc}>逐帧采样控制、物理与渲染；界面以 4 Hz 汇总，不干扰动画循环。</div>
         </div>
-        <span style={{ ...styles.profileBadge, color: pacingHealthy ? '#77d6a0' : theme.colors.accent }}>
+        <span style={{ ...styles.profileBadge, color: pacingHealthy ? 'var(--good)' : theme.colors.accent }}>
           {frame ? `${fps.toFixed(0)} FPS` : '等待模型'}
         </span>
         <button type="button" style={styles.calibrationButton} onClick={refreshEnvironment}>刷新硬件数据</button>
@@ -1339,7 +1657,7 @@ function RuntimeMetric({ label, value }: { label: string; value: string }) {
 function AboutTab() {
   return (
     <div style={styles.tabContent}>
-      <div style={styles.sectionLabel}>Monika Companion</div>
+      <div style={styles.sectionLabel}>Aurora</div>
       <div style={styles.aboutDesc}>
         A virtual companion powered by AI with Live2D character rendering.
       </div>
@@ -1464,6 +1782,16 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '1.3rem', cursor: 'pointer', display: 'flex', alignItems: 'center',
     justifyContent: 'center', lineHeight: 1, padding: 0,
   },
+  smallBtn: {
+    padding: '6px 12px', borderRadius: theme.radius.sm,
+    border: `1px solid ${theme.colors.border}`, backgroundColor: theme.colors.bg.surface,
+    color: theme.colors.text.primary, cursor: 'pointer', fontSize: '0.85rem', whiteSpace: 'nowrap',
+  },
+  smallBtnDanger: {
+    padding: '6px 12px', borderRadius: theme.radius.sm,
+    border: `1px solid ${theme.colors.border}`, backgroundColor: 'transparent',
+    color: theme.colors.danger, cursor: 'pointer', fontSize: '0.85rem', whiteSpace: 'nowrap',
+  },
   body: {
     display: 'flex', flex: 1, overflow: 'hidden',
   },
@@ -1507,7 +1835,7 @@ const styles: Record<string, React.CSSProperties> = {
     textAlign: 'left' as const, cursor: 'pointer',
   },
   settingsNavButtonActive: {
-    borderColor: theme.colors.accent, backgroundColor: 'rgba(217, 119, 87, 0.10)',
+    borderColor: theme.colors.accent, backgroundColor: 'color-mix(in srgb, var(--accent) 10%, transparent)',
     color: theme.colors.text.primary,
   },
   settingsNavLabel: { fontSize: theme.fontSize.sm, fontWeight: theme.fontWeight.medium },
@@ -1565,7 +1893,7 @@ const styles: Record<string, React.CSSProperties> = {
   settingLabel: { fontSize: theme.fontSize.sm, fontWeight: theme.fontWeight.medium, color: theme.colors.text.primary, lineHeight: 1.25 },
   settingDesc: { fontSize: theme.fontSize.xs, color: theme.colors.text.muted, marginTop: 1, lineHeight: 1.35 },
   subSectionLabel: {
-    fontSize: '0.7rem', fontWeight: 600, color: '#7f899c',
+    fontSize: '0.7rem', fontWeight: 600, color: theme.colors.text.muted,
     textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 10,
   },
 
@@ -1622,7 +1950,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   heroDesc: { color: theme.colors.text.muted, fontSize: theme.fontSize.xs, marginTop: 3 },
   profileBadge: {
-    padding: '3px 7px', borderRadius: 999, whiteSpace: 'nowrap',
+    padding: '3px 7px', borderRadius: theme.radius.full, whiteSpace: 'nowrap',
     color: theme.colors.accent, border: `1px solid ${theme.colors.accent}`,
     fontSize: theme.fontSize.xs,
   },
@@ -1667,6 +1995,37 @@ const styles: Record<string, React.CSSProperties> = {
     padding: theme.spacing.md, borderRadius: theme.radius.md,
     backgroundColor: theme.colors.bg.surface, border: `1px solid ${theme.colors.border}`,
   },
+  themeCard: {
+    display: 'flex', flexDirection: 'column', gap: theme.spacing.md,
+    padding: theme.spacing.md, borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.bg.surface, border: `1px solid ${theme.colors.border}`,
+  },
+  themeHeading: { display: 'flex', flexDirection: 'column', gap: 2 },
+  themeModeRow: {
+    display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: theme.spacing.xs,
+  },
+  themeModeButton: {
+    minWidth: 0, padding: '6px 10px',
+    border: `1px solid ${theme.colors.border}`, borderRadius: theme.radius.sm,
+    backgroundColor: 'transparent', color: theme.colors.text.secondary,
+    fontSize: theme.fontSize.xs, cursor: 'pointer',
+    transition: 'border-color 0.12s ease, color 0.12s ease, background-color 0.12s ease',
+  },
+  themeModeButtonActive: {
+    borderColor: theme.colors.accent, color: theme.colors.accent,
+    backgroundColor: 'color-mix(in srgb, var(--accent) 10%, transparent)',
+  },
+  accentSwatchRow: {
+    display: 'flex', flexWrap: 'wrap', gap: 9, alignItems: 'center',
+  },
+  accentSwatch: {
+    width: 26, height: 26, padding: 0, border: 'none',
+    borderRadius: theme.radius.full, cursor: 'pointer',
+    boxShadow: 'inset 0 0 0 1px rgba(0, 0, 0, 0.18)',
+  },
+  accentSwatchActive: {
+    outline: '2px solid var(--accent)', outlineOffset: 2,
+  },
   backgroundHeader: {
     display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: theme.spacing.md,
   },
@@ -1674,15 +2033,15 @@ const styles: Record<string, React.CSSProperties> = {
   backgroundStatus: {
     display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0,
     padding: '4px 7px', borderRadius: theme.radius.full,
-    color: theme.colors.status.connected, backgroundColor: 'rgba(125, 201, 160, 0.1)',
+    color: theme.colors.status.connected, backgroundColor: 'color-mix(in srgb, var(--good) 10%, transparent)',
     fontSize: theme.fontSize.xs,
   },
-  backgroundStatusError: { color: theme.colors.danger, backgroundColor: 'rgba(223, 133, 139, 0.1)' },
-  backgroundStatusIdle: { color: theme.colors.text.muted, backgroundColor: 'rgba(127, 137, 156, 0.1)' },
+  backgroundStatusError: { color: theme.colors.danger, backgroundColor: 'color-mix(in srgb, var(--danger) 10%, transparent)' },
+  backgroundStatusIdle: { color: theme.colors.text.muted, backgroundColor: 'color-mix(in srgb, var(--faint) 10%, transparent)' },
   backgroundPreview: {
     position: 'relative', height: 132, overflow: 'hidden', borderRadius: theme.radius.md,
     border: `1px solid ${theme.colors.border}`, backgroundColor: theme.colors.bg.root,
-    backgroundImage: 'linear-gradient(135deg, rgba(217,119,87,0.08), transparent 48%), linear-gradient(45deg, rgba(255,255,255,0.03) 25%, transparent 25%, transparent 75%, rgba(255,255,255,0.03) 75%)',
+    backgroundImage: 'linear-gradient(135deg, color-mix(in srgb, var(--accent) 8%, transparent), transparent 48%), linear-gradient(45deg, rgba(255,255,255,0.03) 25%, transparent 25%, transparent 75%, rgba(255,255,255,0.03) 75%)',
     backgroundSize: 'auto, 16px 16px',
   },
   backgroundPreviewMedia: { width: '100%', height: '100%', objectFit: 'contain' as const, display: 'block' },
@@ -1779,7 +2138,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontVariantNumeric: 'tabular-nums', lineHeight: 1.45,
   },
   parameterChip: {
-    padding: '2px 4px', borderRadius: 4, border: `1px solid ${theme.colors.border}`,
+    padding: '2px 4px', borderRadius: theme.radius.xs, border: `1px solid ${theme.colors.border}`,
     background: 'transparent', color: theme.colors.text.muted, fontSize: 10, cursor: 'pointer',
   },
   probeControl: {
@@ -1828,7 +2187,7 @@ const styles: Record<string, React.CSSProperties> = {
   toggleWrap: { position: 'relative' as const, display: 'inline-block', justifySelf: 'end', flexShrink: 0 },
   toggleInput: { position: 'absolute' as const, opacity: 0, width: 0, height: 0, margin: 0 },
   toggleTrack: {
-    display: 'inline-block', width: 40, height: 22, borderRadius: 11,
+    display: 'inline-block', width: 40, height: 22, borderRadius: theme.radius.full,
     transition: 'background-color 0.15s', position: 'relative' as const,
   },
   toggleThumb: {

@@ -62,7 +62,7 @@ const styles: Record<string, React.CSSProperties> = {
   retry: {
     marginTop: 8,
     padding: '6px 16px',
-    borderRadius: 6,
+    borderRadius: theme.radius.sm,
     border: `1px solid ${theme.colors.border}`,
     backgroundColor: theme.colors.bg.panel,
     color: theme.colors.text.primary,

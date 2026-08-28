@@ -128,7 +128,7 @@ function createWindow({ transparent = false, bounds = null, assign = true } = {}
     transparent,
     backgroundColor: transparent ? '#00000000' : '#1a2030',
     hasShadow: !transparent,
-    title: 'Monika Companion',
+    title: 'Aurora',
     show: false,
     webPreferences: {
       nodeIntegration: false,
@@ -368,7 +368,7 @@ function createTray() {
   }
 
   tray = new Tray(icon)
-  tray.setToolTip('Monika Companion')
+  tray.setToolTip('Aurora')
   refreshTrayMenu()
   tray.on('double-click', showCompanionWindows)
 }

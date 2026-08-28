@@ -1,4 +1,10 @@
-:root {
+/* Theme tokens. `:root` carries the dark defaults so the app stays dark even
+   before the pre-mount script sets data-theme. Light values live on
+   html[data-theme='light']; per-theme tokens may be freely combined with the
+   derived tokens in the second :root block below (custom properties resolve
+   var() references against the same element, so overrides compose). */
+:root,
+html[data-theme='dark'] {
   color-scheme: dark;
   font-family: Inter, "Segoe UI Variable", "Microsoft YaHei UI", sans-serif;
   color: var(--text);
@@ -8,6 +14,7 @@
   --bg: #1a2030;
   --surface: #232b3d;
   --surface-2: #2d374b;
+  --surface-hover: #37435a;
   --surface-3: #414f69;
   --line: #30394b;
   --line-strong: #46536b;
@@ -15,23 +22,61 @@
   --muted: #aab2c2;
   --faint: #7f899c;
   --accent: #d97757;
-  --accent-soft: rgba(217, 119, 87, 0.14);
+  --on-accent: #ffffff;
   --good: #7dc9a0;
   --warn: #e0b06c;
   --danger: #df858b;
+  --info: #83d5dc;
+  --scrollbar: #3a3c46;
+  --scrollbar-hover: #4a4d57;
+  --shadow-1: 0 1px 3px rgba(7, 10, 18, 0.24);
+  --shadow-2: 0 10px 32px rgba(7, 10, 18, 0.32);
+}
 
-  /* Aliases referenced across index.css; keep in sync with the tokens above */
-  --bg-primary: #1a2030;
-  --bg-secondary: #232b3d;
-  --text-primary: #eef0f7;
-  --text-secondary: #aab2c2;
-  --border-color: #30394b;
+html[data-theme='light'] {
+  color-scheme: light;
 
+  --bg: #eceff5;
+  --surface: #f6f8fb;
+  --surface-2: #ffffff;
+  --surface-hover: #dfe5ef;
+  --surface-3: #d0d8e5;
+  --line: #d7deea;
+  --line-strong: #bcc7d9;
+  --text: #232a38;
+  --muted: #5b6579;
+  --faint: #8a93a6;
+  --accent: #c15f3f;
+  --on-accent: #ffffff;
+  --good: #217a52;
+  --warn: #8a6410;
+  --danger: #bd4a55;
+  --info: #1e7a86;
+  --scrollbar: #c2cad8;
+  --scrollbar-hover: #a9b4c7;
+  --shadow-1: 0 1px 3px rgba(23, 32, 54, 0.10);
+  --shadow-2: 0 10px 32px rgba(23, 32, 54, 0.14);
+}
+
+:root {
+  /* Derived tokens — track whichever --accent the active theme (or the
+     ThemeController inline override) provides. */
+  --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+  --accent-glow: color-mix(in srgb, var(--accent) 22%, transparent);
+
+  /* Aliases referenced across index.css; canonical tokens above */
+  --bg-primary: var(--bg);
+  --bg-secondary: var(--surface);
+  --text-primary: var(--text);
+  --text-secondary: var(--muted);
+  --border-color: var(--line);
+
+  --r-xs: 4px;
   --r-sm: 6px;
   --r-md: 8px;
   --r-lg: 12px;
-  --shadow-1: 0 1px 3px rgba(7, 10, 18, 0.24);
-  --shadow-2: 0 10px 32px rgba(7, 10, 18, 0.32);
+  --r-xl: 16px;
+  --r-full: 9999px;
 }
 
 /* Complete character pack library */
@@ -41,9 +86,9 @@
 .character-manager-header p, .character-import-note, .character-manager .muted { margin: 6px 0 0; color: var(--text-secondary); font-size: 12px; line-height: 1.55; }
 .character-card-list { display: grid; gap: 8px; margin: 14px 0; }
 .character-library-row { display: grid; grid-template-columns: minmax(0, 1fr) 34px; gap: 7px; align-items: stretch; }
-.character-library-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; width: 100%; padding: 12px; color: inherit; text-align: left; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 10px; cursor: pointer; }
+.character-library-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; width: 100%; padding: 12px; color: inherit; text-align: left; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: var(--r-lg); cursor: pointer; }
 .character-library-actions { display: grid; grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 5px; }
-.character-row-action { display: grid; place-items: center; min-height: 0; padding: 0; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); color: var(--text-secondary); cursor: pointer; }
+.character-row-action { display: grid; place-items: center; min-height: 0; padding: 0; border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--bg-secondary); color: var(--text-secondary); cursor: pointer; }
 .character-row-action:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 55%, var(--border-color)); color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--bg-secondary)); }
 .character-row-action.is-danger:hover:not(:disabled) { border-color: color-mix(in srgb, var(--danger) 55%, var(--border-color)); color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, var(--bg-secondary)); }
 .character-row-action:disabled { cursor: not-allowed; opacity: 0.35; }
@@ -56,15 +101,15 @@
 .character-library-card small, .character-library-meta { color: var(--text-secondary); font-size: 11px; }
 .character-library-meta { grid-column: 1; }
 .character-library-card em { grid-column: 2; grid-row: 1 / span 2; align-self: center; color: var(--accent); font-size: 11px; font-style: normal; }
-.character-import-toggle, .character-import-submit { display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; padding: 10px 12px; color: var(--text-primary); background: color-mix(in srgb, var(--accent) 14%, var(--bg-secondary)); border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border-color)); border-radius: 9px; cursor: pointer; }
-.character-import-form { display: grid; gap: 12px; margin-top: 14px; padding: 14px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 10px; }
+.character-import-toggle, .character-import-submit { display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; padding: 10px 12px; color: var(--text-primary); background: color-mix(in srgb, var(--accent) 14%, var(--bg-secondary)); border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border-color)); border-radius: var(--r-md); cursor: pointer; }
+.character-import-form { display: grid; gap: 12px; margin-top: 14px; padding: 14px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: var(--r-lg); }
 .character-import-form h3 { margin-top: 4px; font-size: 14px; }
 .character-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .character-import-form label { display: grid; gap: 6px; color: var(--text-secondary); font-size: 12px; }
-.character-import-form input, .character-import-form select, .character-import-form textarea { min-width: 0; padding: 9px 10px; color: var(--text-primary); background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 7px; font: inherit; }
+.character-import-form input, .character-import-form select, .character-import-form textarea { min-width: 0; padding: 9px 10px; color: var(--text-primary); background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: var(--r-md); font: inherit; }
 .character-import-form input:disabled, .character-import-form select:disabled { opacity: 0.68; cursor: not-allowed; }
 .character-import-form textarea { min-height: 82px; resize: vertical; }
-.character-edit-warning { margin: 0; padding: 9px 10px; color: color-mix(in srgb, var(--accent) 78%, white); background: color-mix(in srgb, var(--accent) 10%, var(--bg-primary)); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border-color)); border-radius: 7px; font-size: 12px; line-height: 1.55; }
+.character-edit-warning { margin: 0; padding: 9px 10px; color: color-mix(in srgb, var(--accent) 78%, white); background: color-mix(in srgb, var(--accent) 10%, var(--bg-primary)); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border-color)); border-radius: var(--r-md); font-size: 12px; line-height: 1.55; }
 /* Native select dropdown popup — Chromium renders <option> in a separate
    popup that ignores the <select>'s own background; style options explicitly
    so the popup matches the dark theme instead of a white/inverted surface. */
@@ -78,9 +123,9 @@ select option:hover {
 }
 .character-asset-field > div { display: flex; gap: 7px; }
 .character-asset-field input { flex: 1; }
-.character-asset-field button, .character-manager .icon-button { display: inline-flex; align-items: center; gap: 5px; padding: 8px 9px; color: var(--text-primary); background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 7px; cursor: pointer; }
+.character-asset-field button, .character-manager .icon-button { display: inline-flex; align-items: center; gap: 5px; padding: 8px 9px; color: var(--text-primary); background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: var(--r-md); cursor: pointer; }
 .character-import-submit:disabled { cursor: not-allowed; opacity: .5; }
-.character-manager-message { margin: 12px 0 0; padding: 9px 10px; color: var(--text-secondary); background: var(--bg-secondary); border-left: 2px solid var(--accent); border-radius: 5px; font-size: 12px; line-height: 1.45; }
+.character-manager-message { margin: 12px 0 0; padding: 9px 10px; color: var(--text-secondary); background: var(--bg-secondary); border-left: 2px solid var(--accent); border-radius: var(--r-sm); font-size: 12px; line-height: 1.45; }
 @media (max-width: 980px) { .character-form-grid { grid-template-columns: 1fr; } }
 
 *,
@@ -132,12 +177,12 @@ textarea:focus-visible {
 }
 
 ::-webkit-scrollbar-thumb {
-  border-radius: 4px;
-  background: #3a3c46;
+  border-radius: var(--r-xs);
+  background: var(--scrollbar);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #4a4d57;
+  background: var(--scrollbar-hover);
 }
 
 canvas {
@@ -557,14 +602,14 @@ aside {
   margin: 0 0 8px;
   padding: 8px 12px;
   border: 0;
-  border-radius: var(--r-lg) var(--r-lg) var(--r-lg) 4px;
+  border-radius: var(--r-lg) var(--r-lg) var(--r-lg) var(--r-xs);
   background: rgba(45, 55, 75, 0.86);
   animation: dock-message-in 220ms ease-out both;
 }
 
 .conversation-dock .chat-message.is-user {
   margin-left: auto;
-  border-radius: var(--r-lg) var(--r-lg) 4px var(--r-lg);
+  border-radius: var(--r-lg) var(--r-lg) var(--r-xs) var(--r-lg);
   background: var(--accent-soft);
 }
 
@@ -628,7 +673,7 @@ aside {
 .conversation-dock .send-button {
   min-width: 56px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .conversation-dock .send-button:disabled {
@@ -637,7 +682,7 @@ aside {
 }
 
 .conversation-dock .send-button:not(:disabled):hover {
-  background: #e39576;
+  background: color-mix(in srgb, var(--accent) 88%, white);
 }
 
 .conversation-dock .send-button:not(:disabled):active,
@@ -647,12 +692,12 @@ aside {
 
 .conversation-dock .interrupt-button {
   width: 100%;
-  background: rgba(223, 133, 139, 0.14);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
   color: var(--danger);
 }
 
 .conversation-dock .interrupt-button:hover {
-  background: rgba(223, 133, 139, 0.22);
+  background: color-mix(in srgb, var(--danger) 22%, transparent);
 }
 
 /* Stage subtitle */
@@ -700,7 +745,7 @@ aside {
   align-items: center;
   gap: 8px;
   border: 1px solid var(--line);
-  border-radius: 13px;
+  border-radius: var(--r-lg);
   background: rgba(35, 43, 61, 0.86);
   backdrop-filter: blur(12px);
   color: var(--muted);
@@ -818,8 +863,9 @@ html:has(.pet-conversation-surface) #root {
   height: 24px;
   padding: 0;
   border: 0;
-  border-radius: 7px;
-  color: var(--text-muted);
+  border-radius: var(--r-md);
+  /* The pet surface is a fixed dark-glass window in both themes. */
+  color: #aab2c2;
   background: transparent;
   font-size: 18px;
   line-height: 1;
@@ -838,7 +884,7 @@ html:has(.pet-conversation-surface) #root {
   flex-direction: column;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 14px;
+  border-radius: var(--r-lg);
   background: rgba(25, 31, 45, 0.92);
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
   backdrop-filter: blur(18px) saturate(115%);
@@ -851,7 +897,7 @@ html:has(.pet-conversation-surface) #root {
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  color: var(--text-muted);
+  color: #aab2c2;
   font-size: 11px;
   letter-spacing: 0.04em;
   cursor: grab;
@@ -1031,15 +1077,22 @@ html:has(.pet-conversation-surface) #root {
 .composer-attachment {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  max-width: 180px;
+  gap: 7px;
+  max-width: 200px;
   min-width: 0;
-  padding: 4px 5px 4px 8px;
-  border: 1px solid var(--line-strong);
+  padding: 6px 7px 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--line-strong) 72%, transparent);
   border-radius: var(--r-md);
-  background: var(--surface-2);
+  background: color-mix(in srgb, var(--surface-2) 84%, var(--bg));
   color: var(--muted);
   font-size: 11px;
+  box-shadow: var(--shadow-1);
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+
+.composer-attachment:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line-strong));
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface-2));
 }
 
 .composer-attachments {
@@ -1052,15 +1105,17 @@ html:has(.pet-conversation-surface) #root {
 }
 
 .composer-attachment img {
-  width: 34px;
-  height: 34px;
-  border-radius: 6px;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
   object-fit: cover;
   flex: 0 0 auto;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 }
 
 .composer-attachment small {
-  color: var(--text-muted);
+  color: var(--faint);
   font-size: 10px;
 }
 
@@ -1077,10 +1132,16 @@ html:has(.pet-conversation-surface) #root {
 }
 
 .composer-attachment .composer-action {
-  height: 22px;
-  padding: 0 3px;
+  height: 24px;
+  padding: 0 4px;
   border: 0;
   background: transparent;
+  color: var(--faint);
+}
+
+.composer-attachment .composer-action:hover:not(:disabled) {
+  background: rgba(223, 133, 139, 0.16);
+  color: var(--danger);
 }
 
 .composer-error {
@@ -1089,34 +1150,168 @@ html:has(.pet-conversation-surface) #root {
   white-space: nowrap;
 }
 
+.camera-window {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--line-strong) 72%, transparent);
+  border-radius: var(--r-lg);
+  background: linear-gradient(180deg, var(--surface-2), color-mix(in srgb, var(--surface-2) 72%, var(--bg)));
+  box-shadow: var(--shadow-2), 0 0 0 4px rgba(7, 10, 18, 0.12);
+  user-select: none;
+}
+
+.camera-window-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 8px 7px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: move;
+  touch-action: none;
+}
+
+.camera-window-close {
+  height: 24px;
+  width: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.camera-window-close:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.camera-window video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: #0c101b;
+  object-fit: cover;
+}
+
+.camera-window-body {
+  display: flex;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  background: #0c101b;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.camera-window-body p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.camera-window-retry {
+  margin-top: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.camera-window-retry:hover:not(:disabled) {
+  background: var(--surface-3);
+}
+
+.camera-window-retry:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .composer-action,
 .send-button,
 .interrupt-button {
   height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   padding: 0 13px;
   border-radius: var(--r-md);
   border: 1px solid var(--line-strong);
   background: var(--surface-2);
   color: var(--muted);
   cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease, transform 0.06s ease;
+}
+
+.composer-action:hover:not(:disabled) {
+  background: var(--surface-3);
+  border-color: color-mix(in srgb, var(--line-strong) 70%, var(--muted));
+  color: var(--text);
+}
+
+.composer-action.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.composer-action:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.composer-action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .send-button {
   border-color: var(--accent);
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
+  box-shadow: 0 6px 18px var(--accent-glow);
+}
+
+.send-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 88%, white);
+}
+
+.send-button:active:not(:disabled) {
+  transform: scale(0.96);
 }
 
 .send-button:disabled {
   opacity: 0.4;
   cursor: default;
+  box-shadow: none;
 }
 
 .interrupt-button {
   width: 100%;
-  border-color: rgba(223, 133, 139, 0.5);
+  border-color: color-mix(in srgb, var(--danger) 50%, transparent);
   color: var(--danger);
-  background: rgba(223, 133, 139, 0.12);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.interrupt-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 20%, transparent);
+  color: color-mix(in srgb, var(--danger) 60%, white);
 }
 
 /* History panel */
@@ -1303,7 +1498,7 @@ html:has(.pet-conversation-surface) #root {
 
 .developer-intro p { margin: 4px 0 0; color: var(--faint); font-size: 11px; }
 .developer-kicker { color: var(--accent); font-size: 9px; font-weight: 700; letter-spacing: .11em; }
-.developer-retention-badge { flex: 0 0 auto; padding: 4px 7px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--faint); font-size: 9px; }
+.developer-retention-badge { flex: 0 0 auto; padding: 4px 7px; border: 1px solid var(--line-strong); border-radius: var(--r-full); color: var(--faint); font-size: 9px; }
 
 .user-view section {
   padding: 17px 0;
@@ -1536,7 +1731,7 @@ html:has(.pet-conversation-surface) #root {
 
 .prompt-source-mode {
   padding: 3px 6px;
-  border-radius: 5px;
+  border-radius: var(--r-sm);
   background: var(--surface-3);
   color: var(--muted);
   font-size: 9px;
@@ -1566,14 +1761,14 @@ html:has(.pet-conversation-surface) #root {
   gap: 4px;
   padding: 3px;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: var(--r-md);
   background: var(--bg);
 }
 
 .prompt-source-mode-picker button {
   padding: 6px 5px;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--r-sm);
   background: transparent;
   color: var(--faint);
   font: inherit;
@@ -1719,14 +1914,14 @@ html:has(.pet-conversation-surface) #root {
   flex: 0 0 auto;
   padding: 2px;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: var(--r-md);
   background: var(--surface);
 }
 
 .prompt-view-toggle button {
   padding: 4px 8px;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--r-sm);
   background: transparent;
   color: var(--faint);
   font: inherit;
@@ -1834,7 +2029,7 @@ html:has(.pet-conversation-surface) #root {
 
 .prompt-message-badge {
   padding: 2px 5px;
-  border-radius: 4px;
+  border-radius: var(--r-xs);
   background: var(--surface-3);
   color: var(--muted);
   font-size: 9px;
@@ -2065,7 +2260,7 @@ html:has(.pet-conversation-surface) #root {
   flex: 0 0 auto;
   padding: 5px 8px;
   border: 1px solid transparent;
-  border-radius: 999px;
+  border-radius: var(--r-full);
   background: transparent;
   color: var(--faint);
   font-size: 10px;
@@ -2115,13 +2310,13 @@ html:has(.pet-conversation-surface) #root {
   margin-bottom: 10px;
   padding: 3px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--r-md);
   background: var(--surface);
 }
 .memory-view-toggle button {
   padding: 6px 10px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   background: transparent;
   color: var(--muted);
   font: inherit;
@@ -2155,7 +2350,7 @@ html:has(.pet-conversation-surface) #root {
   padding: 12px 14px;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--r-lg);
 }
 .memory-compiled-section h4 {
   margin: 0 0 8px;
@@ -2250,7 +2445,7 @@ html:has(.pet-conversation-surface) #root {
   flex: 0 0 auto;
   padding: 5px 8px;
   border: 1px solid var(--line-strong);
-  border-radius: 999px;
+  border-radius: var(--r-full);
   color: var(--muted);
   font-size: 9px;
   line-height: 1;
@@ -2327,7 +2522,7 @@ html:has(.pet-conversation-surface) #root {
 .capability-meta span {
   padding: 3px 6px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--r-full);
   color: var(--faint);
   font-size: 9px;
   line-height: 1;
@@ -2339,7 +2534,7 @@ html:has(.pet-conversation-surface) #root {
   min-width: 46px;
   padding: 6px 8px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--r-full);
   background: transparent;
   color: var(--faint);
   font-size: 10px;
@@ -2443,7 +2638,7 @@ html:has(.pet-conversation-surface) #root {
 .permission-actions .primary {
   border-color: var(--accent);
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 /* Developer workspace */
@@ -2597,7 +2792,7 @@ html:has(.pet-conversation-surface) #root {
   flex: 0 0 auto;
   padding: 4px 7px;
   border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
-  border-radius: 999px;
+  border-radius: var(--r-full);
   color: var(--accent-soft);
   font-size: 9px;
   line-height: 1;
@@ -2616,7 +2811,7 @@ html:has(.pet-conversation-surface) #root {
   min-width: 0;
   padding: 8px 9px;
   border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
-  border-radius: 9px;
+  border-radius: var(--r-md);
   background: color-mix(in srgb, var(--bg) 34%, transparent);
 }
 
@@ -2649,7 +2844,7 @@ html:has(.pet-conversation-surface) #root {
   align-items: center;
   gap: 5px;
   padding: 4px 7px;
-  border-radius: 999px;
+  border-radius: var(--r-full);
   font-size: 9px;
   line-height: 1;
 }
@@ -2663,18 +2858,18 @@ html:has(.pet-conversation-surface) #root {
 }
 
 .service-health-status.is-healthy {
-  color: #78c8a0;
-  background: color-mix(in srgb, #78c8a0 12%, transparent);
+  color: var(--good);
+  background: color-mix(in srgb, var(--good) 12%, transparent);
 }
 
 .service-health-status.is-pending {
-  color: #e3b66f;
-  background: color-mix(in srgb, #e3b66f 12%, transparent);
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
 }
 
 .service-health-status.is-error {
-  color: #e58a7d;
-  background: color-mix(in srgb, #e58a7d 12%, transparent);
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 
 .service-health-empty { padding: 4px 0 2px; }
