@@ -248,9 +248,15 @@ export class MotionArbiter {
     this.queue = []
   }
 
-  cancelOwner(owner: string): boolean {
+  cancelOwner(owner: string, fadeMs = 0): boolean {
     const active = this.active.get(owner)
     if (!active) return false
+    if (active.nativeName && fadeMs > 0) {
+      // Soft path: freeze-and-fade inside the player; the entry stays until
+      // update() observes done so the fade actually advances per frame.
+      this.nativePlayer?.beginRelease(fadeMs)
+      return true
+    }
     if (active.nativeName) {
       this.nativePlayer?.stop()
       this.nativeFrame = []
@@ -263,7 +269,8 @@ export class MotionArbiter {
   releaseOwner(owner: string, durationMs = 280): boolean {
     const active = this.active.get(owner)
     if (!active) return false
-    if (active.nativeName || !active.preset) return this.cancelOwner(owner)
+    if (active.nativeName) return this.cancelOwner(owner, durationMs)
+    if (!active.preset) return this.cancelOwner(owner)
     const now = this.clock()
     const sampled = this.sampleLogicalMotion(active, now)
     // Capture the contribution that was actually visible, including intensity,
@@ -317,11 +324,16 @@ export class MotionArbiter {
     return this.releaseOwner(`state:${turnId}`)
   }
 
-  cancelTurn(turnId: string): number {
+  cancelTurn(turnId: string, fadeMs = 280): number {
     const owners = [...this.active.values()]
       .filter(active => active.request.turnId === turnId)
       .map(active => active.request.owner)
-    owners.forEach(owner => this.cancelOwner(owner))
+    owners.forEach(owner => {
+      // Logical presets capture their visible pose and fade (releaseOwner);
+      // native motions freeze-and-fade in the player. Both glide out instead
+      // of vanishing the frame a turn dies.
+      if (!this.releaseOwner(owner, fadeMs)) this.cancelOwner(owner, fadeMs)
+    })
     return owners.length
   }
 

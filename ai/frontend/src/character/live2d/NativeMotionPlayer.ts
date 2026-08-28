@@ -42,6 +42,9 @@ export class NativeMotionPlayer {
   private elapsed = 0
   private intensity = 1
   private hasLooped = false
+  // Release mode: time freezes at the interrupt moment while the contribution
+  // weight decays, so a cancelled motion glides out instead of snapping.
+  private release: { fadeOutSeconds: number; releasedSeconds: number; frozenElapsed: number } | null = null
 
   register(name: string, json: NativeMotionJson, aliases: string[] = []): void {
     const motion: RegisteredMotion = {
@@ -72,6 +75,7 @@ export class NativeMotionPlayer {
     this.elapsed = 0
     this.hasLooped = false
     this.intensity = clamp(intensity, 0, 2)
+    this.release = null
     return true
   }
 
@@ -80,20 +84,43 @@ export class NativeMotionPlayer {
     this.activeName = null
     this.elapsed = 0
     this.hasLooped = false
+    this.release = null
+  }
+
+  /** Freeze the current pose and fade this motion's contributions to zero. */
+  beginRelease(fadeOutMs: number): void {
+    if (!this.active || this.release) return
+    this.release = {
+      fadeOutSeconds: clamp(fadeOutMs, 120, 600) / 1000,
+      releasedSeconds: 0,
+      frozenElapsed: this.elapsed,
+    }
   }
 
   update(dt: number): { contributions: NativeMotionContribution[]; done: boolean } {
     if (!this.active) return { contributions: [], done: true }
-    this.elapsed += Math.max(0, dt)
     const motion = this.active
-    if (motion.loop && this.elapsed >= motion.duration) {
+    let releaseWeight = 1
+    if (this.release) {
+      this.release.releasedSeconds += Math.max(0, dt)
+      const progress = this.release.releasedSeconds / this.release.fadeOutSeconds
+      if (progress >= 1) {
+        this.stop()
+        return { contributions: [], done: true }
+      }
+      releaseWeight = 1 - smoothstep(progress)
+      this.elapsed = this.release.frozenElapsed
+    } else {
+      this.elapsed += Math.max(0, dt)
+    }
+    if (motion.loop && !this.release && this.elapsed >= motion.duration) {
       this.elapsed %= motion.duration
       this.hasLooped = true
     }
     const fadeInWeight = this.hasLooped ? 1 : smoothstep(this.elapsed / motion.fadeIn)
     const remaining = motion.duration - this.elapsed
     const fadeOutWeight = motion.loop ? 1 : smoothstep(remaining / motion.fadeOut)
-    const weight = clamp(Math.min(fadeInWeight, fadeOutWeight) * this.intensity, 0, 1)
+    const weight = clamp(Math.min(fadeInWeight, fadeOutWeight) * this.intensity * releaseWeight, 0, 1)
     const contributions: NativeMotionContribution[] = []
     for (const curve of motion.json.Curves ?? []) {
       const value = sampleCurve(curve.Segments, Math.min(this.elapsed, motion.duration))
@@ -116,7 +143,7 @@ export class NativeMotionPlayer {
         })
       }
     }
-    const done = !motion.loop && this.elapsed >= motion.duration
+    const done = !this.release && !motion.loop && this.elapsed >= motion.duration
     if (done) this.stop()
     return { contributions, done }
   }

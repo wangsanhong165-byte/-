@@ -611,8 +611,9 @@ export class CharacterController {
       case 'listening':
         this.idleCtrl.setBreathing(true)
         // Listening only retires authored idle. Clearing the whole arbiter here
-        // made unrelated semantic gestures disappear in one frame.
-        this.motionArbiter.cancelOwner('idle:native')
+        // made unrelated semantic gestures disappear in one frame. The native
+        // idle fades out over ~320ms instead of snapping mid-pose.
+        this.motionArbiter.cancelOwner('idle:native', 320)
         break
     }
   }

@@ -120,7 +120,7 @@ test('higher priority request preempts only overlapping channels', () => {
   assert.deepEqual(new Set(owners), new Set(['system:body', 'ui:head']))
 })
 
-test('turn cancellation and timeout release motion ownership', () => {
+test('turn cancellation fades the pose out and timeout releases ownership', () => {
   let now = 0
   const arbiter = new MotionArbiter(() => now)
   arbiter.setPresets(presets)
@@ -135,8 +135,13 @@ test('turn cancellation and timeout release motion ownership', () => {
 
   assert.equal(arbiter.cancelTurn('turn-2'), 1)
   now = 101
-  assert.deepEqual(arbiter.update(0), [])
+  const fading = arbiter.update(0)
+  // Cancelled motions glide out: decaying contributions instead of a snap.
+  assert.ok(fading.length > 0, 'cancelled motion should emit fading contributions')
+  assert.ok(fading.every(step => (step.weight ?? 0) > 0 && (step.weight ?? 1) < 1))
   assert.equal(arbiter.isPlaying(), false)
+  now = 101 + 400
+  assert.deepEqual(arbiter.update(0), [])
 })
 
 test('LLM motion preempts the lower-priority speaking background', () => {
