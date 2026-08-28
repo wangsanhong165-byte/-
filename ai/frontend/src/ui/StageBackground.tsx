@@ -116,27 +116,27 @@ export function StageBackground({ settings }: { settings: AppSettings }) {
   ])
 
   // Playback rate follows settings instantly (no media reload needed).
+  // Defensive clamp: a corrupted persisted value must not speed up playback.
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
-    const rate = Number(settings.wallpaperPlaybackRate)
-    if (Number.isFinite(rate) && rate > 0 && rate <= 4) {
-      try { video.playbackRate = rate } catch { /* unsupported value */ }
-    }
+    const raw = Number(settings.wallpaperPlaybackRate)
+    const rate = Number.isFinite(raw) && raw >= 0.25 && raw <= 4 ? raw : 1
+    try { video.playbackRate = rate } catch { /* unsupported value */ }
   }, [settings.wallpaperPlaybackRate, sourceUrl])
 
   const active = kind !== 'none' && Boolean(url)
 
   if (!active) return null
 
-  // Media element style: legacy opacity knob + the fit-mode setting wired to
-  // the CSS variable the fusion stylesheet reads (--wp-object-fit).
-  const fit = settings.backgroundFit === 'cover' || settings.backgroundFit === 'fill'
-    ? settings.backgroundFit
-    : 'contain'
+  // Fit semantics: contain = native size, centered, never upscaled (legacy
+  // "完整显示 · 不放大"); cover/fill = fill the window. iframes always fill
+  // (no intrinsic size). The active mode rides to CSS as --wp-object-fit.
+  const fillWindow = kind === 'web' || settings.backgroundFit === 'cover' || settings.backgroundFit === 'fill'
+  const mediaClass = fillWindow ? 'wp-media wp-media--fit' : 'wp-media'
   const style = {
     opacity: settings.backgroundOpacity,
-    ['--wp-object-fit' as string]: fit,
+    ['--wp-object-fit' as string]: settings.backgroundFit === 'fill' ? 'fill' : 'cover',
   } as React.CSSProperties
 
   return createPortal(
@@ -146,7 +146,7 @@ export function StageBackground({ settings }: { settings: AppSettings }) {
           <video
             ref={videoRef}
             key={sourceUrl}
-            className="wp-media"
+            className={mediaClass}
             src={sourceUrl}
             style={style}
             autoPlay
@@ -165,7 +165,7 @@ export function StageBackground({ settings }: { settings: AppSettings }) {
         ) : kind === 'web' ? (
           <iframe
             key={url}
-            className="wp-media wp-iframe"
+            className="wp-media wp-media--fit"
             src={url}
             style={style}
             title="壁纸"
@@ -176,7 +176,7 @@ export function StageBackground({ settings }: { settings: AppSettings }) {
         ) : (
           <img
             key={url}
-            className="wp-media"
+            className={mediaClass}
             src={url}
             style={style}
             alt=""

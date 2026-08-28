@@ -620,28 +620,37 @@ function AppearanceTab({ settings, onSettingChange }: {
 // ── Tab: Vision ──
 
 /**
- * Wallpaper fusion sliders. During a drag the value is written straight to
- * the CSS variables (zero React re-renders); on release it lands in the
- * settings store, which persists it and re-applies via the controller.
+ * Wallpaper fusion sliders. During a drag the value is kept in LOCAL state
+ * and written straight to the CSS variables (zero React re-renders of the
+ * tree); on release the LOCAL value lands in the settings store, which
+ * persists it and re-applies via the controller. Committing from props
+ * instead of the live value would silently revert every drag.
  */
 function WallpaperEffectControls({ settings, onSettingChange }: {
   settings: AppSettings
   onSettingChange: (key: string, value: unknown) => void
 }) {
-  const effects = sanitizeWallpaperEffects(settings.wallpaperEffects)
+  const persisted = sanitizeWallpaperEffects(settings.wallpaperEffects)
   const themeMode = isUiThemeMode(settings.uiTheme) ? settings.uiTheme : 'dark'
   const systemPrefersLight = typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: light)').matches
   const effectiveTheme = themeMode === 'auto' ? (systemPrefersLight ? 'light' : 'dark') : themeMode
 
-  const setLive = (patch: Partial<WallpaperEffectSettings>) => {
+  // Live values during a drag; null when idle (props are the truth then).
+  const [live, setLive] = useState<WallpaperEffectSettings | null>(null)
+  const effects = live ?? persisted
+
+  const applyLive = (patch: Partial<WallpaperEffectSettings>) => {
     const next = { ...effects, ...patch }
+    setLive(next)
     const vars = wallpaperCssVars(next, effectiveTheme)
     const root = document.documentElement
     for (const [name, value] of Object.entries(vars)) root.style.setProperty(name, value)
   }
 
-  const commit = (patch: Partial<WallpaperEffectSettings>) => {
-    onSettingChange('wallpaperEffects', { ...effects, ...patch })
+  const commitLive = () => {
+    if (!live) return
+    onSettingChange('wallpaperEffects', live)
+    setLive(null)
   }
 
   const rows: ReadonlyArray<{
@@ -679,10 +688,11 @@ function WallpaperEffectControls({ settings, onSettingChange }: {
             step={row.step}
             onChange={event => {
               const value = Number(event.target.value)
-              setLive(row.fromSlider(value))
+              applyLive(row.fromSlider(value))
             }}
-            onPointerUp={() => commit(row.fromSlider(row.toSlider(effects)))}
-            onKeyUp={() => commit(row.fromSlider(row.toSlider(effects)))}
+            onPointerUp={commitLive}
+            onKeyUp={commitLive}
+            onBlur={commitLive}
           />
           <span style={styles.rangeValue}>{row.format(row.toSlider(effects))}</span>
         </label>
@@ -691,8 +701,7 @@ function WallpaperEffectControls({ settings, onSettingChange }: {
         <Toggle
           checked={effects.flip}
           onChange={value => {
-            setLive({ flip: value })
-            commit({ flip: value })
+            onSettingChange('wallpaperEffects', { ...effects, flip: value })
           }}
         />
       </SettingRow>
