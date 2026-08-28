@@ -30,6 +30,14 @@ const {
   inspectWallpaperPath,
   wallpaperDialogOptions,
 } = require('./wallpaper-dialog.cjs')
+const { buildInventory } = require('./wallpaper-library.cjs')
+const { extractSceneMedia, extractSceneMediaFromDir } = require('./wallpaper-pkg.cjs')
+const {
+  resolveWallpaperAsset: protocolResolve,
+  wallpaperMime,
+  wallpaperProjectUrl,
+  wallpaperResourceUrl,
+} = require('./wallpaper-protocol.cjs')
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -440,6 +448,32 @@ function setupIPC() {
     return error ? { ok: false, message: error } : { ok: true, path: directory }
   })
 
+  // Wallpaper Engine library: full inventory (wallpapers + WE playlists).
+  ipcMain.handle('wallpaper:inventory', async () => {
+    try {
+      const inventory = await wallpaperInventoryPayload()
+      // Thumbnail previews are served through the same guarded protocol:
+      // whitelist every preview the picker is about to render.
+      for (const wallpaper of inventory.wallpapers) {
+        if (wallpaper.previewPath) {
+          allowedWallpaperPaths.add(path.resolve(wallpaper.previewPath))
+        }
+      }
+      return { ok: true, inventory }
+    } catch (error) {
+      return { ok: false, message: `壁纸库扫描失败：${error instanceof Error ? error.message : String(error)}` }
+    }
+  })
+
+  // Pick a wallpaper from the library inventory (renderer passes the entry).
+  ipcMain.handle('wallpaper:pick', async (_event, wallpaper) => {
+    try {
+      return await pickWallpaperFromLibrary(wallpaper)
+    } catch (error) {
+      return { ok: false, message: `选择壁纸失败：${error instanceof Error ? error.message : String(error)}` }
+    }
+  })
+
   // Window controls (from existing UI)
   ipcMain.handle('window:minimize', () => {
     mainWindow?.minimize()
@@ -657,21 +691,16 @@ function createWallpaperResource(result) {
   }
 }
 
-function wallpaperResourceUrl(filePath) {
-  const token = Buffer.from(path.resolve(filePath), 'utf8').toString('base64url')
-  return `wallpaper://asset/${token}`
+// Directory-scoped access for WEB wallpapers: an entry maps a project root
+// directory; files inside it resolve with traversal guards.
+const allowedWallpaperDirs = new Set()
+
+function allowWallpaperDirectory(dirPath) {
+  allowedWallpaperDirs.add(path.resolve(dirPath))
 }
 
-function decodeWallpaperResourceUrl(requestUrl) {
-  try {
-    const parsed = new URL(requestUrl)
-    if (parsed.protocol !== 'wallpaper:' || parsed.hostname !== 'asset') return null
-    const token = parsed.pathname.replace(/^\/+/, '')
-    if (!token) return null
-    return Buffer.from(token, 'base64url').toString('utf8')
-  } catch {
-    return null
-  }
+function resolveWallpaperAsset(requestUrl) {
+  return protocolResolve(requestUrl, allowedWallpaperPaths, allowedWallpaperDirs)
 }
 
 function registerWallpaperProtocol() {
@@ -681,29 +710,242 @@ function registerWallpaperProtocol() {
     const backgroundPath = persisted?.backgroundPath
     if (typeof backgroundPath === 'string' && backgroundPath) {
       const inspected = inspectWallpaperPath(backgroundPath)
-      if (inspected.ok && inspected.path) allowedWallpaperPaths.add(path.resolve(inspected.path))
+      if (inspected.ok && inspected.path) {
+        allowedWallpaperPaths.add(path.resolve(inspected.path))
+        // Web wallpapers whitelist their whole project directory so the
+        // iframe can load relative scripts/assets.
+        const sourceType = String(inspected.sourceType || '').toLowerCase()
+        if (sourceType.includes('web')) {
+          allowWallpaperDirectory(path.dirname(path.resolve(inspected.path)))
+        }
+      }
     }
   } catch {
     // A missing or invalid settings file is handled by the normal defaults.
   }
 
   protocol.handle('wallpaper', async request => {
-    const filePath = decodeWallpaperResourceUrl(request.url)
-    if (!filePath) return new Response('Wallpaper resource unavailable', { status: 404 })
-    const normalizedPath = path.resolve(filePath)
-    if (!allowedWallpaperPaths.has(normalizedPath)) {
+    const target = resolveWallpaperAsset(request.url)
+    if (!target) return new Response('Wallpaper resource unavailable', { status: 404 })
+    let stat
+    try { stat = fs.statSync(target.filePath) } catch {
       return new Response('Wallpaper resource unavailable', { status: 404 })
     }
-    const inspected = inspectWallpaperPath(normalizedPath)
-    if (!inspected.ok || inspected.type === undefined || inspected.path !== normalizedPath) {
-      return new Response('Wallpaper resource unavailable', { status: 404 })
+    if (!stat.isFile()) return new Response('Wallpaper resource unavailable', { status: 404 })
+    // Directory-scoped sub-resources skip the single-file inspector (any
+    // file type inside a web project is legitimately loadable).
+    if (!target.dirScope) {
+      const inspected = inspectWallpaperPath(target.filePath)
+      if (!inspected.ok || inspected.type === undefined || inspected.path !== target.filePath) {
+        return new Response('Wallpaper resource unavailable', { status: 404 })
+      }
     }
     try {
-      return await net.fetch(pathToFileURL(inspected.path).toString())
+      const response = await net.fetch(pathToFileURL(target.filePath).toString())
+      const headers = new Headers(response.headers)
+      headers.set('Content-Type', wallpaperMime(target.filePath))
+      // Web wallpaper HTML entry: inject the Wallpaper Engine JS API shim.
+      // Many workshop web wallpapers call wallpaperRegisterAudioListener etc.
+      // unconditionally and die on a missing symbol; the no-op shim keeps
+      // them rendering (a gap in the reference plugin — we do better).
+      if (target.dirScope && /\.html?$/i.test(target.filePath)) {
+        const html = await response.text()
+        const shim = buildWeApiShim()
+        const injected = html.includes('<head>')
+          ? html.replace('<head>', `<head><script>${shim}</script>`)
+          : `<script>${shim}</script>${html}`
+        return new Response(injected, { status: 200, headers })
+      }
+      return new Response(response.body, { status: response.status, headers })
     } catch {
       return new Response('Wallpaper resource unavailable', { status: 404 })
     }
   })
+}
+
+/**
+ * No-op Wallpaper Engine web API shim (sandboxed iframe context). Registers
+ * every documented `wallpaper*` global so workshop scripts never hit a
+ * ReferenceError; listener registration accepts and forgets callbacks;
+ * `wallpaperRequestRandomFileForProperty` resolves an empty data URL so
+ * user-image wallpapers still run their normal path.
+ */
+function buildWeApiShim() {
+  return `
+(function () {
+  if (window.__auroraWeShim) return;
+  window.__auroraWeShim = true;
+  var noop = function () {};
+  var listeners = {};
+  function register(name) {
+    window['wallpaper' + name] = function (callback) {
+      (listeners[name] = listeners[name] || []).push(callback);
+    };
+  }
+  ['RegisterAudioListener', 'RegisterMouseListener', 'RegisterTimeListener',
+   'RegisterMoveListener', 'RegisterScrollListener', 'RegisterTouchpadListener',
+   'RegisterPropertyListener', 'RegisterSchemeListener', 'RegisterLanguageListener',
+   'RegisterMediaPlaybackListener', 'RegisterGamePresenceListener'].forEach(register);
+  window.wallpaperPropertyListener = { applyUserProperties: noop, onPropertiesChanged: noop };
+  window.wallpaperRequestRandomFileForProperty = function (propertyName, callback) {
+    if (typeof callback === 'function') callback('');
+  };
+  window.wallpaperRegisterAudioListener = window.wallpaperRegisterAudioListener || function (callback) {
+    (listeners.AudioListener = listeners.AudioListener || []).push(callback);
+  };
+  var defaultUserProps = {};
+  try {
+    window.wallpaperPropertyListener && window.wallpaperPropertyListener.applyUserProperties(defaultUserProps);
+  } catch (e) {}
+})();
+`.trim()
+}
+
+// ── Wallpaper Engine library IPC ───────────────────────────────────────
+
+let inventoryCache = { t: 0, payload: null }
+
+async function wallpaperInventoryPayload() {
+  if (inventoryCache.payload && Date.now() - inventoryCache.t < 30_000) {
+    return inventoryCache.payload
+  }
+  const payload = await buildInventory()
+  inventoryCache = { t: Date.now(), payload }
+  return payload
+}
+
+/** Extracted scene media (embedded MP4/JPEG) cache: key = entry path+mtime. */
+function sceneMediaCachePaths(entryPath) {
+  const st = fs.statSync(entryPath)
+  const key = Buffer.from(`${entryPath}|${Math.round(st.mtimeMs)}`, 'utf8').toString('base64url')
+  const dir = path.join(__dirname, '..', '..', 'data', 'cache', 'wallpaper-scenes')
+  fs.mkdirSync(dir, { recursive: true })
+  return {
+    dir,
+    cacheFile: (kind) => path.join(dir, `sm_${key}${kind === 'video' ? '.mp4' : '.jpg'}`),
+    kindFile: () => path.join(dir, `sm_${key}.kind`),
+  }
+}
+
+async function extractSceneMediaCached(entryPath) {
+  const lower = entryPath.toLowerCase()
+  const isJsonScene = lower.endsWith('.json')
+  try {
+    const stat = await fs.promises.stat(entryPath)
+    if (stat.isDirectory() || isJsonScene) {
+      const dir = isJsonScene ? path.dirname(entryPath) : entryPath
+      const pkg = await fs.promises.readdir(dir)
+        .then(names => names.find(n => n.toLowerCase() === 'scene.pkg'))
+        .catch(() => null)
+      if (pkg) return await extractSceneMediaCached(path.join(dir, pkg))
+    }
+  } catch { /* fall through to direct extraction */ }
+
+  const paths = sceneMediaCachePaths(entryPath)
+  for (const kind of ['video', 'image']) {
+    const file = paths.cacheFile(kind)
+    const kindFile = paths.kindFile()
+    if (fs.existsSync(file) && fs.existsSync(kindFile)
+      && fs.readFileSync(kindFile, 'utf8') === kind) {
+      allowedWallpaperPaths.add(path.resolve(file))
+      return { kind, url: wallpaperResourceUrl(file), path: file }
+    }
+  }
+
+  let media = null
+  try {
+    const bytes = await fs.promises.readFile(entryPath)
+    media = extractSceneMedia(new Uint8Array(bytes))
+  } catch { media = null }
+  if (!media) return null
+
+  const outFile = paths.cacheFile(media.kind)
+  try {
+    const tmp = `${outFile}.tmp${process.pid}`
+    await fs.promises.writeFile(tmp, media.bytes)
+    await fs.promises.rename(tmp, outFile)
+    fs.writeFileSync(paths.kindFile(), media.kind, 'utf8')
+    allowedWallpaperPaths.add(path.resolve(outFile))
+    return { kind: media.kind, url: wallpaperResourceUrl(outFile), path: outFile }
+  } catch {
+    return null
+  }
+}
+
+async function pickWallpaperFromLibrary(wallpaper) {
+  if (!wallpaper || typeof wallpaper !== 'object' || !wallpaper.entryPath) {
+    return { ok: false, code: 'invalid', message: '无效的壁纸条目。' }
+  }
+  const entryPath = path.resolve(wallpaper.entryPath)
+  if (!(await fs.promises.stat(entryPath).then(s => s.isFile()).catch(() => false))) {
+    return { ok: false, code: 'missing', message: '壁纸文件不存在，Steam 可能在更新它。' }
+  }
+
+  if (wallpaper.type === 'web') {
+    // Whole-project directory scope for the iframe; the entry URL carries
+    // the directory token + relative entry path so the wallpaper's own
+    // relative <script>/<img> refs resolve inside the scope.
+    const dir = path.dirname(entryPath)
+    allowWallpaperDirectory(dir)
+    allowedWallpaperPaths.add(entryPath)
+    return {
+      ok: true,
+      type: 'web',
+      path: entryPath,
+      url: wallpaperProjectUrl(dir, entryPath),
+      label: wallpaper.title || path.basename(dir),
+      sourceType: 'wallpaper-engine-web',
+    }
+  }
+
+  if (wallpaper.type === 'scene') {
+    const media = await extractSceneMediaCached(entryPath)
+    if (media && media.kind === 'video') {
+      return {
+        ok: true,
+        type: 'video',
+        path: media.path,
+        url: media.url,
+        label: wallpaper.title || path.basename(path.dirname(entryPath)),
+        sourceType: 'wallpaper-engine-scene-video',
+      }
+    }
+    if (media && media.kind === 'image') {
+      return {
+        ok: true,
+        type: 'image',
+        path: media.path,
+        url: media.url,
+        label: wallpaper.title || path.basename(path.dirname(entryPath)),
+        sourceType: 'wallpaper-engine-scene-frame',
+      }
+    }
+    // Fall back to the project preview image if present.
+    if (wallpaper.previewPath && await fs.promises.stat(wallpaper.previewPath).then(s => s.isFile()).catch(() => false)) {
+      allowedWallpaperPaths.add(path.resolve(wallpaper.previewPath))
+      return {
+        ok: true,
+        type: 'image',
+        path: path.resolve(wallpaper.previewPath),
+        url: wallpaperResourceUrl(wallpaper.previewPath),
+        label: wallpaper.title || path.basename(path.dirname(entryPath)),
+        sourceType: 'wallpaper-engine-scene-preview',
+      }
+    }
+    return { ok: false, code: 'unsupported', message: '这个场景壁纸无法提取内嵌媒体，也没有预览图可用。' }
+  }
+
+  // video / image: the entry file itself
+  allowedWallpaperPaths.add(entryPath)
+  const type = wallpaper.type === 'video' ? 'video' : 'image'
+  return {
+    ok: true,
+    type,
+    path: entryPath,
+    url: wallpaperResourceUrl(entryPath),
+    label: wallpaper.title || path.basename(entryPath),
+    sourceType: `wallpaper-engine-${type}`,
+  }
 }
 
 // ── App lifecycle ──

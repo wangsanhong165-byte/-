@@ -35,6 +35,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   selectCharacterAsset: (kind) => ipcRenderer.invoke('character:selectAsset', kind),
   selectWallpaper: (mode) => ipcRenderer.invoke('wallpaper:select', mode),
   openWallpaperWorkshop: () => ipcRenderer.invoke('wallpaper:openWorkshop'),
+  wallpaperInventory: () => ipcRenderer.invoke('wallpaper:inventory'),
+  wallpaperPick: (wallpaper) => ipcRenderer.invoke('wallpaper:pick', wallpaper),
 
   // ── ProcessManager / backend lifecycle ──
   getStatus: () => ipcRenderer.invoke('get-status'),

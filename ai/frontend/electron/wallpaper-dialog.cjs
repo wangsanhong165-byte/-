@@ -151,16 +151,35 @@ function inspectWallpaperPath(selectedPath) {
   }
 
   const metadata = readProjectMetadata(selectedPath)
+  const projectType = String(metadata?.type || metadata?.wallpaperType || '').toLowerCase()
+
+  // Web projects: run as iframe wallpaper — the whole project directory gets
+  // a protocol scope, the entry file comes from project.json's `file` field.
+  if (projectType.includes('web')) {
+    const declared = [metadata?.file, metadata?.entry, metadata?.main]
+      .filter(value => typeof value === 'string' && value.trim())[0]
+    const entry = declared ? path.resolve(selectedPath, declared) : null
+    if (entry && entry.startsWith(path.resolve(selectedPath) + path.sep) && fs.existsSync(entry)) {
+      return {
+        ok: true,
+        path: entry,
+        type: 'web',
+        sourceType: 'wallpaper-engine-web',
+        label: typeof metadata?.title === 'string' && metadata.title ? metadata.title : path.basename(selectedPath),
+        previewFallback: false,
+      }
+    }
+    return { ok: false, code: 'unsupported', message: '这个 Web 壁纸项目缺少有效的 HTML 入口文件。' }
+  }
+
   const chosen = chooseMedia(selectedPath, metadata)
   if (!chosen) {
-    const projectType = String(metadata?.type || metadata?.wallpaperType || '').toLowerCase()
-    const detail = projectType.includes('web') || projectType.includes('scene')
-      ? '这个 Wallpaper Engine 项目是 Scene/Web 类型，当前版本不能直接运行它的引擎效果；请改选其中的视频或图片资源。'
+    const detail = projectType.includes('scene')
+      ? '这个 Wallpaper Engine 项目是 Scene 类型，请从壁纸库中选择它（支持内嵌视频/静态帧提取），或改选其中的视频或图片资源。'
       : '这个文件夹里没有找到可直接播放的图片或视频资源。'
     return { ok: false, code: 'unsupported', message: detail }
   }
 
-  const projectType = String(metadata?.type || metadata?.wallpaperType || '').toLowerCase()
   return {
     ok: true,
     path: path.resolve(chosen.path),

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertCircle, CheckCircle2, ExternalLink, Eye, FileImage, FolderOpen, Info, LoaderCircle, Palette, RotateCcw, Settings2, type LucideIcon } from 'lucide-react'
+import { AlertCircle, CheckCircle2, ExternalLink, Eye, FileImage, FolderOpen, Info, LibraryBig, LoaderCircle, Palette, RotateCcw, Settings2, X, type LucideIcon } from 'lucide-react'
 import { theme } from '../core/theme'
 import {
   ACCENT_PRESETS,
@@ -23,6 +23,7 @@ import {
   type Live2DPerformanceSettings,
 } from '../character/Live2DPerformanceSettings'
 import { Live2DActionStudio } from './Live2DActionStudio'
+import { WallpaperLibraryPicker } from './WallpaperLibraryPicker'
 import {
   emptyLlmProvider,
   getVoiceKeys,
@@ -359,6 +360,7 @@ function AppearanceTab({ settings, onSettingChange }: {
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const [mediaState, setMediaState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [libraryOpen, setLibraryOpen] = useState(false)
 
   useEffect(() => eventBus.on('background:status', ({ state, message: statusMessage }) => {
     setMediaState(state)
@@ -535,7 +537,10 @@ function AppearanceTab({ settings, onSettingChange }: {
         </div>
 
         <div style={styles.backgroundActions}>
-          <button type="button" style={styles.primaryButton} disabled={busy || !electronWindowBridge.available} onClick={() => void selectWallpaper('directory')}>
+          <button type="button" style={styles.primaryButton} disabled={!electronWindowBridge.available} onClick={() => setLibraryOpen(true)}>
+            <LibraryBig size={14} /> 从壁纸库选择（Wallpaper Engine）
+          </button>
+          <button type="button" style={styles.secondaryButton} disabled={busy || !electronWindowBridge.available} onClick={() => void selectWallpaper('directory')}>
             <FolderOpen size={14} /> 选择 Wallpaper Engine 文件夹
           </button>
           <button type="button" style={styles.secondaryButton} disabled={busy || !electronWindowBridge.available} onClick={() => void selectWallpaper('file')}>
@@ -579,6 +584,27 @@ function AppearanceTab({ settings, onSettingChange }: {
 
       {!electronWindowBridge.available && <div style={styles.backgroundHint}>请在 Electron 桌面版中选择本地 Wallpaper Engine 资源。</div>}
       {message && <div style={styles.backgroundMessage}>{message}</div>}
+
+      {libraryOpen && (
+        <div style={styles.libraryOverlay} role="dialog" aria-label="Wallpaper Engine 壁纸库" onClick={event => {
+          if (event.target === event.currentTarget) setLibraryOpen(false)
+        }}>
+          <div style={styles.libraryModal}>
+            <div style={styles.libraryHeader}>
+              <span style={styles.libraryTitle}>Wallpaper Engine 壁纸库</span>
+              <button type="button" style={styles.iconButton} onClick={() => setLibraryOpen(false)} aria-label="关闭壁纸库">
+                <X size={14} />
+              </button>
+            </div>
+            <div style={styles.libraryBody}>
+              <WallpaperLibraryPicker onPicked={result => {
+                applyResult(result)
+                setLibraryOpen(false)
+              }} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -2161,6 +2187,29 @@ const styles: Record<string, React.CSSProperties> = {
   backgroundSettings: { display: 'flex', flexDirection: 'column', gap: 2, paddingTop: theme.spacing.xs, borderTop: `1px solid ${theme.colors.border}` },
   backgroundActions: {
     display: 'flex', flexDirection: 'column', gap: theme.spacing.xs,
+  },
+  libraryOverlay: {
+    position: 'fixed', inset: 0, zIndex: theme.zIndex.modal,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+  },
+  libraryModal: {
+    width: 'min(720px, 92vw)', maxHeight: '82vh',
+    display: 'flex', flexDirection: 'column',
+    borderRadius: theme.radius.lg,
+    backgroundColor: theme.colors.bg.root,
+    border: `1px solid ${theme.colors.border}`,
+    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
+    overflow: 'hidden',
+  },
+  libraryHeader: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: `${theme.spacing.sm}px ${theme.spacing.md}px`,
+    borderBottom: `1px solid ${theme.colors.border}`, flexShrink: 0,
+  },
+  libraryTitle: { fontSize: theme.fontSize.md, fontWeight: theme.fontWeight.semibold, color: theme.colors.text.primary },
+  libraryBody: {
+    padding: theme.spacing.md, overflowY: 'auto', minHeight: 0,
   },
   primaryButton: {
     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
