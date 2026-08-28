@@ -112,6 +112,24 @@ export class ExpressionController {
     }
   }
 
+  /**
+   * While speech audio is active, mouth parameters belong to lip-sync alone.
+   * Muting removes them from expression ownership; unmuting force-re-applies
+   * the standing expression so the mouth blends back instead of snapping.
+   */
+  setSpeechMouthMute(on: boolean, ids: string[] = []): void {
+    this.paramCtrl.setSpeechMouthExclusion(on ? ids : [])
+    if (!on && this.speechMutedMouth) {
+      const name = this.currentExpression || 'neutral'
+      const intensity = this.currentIntensity < 0 ? 1 : this.currentIntensity
+      this.currentExpression = ''
+      this.currentIntensity = -1
+      this.apply(name, intensity, 400)
+    }
+    this.speechMutedMouth = on
+  }
+  private speechMutedMouth = false
+
   /** Get the current expression name */
   getCurrent(): string {
     return this.currentExpression

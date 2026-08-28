@@ -40,6 +40,9 @@ export class ParameterController {
   private activeParts = new Set<string>()
   private values = new Map<string, number>()
   private excludedParameterIds = new Set<string>()
+  // While audio plays the lip-sync channel must own the mouth alone; some
+  // expression presets pin mouth parameters, which reads as "frozen speech".
+  private speechMouthExclusion = new Set<string>()
   private discreteParameterIds = new Set<string>()
   private exclusiveParameterGroups: string[][] = []
   private discreteSwitchDelayMs = 0
@@ -121,9 +124,21 @@ export class ParameterController {
     }
   }
 
+  /** Release mouth parameters from expression ownership while speaking. */
+  setSpeechMouthExclusion(ids: string[] | Set<string>): void {
+    this.speechMouthExclusion = new Set(ids)
+    for (const id of this.speechMouthExclusion) {
+      this.removeTargets(id)
+      this.active.delete(id)
+      this.releasing.delete(id)
+      this.values.delete(id)
+    }
+  }
+
   applyExpression(name: string, intensity: number, duration = 400, now = performance.now()): void {
     const preset = this.resolveExpression(name)
-    const expressionParams = preset.params.filter(param => !this.excludedParameterIds.has(param.id))
+    const expressionParams = preset.params.filter(param =>
+      !this.excludedParameterIds.has(param.id) && !this.speechMouthExclusion.has(param.id))
     const next = new Set(expressionParams.map(param => param.id))
     const blendDuration = duration === 0 ? 0 : Math.max(duration, this.minimumBlendDurationMs)
     const exclusiveResets = new Set<string>()

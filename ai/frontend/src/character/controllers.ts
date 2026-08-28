@@ -429,6 +429,7 @@ export class CharacterController {
         }
         this.audioPlaybackActive = false
         this.lipSync.setSpeaking(false)
+        this.exprCtrl.setSpeechMouthMute(false)
         if (this.currentActivity === 'speaking') this.onActivityChange('idle', activeTurnId)
       }),
     )
@@ -441,6 +442,9 @@ export class CharacterController {
         this.performanceDirector.onAudioStart(turnId, durationMs)
         this.audioPlaybackActive = true
         this.lipSync.setSpeaking(true)
+        // Mouth belongs to lip-sync while audio plays; some expression presets
+        // pin mouth parameters and freeze speech otherwise.
+        this.exprCtrl.setSpeechMouthMute(true, Object.keys(this.parameterResolver.values({ 'mouth.open': 0 })))
         this.onActivityChange('speaking', turnId)
       }),
     )
@@ -463,6 +467,7 @@ export class CharacterController {
         this.performanceDirector.onAudioEnd(turnId)
         this.audioPlaybackActive = false
         this.lipSync.setSpeaking(false)
+        this.exprCtrl.setSpeechMouthMute(false)
         this.presentationIngress.releaseTurn(turnId)
         if (this.currentActivity === 'speaking') {
           if (this._audioEndTimer) clearTimeout(this._audioEndTimer)
@@ -1113,6 +1118,7 @@ export class CharacterController {
         ? { valence: 0, arousal: 0, dominance: 0 }
         : vadSnapshot.current,
       this._profile?.privateEmotionMap,
+      dt,
     )
     for (const [parameterId, value] of Object.entries(privateParams)) {
       if (!this.adapter.hasParameter(parameterId)) continue

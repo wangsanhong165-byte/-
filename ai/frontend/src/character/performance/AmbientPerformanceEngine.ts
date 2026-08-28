@@ -51,6 +51,7 @@ export class AmbientPerformanceEngine {
   private tailRootVelocity = 0
   private readonly tailSegmentValues = Array.from({ length: 15 }, () => 0)
   private readonly tailSegmentVelocities = Array.from({ length: 15 }, () => 0)
+  private readonly faceSmooth = new Map<string, number>()
 
   constructor(seed = 1) {
     this.style = resolveMotionStyle({ seed })
@@ -138,9 +139,23 @@ export class AmbientPerformanceEngine {
     this.eyeClose += (eyeCloseTarget - this.eyeClose) * eyeResponse
 
     const facs = facsFromVAD(input.vad)
+    // VAD can step the moment an intent lands; an unsmoothed additive face
+    // layer then flashes the whole face in one frame while the expression
+    // preset is still blending. Ease the projected face values instead.
+    const rawFace = this.enhanced ? logicalFaceFromFACS(facs) : {}
+    const faceSmoothed: Record<string, number> = {}
+    for (const [key, value] of Object.entries(rawFace)) {
+      const previous = this.faceSmooth.get(key) ?? 0
+      const eased = previous + (value - previous) * (1 - Math.exp(-delta * 9))
+      this.faceSmooth.set(key, Math.abs(eased) < 0.0005 && value === 0 ? 0 : eased)
+      faceSmoothed[key] = eased
+    }
+    for (const [key] of this.faceSmooth) {
+      if (!(key in rawFace)) this.faceSmooth.delete(key)
+    }
     return {
       values: filterChannels(resolvedPose, input.blockedChannels),
-      faceValues: this.enhanced ? logicalFaceFromFACS(facs) : {},
+      faceValues: faceSmoothed,
       eyeClose: this.eyeClose,
       idle,
       activity: this.activity,

@@ -150,9 +150,9 @@ export class IdleActionScheduler {
 
   private sampleInterval(focusLevel: number): number {
     const activity = clamp(this.spontaneity, 0.1, 1.25)
-    // ~4.5-9s base cadence (was 8-16s) so idle behaviours are visible and the
-    // character reads as "alive" rather than statue-like.
-    return (4.5 + this.random() * 4.5) / activity + clamp(focusLevel, 0, 1) * 2
+    // ~6-11s base cadence so idle behaviours stay occasional highlights
+    // rather than a steady stream of theatrical moves.
+    return (6 + this.random() * 5) / activity + clamp(focusLevel, 0, 1) * 2
   }
 }
 
@@ -167,11 +167,11 @@ function buildKeyframes(
     frames = [frame(0, {}), frame(.2, { headY: 6.5, bodyY: 1 }),
       frame(.42, { headY: -2.2 }), frame(.68, { headY: 1.4 }), frame(1, {})]
   } else if (label === 'head-tilt') {
-    frames = [frame(0, {}), frame(.28, { headX: side * 1.6, headZ: side * 8, eyeX: -side * .22 }),
-      frame(.64, { headZ: side * 6.4 }), frame(1, {})]
+    frames = [frame(0, {}), frame(.28, { headX: side * 1.4, headZ: side * 6, eyeX: -side * .2 }),
+      frame(.64, { headZ: side * 4.8 }), frame(1, {})]
   } else if (label === 'weight-shift') {
-    frames = [frame(0, {}), frame(.34, { bodyX: side * 6.5, headX: -side * 1.6, headZ: -side * 3 }),
-      frame(.7, { bodyX: side * 5.2, headZ: -side * 2.4 }), frame(1, {})]
+    frames = [frame(0, {}), frame(.34, { bodyX: side * 5.5, headX: -side * 1.4, headZ: -side * 2.6 }),
+      frame(.7, { bodyX: side * 4.4, headZ: -side * 2 }), frame(1, {})]
   } else if (label === 'gentle-lean') {
     frames = [frame(0, {}), frame(.3, { bodyY: side * 3.8, headY: side * 3, eyeY: side * .15 }),
       frame(.58, { bodyY: side * 3.2, headY: side * 2.4 }),
@@ -183,8 +183,8 @@ function buildKeyframes(
   } else if (label === 'reposition') {
     // Occasional large posture change — supplies the "long tail" of motion the
     // reference performance shows (rare 10°+ moves between many small ones).
-    frames = [frame(0, {}), frame(.32, { bodyX: side * 9.5, headX: -side * 2.2, headZ: -side * 3.6 }),
-      frame(.66, { bodyX: side * 7.6, headZ: -side * 2.8 }), frame(1, {})]
+    frames = [frame(0, {}), frame(.32, { bodyX: side * 8, headX: -side * 1.8, headZ: -side * 3 }),
+      frame(.66, { bodyX: side * 6.4, headZ: -side * 2.4 }), frame(1, {})]
   } else {
     frames = [frame(0, {}), frame(.3, { eyeClose: .82, headY: -.55 }),
       frame(.47, { eyeClose: 1, headY: -.75 }),

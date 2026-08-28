@@ -76,7 +76,7 @@ export class SpeechPerformanceController {
     return {
       headX: (Math.sin(this.elapsed * 1.92 + 0.7) * 3.2 + phraseDrift * 1.6)
         * voiceEnergy * weight,
-      headY: (Math.sin(this.elapsed * 3.45) * 1.8 + accentEnvelope * 4.6)
+      headY: (Math.sin(this.elapsed * 3.45) * 1.4 + accentEnvelope * 3.6)
         * weight,
       headZ: (Math.sin(this.elapsed * 2.35 + 0.25) * 1.8 + counterDrift * 0.6)
         * voiceEnergy * weight,
