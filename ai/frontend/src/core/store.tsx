@@ -54,7 +54,7 @@ export interface AppSettings {
   backgroundUrl: string
   backgroundPath: string
   backgroundLabel: string
-  backgroundFit: 'cover' | 'contain' | 'fill'
+  backgroundFit: 'cover' | 'contain' | 'center' | 'fill'
   backgroundOpacity: number
   // UI theming (Settings → Appearance)
   uiTheme: 'dark' | 'light' | 'auto'
@@ -130,8 +130,10 @@ const INITIAL_SETTINGS: AppSettings = {
   backgroundUrl: '',
   backgroundPath: '',
   backgroundLabel: '',
-  // Preserve the source ratio and avoid enlarging small background assets.
-  backgroundFit: 'contain',
+  // Fill the window by default (dsh-wallpaper-engine's 覆盖 semantics) — a
+  // full-window wallpaper with a native-size default reads as broken zoom
+  // on large displays.
+  backgroundFit: 'cover',
   backgroundOpacity: 1,
   // UI theming: dark matches the app's original look; orange is the original accent.
   uiTheme: 'dark',

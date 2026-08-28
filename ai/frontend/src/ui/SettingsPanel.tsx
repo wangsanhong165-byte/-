@@ -411,7 +411,9 @@ function AppearanceTab({ settings, onSettingChange }: {
     ? '铺满裁切'
     : settings.backgroundFit === 'fill'
       ? '拉伸填充'
-      : '完整显示 · 不放大'
+      : settings.backgroundFit === 'center'
+        ? '居中 · 不放大'
+        : '填充 · 贴边'
   const statusLabel = !resourceSelected
     ? '未选择'
     : mediaState === 'loading'
@@ -561,10 +563,11 @@ function AppearanceTab({ settings, onSettingChange }: {
         </div>
 
         <div style={styles.backgroundSettings}>
-        <SettingRow label="显示方式" desc="完整显示不放大；铺满会裁切边缘">
+        <SettingRow label="显示方式" desc="铺满裁切（默认）填满全窗；填充贴边保留完整画面；居中不放大保持原生像素；拉伸填满但忽略比例">
           <select style={styles.select} value={settings.backgroundFit} onChange={event => onSettingChange('backgroundFit', event.target.value)}>
-            <option value="contain">完整显示 · 不放大</option>
             <option value="cover">铺满裁切</option>
+            <option value="contain">填充 · 贴边</option>
+            <option value="center">居中 · 不放大</option>
             <option value="fill">拉伸填充</option>
           </select>
         </SettingRow>

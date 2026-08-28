@@ -100,6 +100,34 @@ export function wallpaperCssVars(
   }
 }
 
+/**
+ * Fit semantics, aligned with dsh-wallpaper-engine's 适配 row (覆盖/填充/
+ * 居中/拉伸). `backgroundFit` values keep their legacy names but map to the
+ * reference behavior:
+ *   cover   → fill the window, crop overflow (the reference DEFAULT; the
+ *             natural expectation for a full-window wallpaper)
+ *   contain → fill to the nearer edge and upscale — true CSS contain
+ *             (the reference's 填充), NOT "never upscale"
+ *   center  → native size, centered, scale-down only (the reference's 居中;
+ *             this is what our old "完整显示 · 不放大" actually was)
+ *   fill    → stretch to the window, ratio ignored
+ * `kind === 'web'` always fills (iframes have no intrinsic size) and falls
+ * back to cover for unknown values.
+ */
+export function wallpaperFitMode(
+  backgroundFit: string | undefined,
+  kind: string,
+): 'cover' | 'contain' | 'center' | 'fill' {
+  if (kind === 'web') return 'cover'
+  switch (backgroundFit) {
+    case 'cover': return 'cover'
+    case 'contain': return 'contain'
+    case 'center': return 'center'
+    case 'fill': return 'fill'
+    default: return 'cover'
+  }
+}
+
 /** Rounded slider-step values used by the settings UI (percent display). */
 export function effectsToSliderPercents(effects: WallpaperEffectSettings): Record<'scrim', number> {
   return { scrim: Math.round(effects.scrim * 100) }

@@ -7,6 +7,7 @@ import {
   glassSaturate,
   sanitizeWallpaperEffects,
   wallpaperCssVars,
+  wallpaperFitMode,
   wallpaperMediaFilter,
   wallpaperTransform,
 } from './wallpaper-effects.ts'
@@ -89,4 +90,20 @@ test('css vars: default state keeps filter/transform at none', () => {
 
 test('slider percents round-trip the scrim knob', () => {
   assert.equal(effectsToSliderPercents({ ...WALLPAPER_EFFECT_DEFAULTS, scrim: 0.55 }).scrim, 55)
+})
+
+test('fit mode: matches the reference 适配 semantics per kind', () => {
+  // cover is the default (铺满裁切) for both media kinds.
+  assert.equal(wallpaperFitMode('cover', 'image'), 'cover')
+  assert.equal(wallpaperFitMode(undefined, 'video'), 'cover')
+  // contain upscales to the nearer edge (填充); center never upscales (居中).
+  assert.equal(wallpaperFitMode('contain', 'image'), 'contain')
+  assert.equal(wallpaperFitMode('center', 'video'), 'center')
+  // fill stretches.
+  assert.equal(wallpaperFitMode('fill', 'image'), 'fill')
+  // web iframes always fill regardless of the knob.
+  assert.equal(wallpaperFitMode('contain', 'web'), 'cover')
+  assert.equal(wallpaperFitMode('center', 'web'), 'cover')
+  // unknown values fall back to cover.
+  assert.equal(wallpaperFitMode('legacy-value', 'image'), 'cover')
 })

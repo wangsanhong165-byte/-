@@ -46,16 +46,26 @@ test('uses a Scene preview as an explicitly labelled static fallback', t => {
   assert.match(result.warning, /静态预览/)
 })
 
-test('rejects unsupported projects without playable media', t => {
+test('accepts web projects with a valid HTML entry (web wallpaper support)', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wallpaper-web-'))
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
   fs.writeFileSync(path.join(root, 'project.json'), JSON.stringify({ type: 'web', file: 'index.html' }))
   fs.writeFileSync(path.join(root, 'index.html'), '<html></html>')
 
   const result = inspectWallpaperPath(root)
+  assert.equal(result.ok, true)
+  assert.equal(result.type, 'web')
+  assert.equal(result.sourceType, 'wallpaper-engine-web')
+})
+
+test('rejects web projects without a valid HTML entry', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wallpaper-web-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  fs.writeFileSync(path.join(root, 'project.json'), JSON.stringify({ type: 'web', file: 'missing.html' }))
+
+  const result = inspectWallpaperPath(root)
   assert.equal(result.ok, false)
   assert.equal(result.code, 'unsupported')
-  assert.match(result.message, /Scene\/Web/)
 })
 
 test('scans Steam libraryfolders.vdf for a non-default library', t => {

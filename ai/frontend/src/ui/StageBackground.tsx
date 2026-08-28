@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import type { AppSettings } from '../core/store'
 import { eventBus } from '../core/event-bus'
 import { electronWindowBridge } from '../session/electron-window-bridge'
+import { wallpaperFitMode } from '../core/wallpaper-effects'
 
 /**
  * Wallpaper fusion layer.
@@ -129,14 +130,19 @@ export function StageBackground({ settings }: { settings: AppSettings }) {
 
   if (!active) return null
 
-  // Fit semantics: contain = native size, centered, never upscaled (legacy
-  // "完整显示 · 不放大"); cover/fill = fill the window. iframes always fill
-  // (no intrinsic size). The active mode rides to CSS as --wp-object-fit.
-  const fillWindow = kind === 'web' || settings.backgroundFit === 'cover' || settings.backgroundFit === 'fill'
-  const mediaClass = fillWindow ? 'wp-media wp-media--fit' : 'wp-media'
+  // Fit semantics ride to CSS as classes (see wallpaperFitMode): cover/fill
+  // fill the window, contain fills to the nearer edge (may upscale), center
+  // keeps native size (scale-down only). iframes always fill (no intrinsic
+  // size). The active object-fit rides to CSS as --wp-object-fit.
+  const fit = wallpaperFitMode(settings.backgroundFit, kind)
+  const mediaClass = fit === 'cover' || fit === 'fill' || kind === 'web'
+    ? 'wp-media wp-media--fit'
+    : fit === 'center'
+      ? 'wp-media wp-media--center'
+      : 'wp-media wp-media--contain'
   const style = {
     opacity: settings.backgroundOpacity,
-    ['--wp-object-fit' as string]: settings.backgroundFit === 'fill' ? 'fill' : 'cover',
+    ['--wp-object-fit' as string]: fit === 'fill' ? 'fill' : 'cover',
   } as React.CSSProperties
 
   return createPortal(
