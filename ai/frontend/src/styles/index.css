@@ -429,6 +429,23 @@ aside {
   object-fit: var(--wp-object-fit, cover);
 }
 
+/* Ambient backdrop for non-filling fits (contain/center): the same media,
+   scaled past the window and heavily blurred — letterbox bars become a soft
+   color extension of the wallpaper instead of the dead html background.
+   filter/transform are REAL non-identity values here, so no permanent
+   offscreen layer is forced when the ambient layer is absent (display-gated
+   by React). Brightness pulled down so bars stay quieter than the art. */
+.wp-layer .wp-media--ambient {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: cover;
+  filter: blur(40px) brightness(0.5) saturate(1.1);
+  transform: scale(1.15);
+  opacity: 0.9;
+}
+
 .wp-scrim {
   position: fixed;
   inset: 0;

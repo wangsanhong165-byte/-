@@ -140,6 +140,10 @@ export function StageBackground({ settings }: { settings: AppSettings }) {
     : fit === 'center'
       ? 'wp-media wp-media--center'
       : 'wp-media wp-media--contain'
+  // Ambient backdrop only when the sharp media does NOT fill the window
+  // (contain/center) — cover/fill leave no bars to fill. Images only (scene
+  // frames included): a second <video> would double the decode load.
+  const ambientUrl = fit === 'cover' || fit === 'fill' || kind !== 'image' ? null : sourceUrl
   const style = {
     opacity: settings.backgroundOpacity,
     ['--wp-object-fit' as string]: fit === 'fill' ? 'fill' : 'cover',
@@ -148,6 +152,13 @@ export function StageBackground({ settings }: { settings: AppSettings }) {
   return createPortal(
     <>
       <div className="wp-layer" aria-hidden="true">
+        {/* Ambient backdrop: the same media scaled up and blurred behind the
+            sharp layer, so contain/center letterbox bars show a soft extension
+            of the wallpaper instead of the dead html background. Cheap (one
+            extra composited layer, img or video with no audio track). */}
+        {ambientUrl ? (
+          <img key={ambientUrl + '-ambient'} className="wp-media wp-media--ambient" src={ambientUrl} style={style} alt="" />
+        ) : null}
         {kind === 'video' ? (
           <video
             ref={videoRef}
