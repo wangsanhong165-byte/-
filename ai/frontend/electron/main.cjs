@@ -895,7 +895,7 @@ async function extractSceneMediaCached(entryPath) {
   let media = null
   try {
     const bytes = await fs.promises.readFile(entryPath)
-    media = extractSceneMedia(new Uint8Array(bytes))
+    media = extractSceneMedia(bytes)
   } catch { media = null }
   if (!media) return null
 

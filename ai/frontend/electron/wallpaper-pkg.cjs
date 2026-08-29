@@ -169,8 +169,13 @@ function isJpegPayload(bytes) {
  * Extract the largest embedded MP4 from a scene.pkg buffer (video textures
  * ranked by texture path score, mirroring the reference extractor), or the
  * largest embedded JPEG (photographic scenes), or null.
+ * Accepts Buffer or Uint8Array (the Reader needs Buffer methods — views
+ * from fs.promises.readFile().buffer or similar are coerced here).
  */
 function extractSceneMedia(pkgData) {
+  if (pkgData && !Buffer.isBuffer(pkgData) && pkgData.buffer instanceof ArrayBuffer) {
+    pkgData = Buffer.from(pkgData.buffer, pkgData.byteOffset, pkgData.byteLength)
+  }
   const entries = parsePkg(pkgData)
   const videos = []
   const jpegs = []
