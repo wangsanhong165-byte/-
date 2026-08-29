@@ -89,6 +89,7 @@ function startJob(job) {
     if (settled) return
     settled = true
     clearTimeout(timer)
+    clearInterval(progressWatch)
     try { worker?.terminate() } catch { /* already dead */ }
     activeWorker = null
     const next = workerQueue.shift()
@@ -96,8 +97,20 @@ function startJob(job) {
     job.resolve(value)
   }
   const framesN = job.payload.times?.length || 1
-  // Generous timeout mirroring the reference (large scenes rasterize slowly).
-  const timer = setTimeout(() => finish({ ok: false, error: 'scene render timeout' }), 600_000 * framesN)
+  // Hard wall: 600s/ frame would let a 180-frame job "time out" after 30h
+  // while hogging the single render slot — the wall is total wall-clock.
+  const timer = setTimeout(() => finish({ ok: false, error: 'scene render timeout' }), 20 * 60_000)
+  // Stall watchdog, multi-frame jobs only (the single-frame path emits no
+  // progress ticks): the worker ticks after every frame, so 180s of silence
+  // mid-animation means a rasterization wedged — kill it and move on.
+  let lastTick = Date.now()
+  const progressWatch = framesN > 1
+    ? setInterval(() => {
+      if (Date.now() - lastTick > 180_000) {
+        finish({ ok: false, error: 'scene render stalled (no frame progress in 180s)' })
+      }
+    }, 15_000)
+    : null
   try {
     worker = new Worker(path.join(VENDOR_DIR, 'scene-render-worker.mjs'), {
       workerData: {
@@ -118,6 +131,7 @@ function startJob(job) {
   }
   worker.on('message', msg => {
     if (msg?.progress) {
+      lastTick = Date.now()
       // Progress ticks carry no payload — consume them even when nobody
       // listens, or they fall through to the failure branch below.
       if (job.onProgress) {
@@ -199,16 +213,38 @@ async function sceneLoopPeriod(srcPath) {
 }
 
 // ── Cache layout (data/cache/wallpaper-scenes, same dir as extracted media) ─
+// Key scheme v2: the hash does NOT include the render dimensions. Render
+// resolution is a quality dial, not an identity — a peek must find whatever
+// resolution the preheat produced, otherwise every constant bump orphans the
+// whole cache and the pick chain's "cached → upgrade" branch goes dead
+// (verified: 11 orphaned PNGs / 194MB from exactly this bug).
 
-function cachePaths(entryPath, tag, ext) {
+function cacheBase(entryPath, kind) {
   let mtime = 0
   try { mtime = Math.round(fs.statSync(entryPath).mtimeMs) } catch { /* keep 0 */ }
-  const key = 'sr1_' + createHash('sha256')
-    .update(`${entryPath}|${mtime}|${tag}`)
+  const key = 'sr2_' + createHash('sha256')
+    .update(`${entryPath}|${mtime}|${kind}`)
     .digest('hex').slice(0, 20)
   const dir = path.join(PROJECT_ROOT, 'data', 'cache', 'wallpaper-scenes')
   fs.mkdirSync(dir, { recursive: true })
-  return { file: path.join(dir, key + ext), dir }
+  return { prefix: path.join(dir, key), dir }
+}
+
+/** Write target: exclusive to one resolution's artifact. */
+function cachePaths(entryPath, kind, w, h, ext) {
+  const base = cacheBase(entryPath, kind)
+  return { file: `${base.prefix}_${w}x${h}${ext}`, dir: base.dir }
+}
+
+/** Lookup target: ANY resolution of this kind — the caller renders at
+ *  whatever the current quality dial says, cache hits must not care. */
+function peekCachePaths(entryPath, kind, ext) {
+  const base = cacheBase(entryPath, kind)
+  const pattern = new RegExp(`^${path.basename(base.prefix).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}_[0-9]+x[0-9]+${ext.replace('.', '\\.')}$`)
+  try {
+    const hit = fs.readdirSync(base.dir).find(f => pattern.test(f))
+    return hit ? path.join(base.dir, hit) : null
+  } catch { return null }
 }
 
 // ── Public API ──────────────────────────────────────────────────────────────
@@ -218,25 +254,15 @@ function cachePaths(entryPath, tag, ext) {
  * already exist for this scene? Lets the pick chain serve cached upgrades
  * without ever touching the worker queue.
  */
-function peekSceneFrame(entryPath, { width = 1280, height = 720 } = {}) {
+function peekSceneFrame(entryPath) {
   const src = String(entryPath).toLowerCase().endsWith('.json') ? path.dirname(entryPath) : entryPath
-  let h = height
-  // Aspect correction needs the scene's ortho ratio; a cheap cached lookup.
-  return sceneAspect(src).then(sar => {
-    if (sar) h = Math.round(width / sar)
-    const file = cachePaths(src, `frame_${width}x${h}`, '.png').file
-    return fs.existsSync(file) ? file : null
-  })
+  // Any-resolution lookup: preheat owns the resolution dial.
+  return Promise.resolve(peekCachePaths(src, 'frame', '.png'))
 }
 
-function peekSceneAnimation(entryPath, { fps = 12, width = 1280, height = 720 } = {}) {
+function peekSceneAnimation(entryPath) {
   const src = String(entryPath).toLowerCase().endsWith('.json') ? path.dirname(entryPath) : entryPath
-  return sceneAspect(src).then(sar => {
-    let h = height
-    if (sar) h = Math.round(width / sar)
-    const file = cachePaths(src, `anim_${width}x${h}_${fps}fps`, '.mp4').file
-    return fs.existsSync(file) ? file : null
-  })
+  return Promise.resolve(peekCachePaths(src, 'anim', '.mp4'))
 }
 
 /**
@@ -248,8 +274,11 @@ async function renderSceneFrame(entryPath, { width = 3840, height = 2160 } = {})
   let w = width, h = height
   const sar = await sceneAspect(src)
   if (sar) h = Math.round(w / sar)
-  const out = cachePaths(src, `frame_${w}x${h}`, '.png')
+  const out = cachePaths(src, 'frame', w, h, '.png')
   if (fs.existsSync(out.file)) return { ok: true, path: out.file }
+  // Also accept any other resolution already rendered for this scene.
+  const anyRes = peekCachePaths(src, 'frame', '.png')
+  if (anyRes) return { ok: true, path: anyRes }
   // Reference's tuned constants: render at 3840-wide (effect shaders compute
   // against the render resolution — undersized canvases misplace water/particle
   // layers) and sample t=2.5s (post-intro steady state in every scene it
@@ -297,9 +326,13 @@ async function renderSceneAnimation(entryPath, {
   const times = []
   for (let i = 0; i < frameCount; i++) times.push(skip + (i / frameCount) * loop)
 
-  const out = cachePaths(src, `anim_${w}x${h}_${fps}fps`, '.mp4')
+  const out = cachePaths(src, 'anim', w, h, '.mp4')
   const inflightKey = out.file
-  if (fs.existsSync(out.file)) return { ok: true, path: out.file, frames: frameCount }
+  // Any-resolution hit: an animation rendered at the previous quality dial is
+  // still a valid loop — resolution bumps upgrade on the next render, they
+  // must not invalidate the hit (else preheat work is thrown away).
+  const anyAnim = peekCachePaths(src, 'anim', '.mp4')
+  if (anyAnim) return { ok: true, path: anyAnim, frames: frameCount }
   if (animInflight.has(inflightKey)) return animInflight.get(inflightKey)
 
   const job = (async () => {
@@ -332,6 +365,9 @@ async function renderSceneAnimation(entryPath, {
               '-y', '-hide_banner', '-loglevel', 'error',
               '-r', String(fps), '-i', tmpApng,
               '-c:v', encoder, '-pix_fmt', 'yuv420p',
+              // crf 18 (near-transparent): the default 23 smears the slow
+              // pans/particles these loops consist of into visible blocking.
+              '-crf', '18',
               '-r', String(fps), '-movflags', '+faststart', tmpOut,
             ], { windowsHide: true, timeout: 10 * 60_000 }, (err) => err ? reject(err) : resolve())
           })
@@ -365,12 +401,27 @@ const animInflight = new Map()
 /** Shared inflight guard for the frame path too (pick storms). */
 const frameInflight = new Map()
 function renderSceneFrameOnce(entryPath, opts) {
-  const key = entryPath + '|' + (opts?.width || 1280)
+  const key = entryPath
   if (frameInflight.has(key)) return frameInflight.get(key)
   const p = renderSceneFrame(entryPath, opts).finally(() => frameInflight.delete(key))
   frameInflight.set(key, p)
   return p
 }
+
+/** One-shot sweep of superseded cache generations (sr1_* included dims in the
+ *  hash — every resolution change orphaned them). Cheap: one readdir, runs at
+ *  module load, only files matching known dead prefixes are removed. */
+function sweepSupersededCache() {
+  const dir = path.join(PROJECT_ROOT, 'data', 'cache', 'wallpaper-scenes')
+  try {
+    for (const f of fs.readdirSync(dir)) {
+      if (f.startsWith('sr1_')) {
+        try { fs.unlinkSync(path.join(dir, f)) } catch { /* locked — next boot */ }
+      }
+    }
+  } catch { /* dir missing — fine */ }
+}
+sweepSupersededCache()
 
 module.exports = {
   renderSceneFrame: renderSceneFrameOnce,

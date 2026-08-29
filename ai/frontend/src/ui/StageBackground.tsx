@@ -39,10 +39,16 @@ export function StageBackground({ settings }: { settings: AppSettings }) {
   // ── fps-cap transcode upgrade: play the original now, swap when ready ────
   // The transcode runs once on the host (path+mtime+fps cached); switching
   // sources mid-play just replaces the src (muted loop, no continuity cost).
+  // Rendered scene animations are exempt: they are already encoded at their
+  // target fps by the offline pipeline, and backgroundPath points at the
+  // scene.pkg (the MP4 probe returns null for it — this makes the skip
+  // explicit instead of incidental).
+  const isRenderedSceneVideo = kind === 'video' && /\.pkg$/i.test(settings.backgroundPath || '')
   const [sourceUrl, setSourceUrl] = useState(url)
   useEffect(() => {
     setSourceUrl(url)
-    if (kind !== 'video' || !url || !settings.wallpaperFpsCap || !electronWindowBridge.available) return
+    if (kind !== 'video' || isRenderedSceneVideo) return
+    if (!url || !settings.wallpaperFpsCap || !electronWindowBridge.available) return
     if (!settings.backgroundPath) return
     let disposed = false
     void (async () => {
@@ -52,7 +58,7 @@ export function StageBackground({ settings }: { settings: AppSettings }) {
       if (!disposed && result.ok && result.url) setSourceUrl(result.url)
     })()
     return () => { disposed = true }
-  }, [url, kind, settings.backgroundPath, settings.wallpaperFpsCap])
+  }, [url, kind, settings.backgroundPath, settings.wallpaperFpsCap, isRenderedSceneVideo])
 
   useEffect(() => {
     setLoadState('loading')

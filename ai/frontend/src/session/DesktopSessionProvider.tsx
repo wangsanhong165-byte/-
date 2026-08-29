@@ -319,8 +319,22 @@ export function DesktopSessionWorkspace() {
       const s = data.settings || {}
       // fit semantics changed with the fusion layer: the legacy "contain"
       // default meant native-size/never-upscale, which is now the "center"
-      // mode. Migrate once so old profiles don't suddenly stretch-fill.
-      if (s.backgroundFit === 'contain') s.backgroundFit = 'center'
+      // mode. One-time migration: flip the stored value to 'center' so this
+      // runs once — repeating it every load would also clobber 'contain'
+      // chosen deliberately under the NEW semantics (fills to the nearer
+      // edge, may upscale).
+      if (s.backgroundFit === 'contain' && s.backgroundFitMigrated !== true) {
+        s.backgroundFit = 'center'
+        s.backgroundFitMigrated = true
+        // Persist the migration so it never runs again (the 500ms debounced
+        // watcher would also write these, but that only fires on a local
+        // setting change — write directly to be sure).
+        void fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ settings: { backgroundFit: 'center', backgroundFitMigrated: true } }),
+        }).catch(() => {})
+      }
       for (const [key, value] of Object.entries(s)) {
         try { actions.setSetting(key as keyof AppSettings, value) } catch (_) {}
       }
