@@ -129,7 +129,7 @@ export function CompanionWorkspace(props: CompanionWorkspaceProps) {
   return (
     <Layout
       characterArea={<CharacterView />}
-      background={props.settings.windowMode === 'pet' ? null : <StageBackground settings={props.settings} />}
+      background={props.settings.windowMode === 'pet' ? null : <StageBackground settings={props.settings} onSettingChange={props.onSettingChange} />}
       subtitle={props.settings.windowMode === 'pet' ? null : (
         <StageSubtitle text={props.subtitleText} speaking={props.subtitleSpeaking} />
       )}

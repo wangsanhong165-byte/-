@@ -48,6 +48,7 @@ declare global {
       wallpaperMediaInfo?: (filePath: string) => Promise<{ ok: boolean; info?: MediaInfo | null }>
       wallpaperTranscode?: (filePath: string, fps: number) => Promise<{ ok: boolean; url?: string; path?: string; reason?: string }>
       wallpaperTranscodeProgress?: (filePath: string, fps: number) => Promise<{ ok: boolean; progress?: { phase: string; percent: number } | null }>
+      onWallpaperUpgraded?: (callback: (upgrade: WallpaperResourceResult) => void) => () => void
       getStatus?: () => Promise<{ services?: Array<Record<string, unknown>> }>
       onLifecycleSnapshot?: (callback: (snapshot: {
         availability?: string
@@ -163,6 +164,9 @@ export class ElectronWindowBridge {
   }
   selectWallpaper(mode: 'file' | 'directory') {
     return window.electronAPI?.selectWallpaper?.(mode) ?? Promise.resolve({ ok: false, code: 'unavailable' })
+  }
+  onWallpaperUpgraded(callback: (upgrade: WallpaperResourceResult) => void) {
+    return window.electronAPI?.onWallpaperUpgraded?.(callback) ?? (() => {})
   }
   openWallpaperWorkshop() {
     return window.electronAPI?.openWallpaperWorkshop?.() ?? Promise.resolve({ ok: false, message: '仅桌面版支持此功能。' })

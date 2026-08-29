@@ -26,7 +26,7 @@ import { wallpaperFitMode } from '../core/wallpaper-effects'
  *           too when the host extracted an embedded MP4)
  *   web   → <iframe sandbox="allow-scripts"> (WE API shim injected by host)
  */
-export function StageBackground({ settings }: { settings: AppSettings }) {
+export function StageBackground({ settings, onSettingChange }: { settings: AppSettings, onSettingChange?: (key: string, value: unknown) => void }) {
   const [, setLoadState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const pausedByRef = useRef<{ hidden: boolean; blur: boolean; vision: boolean }>({
@@ -131,6 +131,22 @@ export function StageBackground({ settings }: { settings: AppSettings }) {
     const rate = Number.isFinite(raw) && raw >= 0.25 && raw <= 4 ? raw : 1
     try { video.playbackRate = rate } catch { /* unsupported value */ }
   }, [settings.wallpaperPlaybackRate, sourceUrl])
+
+  // ── In-place upgrade: the host preheats better artifacts (rendered frame →
+  // animated MP4) in the background; when one lands for the ACTIVE wallpaper,
+  // swap to it without any user action. Matching is host-side (the push only
+  // fires when the upgraded scene is the active one); a stale push after a
+  // fast switch is harmless (same media family reload). ────────────────────
+  const onSettingChangeRef = useRef(onSettingChange)
+  onSettingChangeRef.current = onSettingChange
+  useEffect(() => {
+    if (!electronWindowBridge.available || !settings.backgroundPath || !onSettingChange) return
+    return electronWindowBridge.onWallpaperUpgraded(upgrade => {
+      if (!upgrade?.ok || !upgrade.url || !upgrade.type) return
+      onSettingChangeRef.current?.('backgroundType', upgrade.type)
+      onSettingChangeRef.current?.('backgroundUrl', upgrade.url)
+    })
+  }, [electronWindowBridge.available, settings.backgroundPath, onSettingChange])
 
   const active = kind !== 'none' && Boolean(url)
 

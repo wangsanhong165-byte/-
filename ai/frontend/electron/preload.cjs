@@ -40,6 +40,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   wallpaperMediaInfo: (filePath) => ipcRenderer.invoke('wallpaper:media-info', filePath),
   wallpaperTranscode: (filePath, fps) => ipcRenderer.invoke('wallpaper:transcode', filePath, fps),
   wallpaperTranscodeProgress: (filePath, fps) => ipcRenderer.invoke('wallpaper:transcode-progress', filePath, fps),
+  onWallpaperUpgraded: (callback) => {
+    const listener = (_event, upgrade) => callback(upgrade)
+    ipcRenderer.on('wallpaper:upgraded', listener)
+    return () => ipcRenderer.removeListener('wallpaper:upgraded', listener)
+  },
 
   // ── ProcessManager / backend lifecycle ──
   getStatus: () => ipcRenderer.invoke('get-status'),

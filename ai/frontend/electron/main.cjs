@@ -741,10 +741,16 @@ function resolveWallpaperAsset(requestUrl) {
   return protocolResolve(requestUrl, allowedWallpaperPaths, allowedWallpaperDirs)
 }
 
+/** settings.json reader shared by the protocol restore and upgrade pushes. */
+function readSettingsFile() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'data', 'settings.json'), 'utf8'))
+  } catch { return null }
+}
+
 function registerWallpaperProtocol() {
   try {
-    const settingsPath = path.join(__dirname, '..', '..', 'data', 'settings.json')
-    const persisted = JSON.parse(fs.readFileSync(settingsPath, 'utf8'))
+    const persisted = readSettingsFile()
     const backgroundPath = persisted?.backgroundPath
     if (typeof backgroundPath === 'string' && backgroundPath) {
       const inspected = inspectWallpaperPath(backgroundPath)
@@ -899,7 +905,7 @@ function preheatSceneFrame(entryPath) {
     try {
       const result = await renderSceneFrame(src, { width: 3840, height: 2160 })
       if (!result.ok) markPreheatFailed(src, 'frame')
-      // Success: the pick chain picks the PNG up on the next selection.
+      else notifyWallpaperUpgrade(result.path)
     } catch { markPreheatFailed(src, 'frame') }
   })
 }
@@ -913,8 +919,43 @@ function preheatSceneAnimation(entryPath) {
       if (!ffmpeg) { markPreheatFailed(src, 'anim'); return }
       const result = await renderSceneAnimation(src, { fps: 12, maxSec: 20, width: 2560, height: 1440, ffmpeg })
       if (!result.ok) markPreheatFailed(src, 'anim')
+      else notifyWallpaperUpgrade(result.path)
     } catch { markPreheatFailed(src, 'anim') }
   })
+}
+
+/**
+ * Push a finished preheat artifact to the renderer so the CURRENT wallpaper
+ * upgrades in place — the user picks once and the display improves by itself
+ * when the offline render lands (no manual re-pick). The renderer matches the
+ * artifact's scene against settings.backgroundPath and swaps if it's the
+ * active wallpaper. Main-process source of truth: what settings.backgroundPath
+ * would become if the user re-picked this scene right now.
+ */
+function notifyWallpaperUpgrade(artifactPath) {
+  try {
+    const st = readSettingsFile()
+    const activePath = st && typeof st.backgroundPath === 'string' ? path.resolve(st.backgroundPath) : null
+    if (!activePath) return
+    // Only meaningful if the upgraded scene IS the active wallpaper: the
+    // artifact's cache key embeds the scene pkg path; peek both kinds to
+    // resolve which artifact actually landed.
+    const upgraded = peekSceneFrame(activePath) || peekSceneAnimation(activePath)
+    if (!upgraded) return
+    if (path.resolve(upgraded) !== path.resolve(artifactPath)) return
+    const isVideo = upgraded.toLowerCase().endsWith('.mp4')
+    allowedWallpaperPaths.add(path.resolve(upgraded))
+    const payload = {
+      ok: true,
+      type: isVideo ? 'video' : 'image',
+      path: path.resolve(upgraded),
+      url: wallpaperResourceUrl(path.resolve(upgraded)),
+      sourceType: isVideo ? 'wallpaper-engine-scene-rendered-video' : 'wallpaper-engine-scene-rendered',
+    }
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send('wallpaper:upgraded', payload)
+    }
+  } catch { /* upgrade push is best-effort; the re-pick path still works */ }
 }
 
 /** ffmpeg supply chain — single source in wallpaper-transcode (env → winget → fallbacks). */
