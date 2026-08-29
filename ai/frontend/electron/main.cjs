@@ -897,7 +897,7 @@ function preheatSceneFrame(entryPath) {
   if (preheatFailed(src, 'frame')) return
   queuePreheat(src, 'frame', async () => {
     try {
-      const result = await renderSceneFrame(src, { width: 1600, height: 900 })
+      const result = await renderSceneFrame(src, { width: 3840, height: 2160 })
       if (!result.ok) markPreheatFailed(src, 'frame')
       // Success: the pick chain picks the PNG up on the next selection.
     } catch { markPreheatFailed(src, 'frame') }
@@ -911,7 +911,7 @@ function preheatSceneAnimation(entryPath) {
     try {
       const ffmpeg = await resolveWallpaperFfmpeg()
       if (!ffmpeg) { markPreheatFailed(src, 'anim'); return }
-      const result = await renderSceneAnimation(src, { fps: 12, maxSec: 20, width: 1600, height: 900, ffmpeg })
+      const result = await renderSceneAnimation(src, { fps: 12, maxSec: 20, width: 2560, height: 1440, ffmpeg })
       if (!result.ok) markPreheatFailed(src, 'anim')
     } catch { markPreheatFailed(src, 'anim') }
   })

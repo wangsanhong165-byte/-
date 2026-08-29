@@ -243,17 +243,18 @@ function peekSceneAnimation(entryPath, { fps = 12, width = 1280, height = 720 } 
  * Render one high-quality static frame (PNG) for a scene.
  * Returns { ok, path } or { ok:false, reason }.
  */
-async function renderSceneFrame(entryPath, { width = 1280, height = 720 } = {}) {
+async function renderSceneFrame(entryPath, { width = 3840, height = 2160 } = {}) {
   const src = String(entryPath).toLowerCase().endsWith('.json') ? path.dirname(entryPath) : entryPath
   let w = width, h = height
   const sar = await sceneAspect(src)
   if (sar) h = Math.round(w / sar)
   const out = cachePaths(src, `frame_${w}x${h}`, '.png')
   if (fs.existsSync(out.file)) return { ok: true, path: out.file }
-  // Same steady-state rule as the animation: t=0 is often a mid fly-in
-  // (mostly black) — sample past the intro so stills look like the wallpaper.
-  const loop = await sceneLoopPeriod(src)
-  const time = Math.min(2, loop / 4)
+  // Reference's tuned constants: render at 3840-wide (effect shaders compute
+  // against the render resolution — undersized canvases misplace water/particle
+  // layers) and sample t=2.5s (post-intro steady state in every scene it
+  // verified). time 0 drew mid fly-in frames (mostly black).
+  const time = 2.5
   const result = await runWorker({ src, width: w, height: h, time })
   if (!result.ok || !result.png) return { ok: false, reason: result.error || 'empty frame' }
   const tmp = `${out.file}.tmp${process.pid}`
@@ -275,8 +276,8 @@ async function renderSceneFrame(entryPath, { width = 1280, height = 720 } = {}) 
 async function renderSceneAnimation(entryPath, {
   fps = 12,
   maxSec = 20,
-  width = 1280,
-  height = 720,
+  width = 2560,
+  height = 1440,
   ffmpeg = null,
   onProgress = null,
 } = {}) {
@@ -289,8 +290,9 @@ async function renderSceneAnimation(entryPath, {
   // so frames near t=0 are not the steady-state look — a looping video that
   // includes them visibly "flashes" every cycle (verified: frame 0 of the
   // Kaiserin scene was mostly black). Sampling [skip, skip+loop) keeps the
-  // window closed (last frame == first frame) for a seamless loop.
-  const skip = Math.min(2, loop / 4)
+  // window closed (last frame == first frame) for a seamless loop. The 2.5s
+  // floor matches the reference's tuned steady-state constant.
+  const skip = Math.max(2.5, Math.min(2, loop / 4))
   const frameCount = Math.max(2, Math.round(fps * loop))
   const times = []
   for (let i = 0; i < frameCount; i++) times.push(skip + (i / frameCount) * loop)
