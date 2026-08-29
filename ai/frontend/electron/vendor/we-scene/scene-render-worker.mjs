@@ -1,11 +1,27 @@
 // 场景帧渲染 worker: 把 SceneRenderer 的同步 CPU 渲染移到 worker 线程,
 // 避免阻塞 DSH 主进程事件循环 (大型壁纸渲染数秒~数十秒).
 // 支持单帧 (time) 与多帧动画 (times 数组 → APNG).
+// Aurora 改动 (上游无): 额外上报内容覆盖率 (非黑非透明像素占比) — 半黑
+// 渲染缺陷 (上游对个别场景的布局/效果复刻缺口) 的质量门禁由宿主执行。
 import { parentPort, workerData } from 'node:worker_threads';
 import { SceneRenderer, encodePng } from './scene-renderer.js';
 import { encodeApng, encodeIdat } from './apng-encode.js';
 
 const { src, width, height, time, times, weAssetsDir, frameDelayMs, videoFrames } = workerData;
+
+// 采样统计: 与纯黑 (clearcolor) 的偏离占比 — 上游的 diff 统计 + 覆盖率
+function measure(canvas, cr0, cg0, cb0) {
+  const step = 8;
+  let diff = 0, checked = 0;
+  for (let y = 0; y < canvas.h; y += step) {
+    for (let x = 0; x < canvas.w; x += step) {
+      const i = (y * canvas.w + x) * 4;
+      checked++;
+      if (Math.abs(canvas.data[i] - cr0) > 24 || Math.abs(canvas.data[i + 1] - cg0) > 24 || Math.abs(canvas.data[i + 2] - cb0) > 24) diff++;
+    }
+  }
+  return { diff, checked };
+}
 
 try {
   // 单帧模式 (静态帧缓存)
@@ -16,17 +32,19 @@ try {
     const cc = renderer.scene && renderer.scene.general && renderer.scene.general.clearcolor;
     const ccv = typeof cc === 'string' && cc.trim() ? cc.trim().split(/\s+/).map(Number) : [0, 0, 0];
     const cr0 = (ccv[0] || 0) * 255, cg0 = (ccv[1] || 0) * 255, cb0 = (ccv[2] || 0) * 255;
-    const step = 8;
-    let diff = 0, checked = 0;
-    for (let y = 0; y < canvas.h; y += step) {
-      for (let x = 0; x < canvas.w; x += step) {
+    const { diff, checked } = measure(canvas, cr0, cg0, cb0);
+    // Aurora: 内容覆盖率 (非纯黑占比) — 半黑帧检测
+    let content = 0;
+    for (let y = 0; y < canvas.h; y += 8) {
+      for (let x = 0; x < canvas.w; x += 8) {
         const i = (y * canvas.w + x) * 4;
-        checked++;
-        if (Math.abs(canvas.data[i] - cr0) > 24 || Math.abs(canvas.data[i + 1] - cg0) > 24 || Math.abs(canvas.data[i + 2] - cb0) > 24) diff++;
+        if (canvas.data[i] > 20 || canvas.data[i + 1] > 20 || canvas.data[i + 2] > 20) content++;
       }
     }
+    const checkedC = Math.ceil(canvas.h / 8) * Math.ceil(canvas.w / 8);
+    const coverage = checkedC ? content / checkedC : 0;
     const png = encodePng(canvas.w, canvas.h, canvas.data);
-    parentPort.postMessage({ ok: true, png, diff, checked }, [png.buffer]);
+    parentPort.postMessage({ ok: true, png, diff, checked, coverage }, [png.buffer]);
   } else {
     // 多帧模式: 复用单个 SceneRenderer (每帧只换 time), 避免每帧重读 pkg/重解码纹理
     // (大型 pkg 如 336MB 场景, 逐帧重建 = 每帧整包读取 + 全部纹理解码)
@@ -34,16 +52,28 @@ try {
     const renderer = new SceneRenderer(src, { width, height, time: times[0], times, weAssetsDir, videoFrames, log: () => {} });
     const frames = [];
     const total = times.length;
+    // Aurora: 首/中/尾三帧的覆盖率 (动画整体质量门禁的样本)
+    const coverageSamples = [];
     for (let i = 0; i < total; i++) {
       renderer.setTime(times[i]);
       const canvas = renderer.render();
+      if (i === 0 || i === Math.floor(total / 2) || i === total - 1) {
+        let content = 0;
+        for (let y = 0; y < canvas.h; y += 8) {
+          for (let x = 0; x < canvas.w; x += 8) {
+            const pi = (y * canvas.w + x) * 4;
+            if (canvas.data[pi] > 20 || canvas.data[pi + 1] > 20 || canvas.data[pi + 2] > 20) content++;
+          }
+        }
+        coverageSamples.push(content / (Math.ceil(canvas.h / 8) * Math.ceil(canvas.w / 8)));
+      }
       // 立即压缩 → 释放原始帧 (4K 多帧峰值: 全帧 rgba 可达数 GB; 压缩后仅存 IDAT)
       frames.push({ idat: encodeIdat(width, height, canvas.data), delayMs: frameDelayMs || 100 });
       // 逐帧进度上报 (宿主 scene-anim 渲染进度条)
       parentPort.postMessage({ progress: true, done: i + 1, total });
     }
     const apng = encodeApng(width, height, frames);
-    parentPort.postMessage({ ok: true, apng }, [apng.buffer]);
+    parentPort.postMessage({ ok: true, apng, coverage: Math.min(...coverageSamples) }, [apng.buffer]);
   }
 } catch (e) {
   parentPort.postMessage({ ok: false, error: String(e && e.message ? e.message : e) });

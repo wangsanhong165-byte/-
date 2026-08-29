@@ -378,7 +378,16 @@ function AppearanceTab({ settings, onSettingChange }: {
     onSettingChange('backgroundPath', result.path || '')
     onSettingChange('backgroundLabel', result.label || result.path || '')
     setMediaState('loading')
-    setMessage(result.warning || (result.type === 'video' ? '已加载 Wallpaper Engine 视频壁纸。' : '已加载壁纸。'))
+    // Procedural scenes upgrade in the background (preview → rendered frame
+    // → animated MP4); tell the user what they are looking at right now and
+    // that re-picking will show the upgraded form.
+    const sourceHints: Record<string, string> = {
+      'wallpaper-engine-scene-preview': '程序化场景：当前显示预览图，后台正在渲染真实画面（数十秒~数分钟），稍后重新选择即可看到升级效果。',
+      'wallpaper-engine-scene-rendered': '程序化场景：已显示引擎渲染画面；完整动画正在后台渲染，稍后重新选择可升级为动态视频。',
+      'wallpaper-engine-scene-rendered-video': '程序化场景：已加载引擎渲染的动画（硬解播放，不占 GPU）。',
+      'wallpaper-engine-scene-video': '已加载场景内嵌视频。',
+    }
+    setMessage(result.warning || sourceHints[result.sourceType || ''] || (result.type === 'video' ? '已加载 Wallpaper Engine 视频壁纸。' : '已加载壁纸。'))
   }
 
   const selectWallpaper = async (mode: 'file' | 'directory') => {

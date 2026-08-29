@@ -317,6 +317,10 @@ export function DesktopSessionWorkspace() {
     // Load persisted settings on startup
     fetch('/api/settings').then(r => r.json()).then(data => {
       const s = data.settings || {}
+      // fit semantics changed with the fusion layer: the legacy "contain"
+      // default meant native-size/never-upscale, which is now the "center"
+      // mode. Migrate once so old profiles don't suddenly stretch-fill.
+      if (s.backgroundFit === 'contain') s.backgroundFit = 'center'
       for (const [key, value] of Object.entries(s)) {
         try { actions.setSetting(key as keyof AppSettings, value) } catch (_) {}
       }

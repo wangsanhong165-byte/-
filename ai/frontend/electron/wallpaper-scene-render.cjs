@@ -56,6 +56,15 @@ async function resolveWeAssetsDir() {
   return weAssetsDirCache
 }
 
+// ── Quality gate ────────────────────────────────────────────────────────────
+// The reference renderer handles most scenes but draws some with their content
+// confined to a corner (unported effect/layout math) — an eyeball-passed
+// "half black" frame. The worker samples coverage (non-black pixel ratio) on
+// every render; below 50% the frame is rejected here and the caller falls
+// back to the preview image. Failure marker files stop repeat attempts.
+
+const FRAME_MIN_COVERAGE = 0.5
+
 // ── Worker invocation ───────────────────────────────────────────────────────
 
 /** One render at a time; wallpaper frame rendering is strictly background. */
@@ -117,6 +126,13 @@ function startJob(job) {
       return
     }
     if (msg?.ok) {
+      // Quality gate: content confined to a corner (coverage < 50%) means the
+      // renderer failed on this scene's layout — reject before it ever lands
+      // in the cache or on screen.
+      if (typeof msg.coverage === 'number' && msg.coverage < FRAME_MIN_COVERAGE) {
+        finish({ ok: false, error: `low-coverage render (${Math.round(msg.coverage * 100)}%)`, lowCoverage: true })
+        return
+      }
       finish({ ok: true, png: msg.png ? Buffer.from(msg.png) : null, apng: msg.apng ? Buffer.from(msg.apng) : null })
     } else {
       finish({ ok: false, error: (msg && msg.error) || 'scene render failed' })
@@ -198,6 +214,32 @@ function cachePaths(entryPath, tag, ext) {
 // ── Public API ──────────────────────────────────────────────────────────────
 
 /**
+ * Pure cache check (no rendering): does a rendered frame / animation MP4
+ * already exist for this scene? Lets the pick chain serve cached upgrades
+ * without ever touching the worker queue.
+ */
+function peekSceneFrame(entryPath, { width = 1280, height = 720 } = {}) {
+  const src = String(entryPath).toLowerCase().endsWith('.json') ? path.dirname(entryPath) : entryPath
+  let h = height
+  // Aspect correction needs the scene's ortho ratio; a cheap cached lookup.
+  return sceneAspect(src).then(sar => {
+    if (sar) h = Math.round(width / sar)
+    const file = cachePaths(src, `frame_${width}x${h}`, '.png').file
+    return fs.existsSync(file) ? file : null
+  })
+}
+
+function peekSceneAnimation(entryPath, { fps = 12, width = 1280, height = 720 } = {}) {
+  const src = String(entryPath).toLowerCase().endsWith('.json') ? path.dirname(entryPath) : entryPath
+  return sceneAspect(src).then(sar => {
+    let h = height
+    if (sar) h = Math.round(width / sar)
+    const file = cachePaths(src, `anim_${width}x${h}_${fps}fps`, '.mp4').file
+    return fs.existsSync(file) ? file : null
+  })
+}
+
+/**
  * Render one high-quality static frame (PNG) for a scene.
  * Returns { ok, path } or { ok:false, reason }.
  */
@@ -208,7 +250,11 @@ async function renderSceneFrame(entryPath, { width = 1280, height = 720 } = {}) 
   if (sar) h = Math.round(w / sar)
   const out = cachePaths(src, `frame_${w}x${h}`, '.png')
   if (fs.existsSync(out.file)) return { ok: true, path: out.file }
-  const result = await runWorker({ src, width: w, height: h, time: 0 })
+  // Same steady-state rule as the animation: t=0 is often a mid fly-in
+  // (mostly black) — sample past the intro so stills look like the wallpaper.
+  const loop = await sceneLoopPeriod(src)
+  const time = Math.min(2, loop / 4)
+  const result = await runWorker({ src, width: w, height: h, time })
   if (!result.ok || !result.png) return { ok: false, reason: result.error || 'empty frame' }
   const tmp = `${out.file}.tmp${process.pid}`
   try {
@@ -234,14 +280,20 @@ async function renderSceneAnimation(entryPath, {
   ffmpeg = null,
   onProgress = null,
 } = {}) {
-  const src = String(entryPath).toLowerCase().endsWith('.json') ? path.dirname(entryPath) : entryPath
+  const src = entryPath.toLowerCase().endsWith('.json') ? path.dirname(entryPath) : entryPath
   let w = width, h = height
   const sar = await sceneAspect(src)
   if (sar) h = Math.round(w / sar)
   const loop = Math.min(await sceneLoopPeriod(src), maxSec)
+  // Skip the intro segment: most scenes open with a camera fly-in / fade-in,
+  // so frames near t=0 are not the steady-state look — a looping video that
+  // includes them visibly "flashes" every cycle (verified: frame 0 of the
+  // Kaiserin scene was mostly black). Sampling [skip, skip+loop) keeps the
+  // window closed (last frame == first frame) for a seamless loop.
+  const skip = Math.min(2, loop / 4)
   const frameCount = Math.max(2, Math.round(fps * loop))
   const times = []
-  for (let i = 0; i < frameCount; i++) times.push((i / frameCount) * loop)
+  for (let i = 0; i < frameCount; i++) times.push(skip + (i / frameCount) * loop)
 
   const out = cachePaths(src, `anim_${w}x${h}_${fps}fps`, '.mp4')
   const inflightKey = out.file
@@ -322,4 +374,6 @@ module.exports = {
   renderSceneFrame: renderSceneFrameOnce,
   renderSceneAnimation,
   resolveWeAssetsDir,
+  peekSceneFrame,
+  peekSceneAnimation,
 }
