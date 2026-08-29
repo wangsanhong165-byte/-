@@ -166,7 +166,24 @@ function candidateFfmpegPaths() {
   if (process.env.AURORA_WALLPAPER_FFMPEG && process.env.AURORA_WALLPAPER_FFMPEG.trim()) {
     candidates.push(process.env.AURORA_WALLPAPER_FFMPEG.trim())
   }
-  // GPT-SoVITS runtime ships a full ffmpeg build with the models directory.
+  // Standalone full build first (winget Gyan.FFmpeg) — wallpaper media must
+  // not depend on any business component's install location (the TTS runtime
+  // below is only a last-ditch fallback, not a dependency).
+  const winGetRoot = path.join(process.env.LOCALAPPDATA || '', 'Microsoft', 'WinGet', 'Packages')
+  try {
+    if (fs.existsSync(winGetRoot)) {
+      for (const entry of fs.readdirSync(winGetRoot)) {
+        if (!/^Gyan\.FFmpeg_/i.test(entry)) continue
+        const pkgDir = path.join(winGetRoot, entry)
+        for (const sub of fs.readdirSync(pkgDir)) {
+          const exe = path.join(pkgDir, sub, 'bin', 'ffmpeg.exe')
+          if (fs.existsSync(exe)) candidates.push(exe)
+        }
+      }
+    }
+  } catch { /* winget not present — fine */ }
+  // GPT-SoVITS runtime ffmpeg: trimmed build (no libx264), kept as a fallback
+  // only because it is verified working on this machine today.
   try {
     const modelsDir = path.join(PROJECT_ROOT, 'models', 'tts')
     if (fs.existsSync(modelsDir)) {
