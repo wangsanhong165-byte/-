@@ -388,6 +388,11 @@ aside {
   z-index: -2;
   overflow: hidden;
   pointer-events: none;
+  /* Flex centering for the --center placement child (see its rule). Other
+     children are absolutely positioned so flex layout ignores them. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* Contain placement: true CSS contain — fills to the nearer edge, keeps the
@@ -408,6 +413,19 @@ aside {
   filter: var(--wp-media-filter, none);
   transform: var(--wp-media-transform, none);
   transform-origin: center;
+}
+
+/* Center placement: NATIVE size, centered, scale-DOWN only — the reference's
+   居中 mode. inset:0 + margin:auto auto-sizing is unreliable for portrait
+   media in Chromium (over-constrained → 0×0), so centering is done by the
+   layer's flex box instead: static position, auto margins via justify/
+   align, and max constraints keep native pixels with scale-down only. */
+.wp-layer .wp-media--center {
+  position: static;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
 }
 
 /* Fill placements: contain (贴边, may upscale) and cover/fill (铺满/拉伸,
