@@ -33,6 +33,7 @@ const {
 const { buildInventory } = require('./wallpaper-library.cjs')
 const { extractSceneMedia } = require('./wallpaper-pkg.cjs')
 const { getMediaInfo, transcodeProgress, transcodeToFps } = require('./wallpaper-transcode.cjs')
+const { renderSceneFrame, renderSceneAnimation, resolveWeAssetsDir } = require('./wallpaper-scene-render.cjs')
 const {
   resolveWallpaperAsset: protocolResolve,
   wallpaperMime,
@@ -854,6 +855,56 @@ async function wallpaperInventoryPayload() {
   return payload
 }
 
+/**
+ * Cached engine-rendered frame for procedural scenes. Returns the PNG path
+ * when already rendered, or null immediately (a background render is kicked
+ * off — the next pick serves it). Never blocks the pick chain.
+ */
+async function renderSceneFrameCached(entryPath) {
+  const src = entryPath.toLowerCase().endsWith('.json') ? path.dirname(entryPath) : entryPath
+  try {
+    const result = await renderSceneFrame(src, { width: 1280, height: 720 })
+    if (result.ok) {
+      allowedWallpaperPaths.add(path.resolve(result.path))
+      return path.resolve(result.path)
+    }
+    return null
+  } catch { return null }
+}
+
+/**
+ * Background: render the scene's full animation loop to an MP4 in the render
+ * module's cache. Fire-and-forget — failures are silent (the still frame or
+ * preview remains). Only one scene animates at a time (worker queue) and
+ * rendering pauses nothing; decode starts only after the next pick.
+ */
+const preheatedAnims = new Set()
+async function preheatSceneAnimation(entryPath) {
+  const src = entryPath.toLowerCase().endsWith('.json') ? path.dirname(entryPath) : entryPath
+  if (preheatedAnims.has(src)) return
+  preheatedAnims.add(src)
+  try {
+    const ffmpeg = await resolveWallpaperFfmpeg()
+    if (!ffmpeg) return
+    await renderSceneAnimation(src, { fps: 12, maxSec: 20, width: 1280, height: 720, ffmpeg })
+  } catch { /* silent — still/preview fallback stands */ }
+}
+
+/** ffmpeg supply chain shared with wallpaper-transcode (env → GPT-SoVITS → PATH). */
+let ffmpegResolved = null
+async function resolveWallpaperFfmpeg() {
+  if (ffmpegResolved !== null) return ffmpegResolved
+  try {
+    const { resolveFfmpegPath } = require('./wallpaper-transcode.cjs')
+    if (resolveFfmpegPath) {
+      ffmpegResolved = resolveFfmpegPath()
+      return ffmpegResolved
+    }
+  } catch { /* fall through */ }
+  ffmpegResolved = 'ffmpeg'
+  return ffmpegResolved
+}
+
 /** Extracted scene media (embedded MP4/JPEG) cache: key = entry path+mtime. */
 function sceneMediaCachePaths(entryPath) {
   const st = fs.statSync(entryPath)
@@ -960,9 +1011,27 @@ async function pickWallpaperFromLibrary(wallpaper) {
         sourceType: 'wallpaper-engine-scene-frame',
       }
     }
-    // Fall back to the project preview image if present.
+    // Procedural scene (no embedded media): render a true frame with the
+    // vendored scene engine when one is already cached; otherwise kick off a
+    // background render and show the preview image for now — picking must
+    // never wait on a multi-second CPU rasterization. The next pick (or the
+    // animation preheat below) upgrades to the real render.
+    const rendered = await renderSceneFrameCached(entryPath)
+    if (rendered) {
+      return {
+        ok: true,
+        type: 'image',
+        path: rendered,
+        url: wallpaperResourceUrl(rendered),
+        label: wallpaper.title || path.basename(path.dirname(entryPath)),
+        sourceType: 'wallpaper-engine-scene-rendered',
+      }
+    }
     if (wallpaper.previewPath && await fs.promises.stat(wallpaper.previewPath).then(s => s.isFile()).catch(() => false)) {
       allowedWallpaperPaths.add(path.resolve(wallpaper.previewPath))
+      // Background: first frame, then the full animation loop as MP4. When
+      // the MP4 lands the next pick serves a live video instead of a still.
+      void preheatSceneAnimation(entryPath)
       return {
         ok: true,
         type: 'image',
@@ -972,6 +1041,7 @@ async function pickWallpaperFromLibrary(wallpaper) {
         sourceType: 'wallpaper-engine-scene-preview',
       }
     }
+    void preheatSceneAnimation(entryPath)
     return { ok: false, code: 'unsupported', message: '这个场景壁纸无法提取内嵌媒体，也没有预览图可用。' }
   }
 

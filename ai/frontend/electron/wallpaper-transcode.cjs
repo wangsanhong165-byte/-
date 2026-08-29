@@ -344,4 +344,5 @@ module.exports = {
   probeMp4,
   transcodeProgress,
   transcodeToFps,
+  resolveFfmpegPath: resolveFfmpeg,
 }

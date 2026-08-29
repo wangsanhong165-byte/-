@@ -18,6 +18,8 @@
     "electron:build": "npm run build && electron-builder"
   },
   "dependencies": {
+    "@shaderfrog/glsl-parser": "^7.0.1",
+    "jpeg-js": "^0.4.4",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"

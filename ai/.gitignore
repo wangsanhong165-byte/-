@@ -65,3 +65,4 @@ data/pids/
 
 # Agent scratch files (DSH session artifacts)
 .agent-runs/scratch/
+data/cache/
