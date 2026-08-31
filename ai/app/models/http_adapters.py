@@ -129,6 +129,8 @@ class HTTPTTSAdapter:
             "sovits_weights",
             "speed_factor",
             "emotion",
+            "temperature",
+            "top_k",
         )
         for key in allowed:
             if options.get(key) not in (None, ""):

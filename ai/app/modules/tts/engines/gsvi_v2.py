@@ -176,6 +176,12 @@ class GSVIV2TTS(BaseTTS):
         }
         if prompt_text:
             payload["prompt_text"] = prompt_text
+        # Emotion-shaped sampling: temperature/top_k ride through from the
+        # runtime's emotion mapping (api_v2 accepts them per request).
+        if options.get("temperature") is not None:
+            payload["temperature"] = float(options["temperature"])
+        if options.get("top_k") is not None:
+            payload["top_k"] = int(options["top_k"])
 
         _t0 = _time.time()
         full_url = f"{url}/tts"

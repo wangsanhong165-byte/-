@@ -14,6 +14,26 @@ from app.interfaces.tts import TTSInterface
 logger = logging.getLogger("tts_step")
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
+# Emotion → v2Pro delivery-shaping defaults. GPT-SoVITS api_v2 has no emotion
+# field; temperature (sampling spread) and speed_factor (pace) are the levers
+# that make the same voice read calm vs agitated. A voice pack may override
+# these per character via voice.json["emotion_params"].
+_DEFAULT_EMOTION_PARAMS: dict[str, dict[str, float]] = {
+    "angry": {"temperature": 0.9, "speed_factor": 1.05},
+    "pout": {"temperature": 0.75, "speed_factor": 1.03},
+    "joyful": {"temperature": 0.75, "speed_factor": 1.03},
+    "happy": {"temperature": 0.7, "speed_factor": 1.0},
+    "playful": {"temperature": 0.7, "speed_factor": 1.04},
+    "surprised": {"temperature": 0.8, "speed_factor": 1.05},
+    "sad": {"temperature": 0.3, "speed_factor": 0.92},
+    "cry": {"temperature": 0.25, "speed_factor": 0.9},
+    "worried": {"temperature": 0.4, "speed_factor": 0.95},
+    "shy": {"temperature": 0.45, "speed_factor": 0.97},
+    "embarrassed": {"temperature": 0.5, "speed_factor": 0.98},
+    "calm": {"temperature": 0.35, "speed_factor": 0.97},
+    "neutral": {},
+}
+
 
 def _character_asset(character_id: str, value: object) -> str:
     """Resolve a character-card asset without allowing it to escape its pack."""
@@ -45,11 +65,17 @@ def _extract_voice_kwargs(ctx: CharacterTurn) -> dict:
     """Extract TTS voice parameters from the character card."""
     character = ctx.character
     if character is None:
-        return {}
+        # No card: still shape delivery by the turn's emotion (built-in
+        # defaults) — voice identity simply stays at engine defaults.
+        kwargs: dict = {}
+        _apply_emotion_params(kwargs, None, str(ctx.emotion or "neutral"))
+        return kwargs
 
     card = character.raw_card if hasattr(character, "raw_card") else {}
     if not isinstance(card, dict):
-        return {}
+        kwargs = {}
+        _apply_emotion_params(kwargs, None, str(ctx.emotion or "neutral"))
+        return kwargs
 
     tts_cfg = card.get("tts", {})
     kwargs: dict = {}
@@ -90,6 +116,7 @@ def _extract_voice_kwargs(ctx: CharacterTurn) -> dict:
             kwargs["sovits_weights"] = resolved_voice["sovits_weights"]
         if not kwargs.get("voice") and resolved_voice.get("name"):
             kwargs["voice"] = resolved_voice["name"]
+        _apply_emotion_params(kwargs, resolved_voice.get("emotion_params"), str(ctx.emotion or "neutral"))
         return kwargs
 
     ref_audio = tts_cfg.get("ref_audio", {})
@@ -114,7 +141,25 @@ def _extract_voice_kwargs(ctx: CharacterTurn) -> dict:
         if vits:
             kwargs["sovits_weights"] = vits
 
+    _apply_emotion_params(kwargs, tts_cfg.get("emotion_params"), str(ctx.emotion or "neutral"))
     return kwargs
+
+
+def _apply_emotion_params(kwargs: dict, overrides: object, emotion: str) -> None:
+    """Merge emotion-shaped delivery params into synth kwargs.
+
+    v2Pro has no emotion field; temperature/speed_factor are set from the
+    turn's emotion (card/voice-pack overrides first, built-in defaults second)
+    so the same voice reads calm vs agitated. Explicit kwargs already present
+    win — a caller-provided speed is never clobbered.
+    """
+    defaults = _DEFAULT_EMOTION_PARAMS.get(emotion, {})
+    overrides_map = overrides if isinstance(overrides, dict) else {}
+    per_emotion = overrides_map.get(emotion)
+    merged = {**defaults, **(per_emotion if isinstance(per_emotion, dict) else {})}
+    for key, value in merged.items():
+        if kwargs.get(key) is None:
+            kwargs[key] = value
 
 
 def _wav_duration_ms(data: bytes) -> int:
