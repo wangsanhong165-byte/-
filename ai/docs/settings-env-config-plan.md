@@ -1,4 +1,6 @@
-# Settings 暴露 .env 根本配置 — 方案(待审)
+# Settings 暴露 .env 根本配置 — 方案（已完成，2026-08 实施）
+
+> **状态：已实施**。`app/config_manager/env_store.py`（写回机制）+ `GET/POST /api/config/env`（bridge/server.py:547,554）+ Settings 面板 General tab 接线均已在代码中。本文保留为设计记录。
 
 > 目标:Settings 面板暴露 `config/.env` 的根本配置(LLM API key/base_url/model 等),无需手动编辑文件。
 

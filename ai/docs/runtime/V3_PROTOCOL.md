@@ -25,7 +25,7 @@ sequence         source   timestamp  payload
 | Session | `session.open`, `session.opened`, `session.closed`, `session.ping`, `session.pong` |
 | Runtime | `runtime.status`, `runtime.ready`, `runtime.degraded` |
 | Service | `service.status`, `configuration.updated`, `protocol.error` |
-| User | `user.text`, `user.audio.started`, `user.audio.chunk`, `user.audio.completed`, `user.audio.cancelled` |
+| User | `user.text`, `user.visual`, `user.audio.started`, `user.audio.chunk`, `user.audio.completed`, `user.audio.cancelled` |
 | Turn | `turn.started`, `turn.progress`, `turn.completed`, `turn.failed`, `turn.cancelled` |
 | ASR | `asr.started`, `asr.result`, `asr.failed` |
 | Assistant | `assistant.text.started`, `assistant.text.chunk`, `assistant.text.completed`, `assistant.failed` |
@@ -34,6 +34,8 @@ sequence         source   timestamp  payload
 | Tool | `tool.requested`, `tool.started`, `tool.result`, `tool.failed` |
 | Management | `management.requested`, `management.result`, `management.failed` |
 | Telemetry | `telemetry.batch` |
+
+`user.visual` 是视觉回合的入站事件：payload 为 `text` + `attachments`（≤16 张图片附件），覆盖用户手动发图与系统采样帧（语音回合摄像头帧、桌面截图）两条路径，与 `user.text`/`user.audio.*` 走同一条回合链路。
 
 `service.status.state` 的枚举覆盖 `starting`, `ready`, `degraded`, `failed`,
 `stopped`，因此项目没有再增加职责重复的 `service.ready` 和

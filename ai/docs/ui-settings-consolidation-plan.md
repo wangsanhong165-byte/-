@@ -1,4 +1,6 @@
-# 前端设置整合方案(待审)
+# 前端设置整合方案（已完成，2026-08 实施）
+
+> **状态：已实施**。模型选择已迁入 Settings → Live2D 工作台 hero card（AnimationTab），General tab 的 Live2D Model 下拉与 Character 死下拉已移除。本文保留为设计记录。
 
 > 范围收敛(按用户指示):只整合「模型选择」进 Live2D 工作台 + 移除 Character 死下拉。**其他不改**(Appearance tab、Accessories、Window、Interaction 全部保留)。
 

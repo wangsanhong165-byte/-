@@ -22,7 +22,8 @@
 | 🔒 | **本地私有** | 对话与记忆保存在自己的电脑上，默认本地服务；LLM 可配置为本地或任意 OpenAI 兼容服务 |
 | 💝 | **主动关怀** | 空闲检测 + 屏幕监控，它不只是等你说——也会主动找你搭话 |
 | 👁️ | **看得见** | 可发图片、语音时自动采样摄像头帧（可拖拽浮动窗预览）、屏幕变化或文字/语音回合时让 Aurora 看见桌面画面（需启用视觉模型） |
-| 🎭 | **角色自由定制** | 6 款 Live2D 模型 × 多种声线自由组合，角色卡只引用资源、不复制资源，创建新角色只需选模型和声线 |
+| 🎭 | **角色自由定制** | 6 款 Live2D 模型 × 3 套声线包自由组合，角色卡只引用资源、不复制资源，创建新角色只需选模型和声线 |
+| 🖼️ | **壁纸与主题** | 壁纸库（静态图/视频/着色器场景）全域铺底，五面板液态玻璃随主题感知，深色/浅色主题与强调色可调 |
 
 它不是一个聊天框——它是一个**有形象的、会记住你的、住在你电脑里的 AI 伙伴**。
 
@@ -86,11 +87,12 @@ Live2D 模型资源库与声线包分离，角色 = **模型 + 声线 + 性格�
 
 | 模型 | 说明 |
 |------|------|
-| shirone | 当前默认主模型，重点适配表情、嘴部、头身与耳尾身体语言 |
+| shirone | 模型层默认（`app/bridge/server.py` 的 `_live2d_model` 初值），重点适配表情、嘴部、头身与耳尾身体语言 |
 | Design_genius_White / ariu / hiyori / mao / youxiaomiao | 多款风格可选 |
 
-- 声线：`config/voices/` 下的声线包（如 Monika 定制声线，GPT-SoVITS v2Pro）
+- 声线：`config/voices/` 下的声线包（alims / amiya / monika，GPT-SoVITS v2Pro）
 - 角色卡：`config/characters/<id>/character.json` 是薄声明，**引用**系统级资源而非复制
+- 实际渲染哪款模型由当前激活角色的配置决定（如 monika 卡引用 Design_genius_White）
 - 表情映射、动作编排、模型视口均可按角色独立配置
 
 ---
@@ -149,13 +151,19 @@ ai/
 ├─ config/services.json        # 服务、端口、依赖与 profile 配置
 ├─ config/characters/          # 角色卡与角色注册
 ├─ config/avatar_profiles/     # 模型能力与表现配置
+├─ config/live2d_models.json   # 每模型表情映射与表现配置
+├─ config/voices/              # 系统级声线包（GPT-SoVITS）
+├─ config/motions/             # 语义动作预设
 ├─ models/live2d-models/       # Live2D 模型资源
+├─ backgrounds/                # 壁纸/背景资源
 ├─ app/lifecycle/              # Supervisor、健康检查、生命周期
 ├─ app/runtime/                # CharacterRuntime 与 Runtime V3 回合链
 ├─ app/bridge/                 # HTTP/WebSocket Bridge
 ├─ contracts/v3/               # V3 协议定义
-├─ frontend/src/               # React、Live2D 与表现控制器
-├─ frontend/electron/          # Electron 主进程
+├─ frontend/src/               # React、Live2D、壁纸与表现控制器
+├─ frontend/electron/          # Electron 主进程（进程管理在 electron/）
+├─ electron/                   # Electron 进程管理器与托盘
+├─ data/                       # 运行时状态：settings.json、记忆、pid
 ├─ tests/ + frontend/src/**/*.test.*   # Python / 前端测试
 └─ docs/                       # 协议、生命周期与架构资料
 ```

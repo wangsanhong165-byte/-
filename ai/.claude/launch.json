@@ -2,16 +2,12 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "Vite",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "frontend", "run", "dev", "--", "--port", "5173", "--strictPort"],
-      "port": 5173,
-      "url": "http://localhost:5173"
-    },
-    {
-      "name": "Bridge",
-      "port": 19206,
-      "url": "http://127.0.0.1:19206"
+      "name": "vite-frontend",
+      "runtimeExecutable": "npm.cmd",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "frontend",
+      "autoPort": true,
+      "port": 5173
     }
   ]
 }

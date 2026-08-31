@@ -20,12 +20,13 @@ soulctl.cmd
   -> Live2DModelAdapter -> Cubism SDK
 ```
 
-系统分为四个需要保持清晰边界的部分：
+系统分为五个需要保持清晰边界的部分：
 
 1. **生命周期层**：负责进程、依赖、端口选择、就绪和关闭，不负责角色决策。
 2. **Runtime 层**：负责一次回合的语义流程、记忆、工具、语音和表现意图，不负责 Cubism 参数。
 3. **Transport 层**：负责 V3 envelope、序列、会话和 WebSocket 事件，不负责业务状态拼装。
 4. **Frontend/Live2D 层**：负责模型能力、参数混合、动作仲裁和渲染，不让各个输入源直接写模型。
+5. **Stage/壁纸层**：负责壁纸渲染（静态图/视频/着色器场景）与主题化界面皮肤，是视觉外壳，不参与角色决策与表现仲裁。
 
 ## 2. 生命周期与服务
 
@@ -96,6 +97,14 @@ TurnInput
 
 后端不得把 Cubism 参数、表达式文件名、动作文件名或模型专属参数塞进 Runtime 表现更新。这样同一套 LLM/Runtime 可以服务不同 Live2D 模型，模型差异留在前端能力配置。
 
+## 3.1 Stage/壁纸层
+
+界面壁纸与主题是独立于 Live2D 表现链的视觉外壳：
+
+- **壁纸三种形态**：静态图、视频（含转码/倍速/遮挡暂停等播放控制）、着色器场景（vendored we-scene 引擎在 `frontend/electron/vendor/we-scene/`，由 `wallpaper-scene-render.cjs` 离屏渲染出帧）。壁纸库与选择器在 `frontend/src/ui/StageBackground.tsx`、`WallpaperLibraryPicker.tsx`，素材在 `backgrounds/`。
+- **主题系统**：`frontend/src/core/theme.ts` / `ui-theme.ts` 输出 CSS 变量与 `data-theme`，深色/浅色与强调色可调；壁纸之上的液态玻璃面板按主题令牌取色。
+- **边界**：壁纸层只消费主题令牌与自身播放状态，不向 Live2D 控制链、Runtime 或 Transport 写任何状态。
+
 ## 4. Transport 与协议边界
 
 `contracts/v3/envelope.py`、`contracts/v3/events.py` 和 `contracts/v3/registry.py` 是服务端 V3 协议来源。`app/bridge/server.py` 的 `/client-ws` 是客户端 WebSocket 主入口。
@@ -112,7 +121,8 @@ TurnInput
 典型事件顺序：
 
 ```text
-turn.started
+user.text | user.audio.* | user.visual (inbound)
+  -> turn.started
   -> asr.started / asr.result (optional)
   -> tool.started / tool.result | tool.failed (optional)
   -> assistant.text.started / assistant.text.completed
@@ -122,7 +132,7 @@ turn.started
   -> runtime.status(idle)
 ```
 
-失败回合以 `turn.failed` 结束并恢复 `runtime.status(idle)`。`character.intent` 是渲染器无关的语义事件；明确的用户 Avatar 管理消息属于另一条受权限控制的通道，不应伪装成 Runtime 决策。
+失败回合以 `turn.failed` 结束并恢复 `runtime.status(idle)`。`character.intent` 是渲染器无关的语义事件；明确的用户 Avatar 管理消息属于另一条受权限控制的通道，不应伪装成 Runtime 决策。入站视觉回合 `user.visual` 携带图片附件（摄像头采样帧、截图或用户手动发送的图片），与文本/语音回合走同一条 `handle_turn` 链路。
 
 ## 5. Live2D 表现控制链
 
@@ -168,8 +178,9 @@ SQLite 是当前对话记忆的持久存储。V3 的记忆提交使用 `turn_id`
 
 ## 7. 前端与开发入口
 
-- `frontend/src/`：React 页面、Bridge 客户端、Live2D 控制器和运行时监控。
-- `frontend/electron/`：Electron 主进程入口。
+- `frontend/src/`：React 页面、Bridge 客户端、Live2D 控制器、壁纸/主题与运行时监控。
+- `frontend/electron/`：Electron 主进程入口（窗口、桌宠、壁纸离屏渲染）。
+- `electron/`：Electron 进程管理器与托盘（被 `frontend/electron/` 引用）。
 - `frontend/vite.config.ts`：从服务清单读取端口并设置 API、WebSocket 和模型资源代理。
 - `frontend/package.json`：开发、Electron、测试、类型检查、构建和性能检查命令。
 
@@ -197,7 +208,8 @@ npm.cmd run build
 | 回合语义与状态 | `app/runtime/`, `contracts/v3/` |
 | WebSocket 事件 | `app/bridge/server.py`, `contracts/v3/` |
 | 前端和 Live2D | `frontend/src/`, `frontend/vite.config.ts` |
-| 角色/模型能力 | `config/characters/`, `config/avatar_profiles/`, `models/` |
+| 壁纸/主题 | `frontend/src/ui/StageBackground.tsx`, `frontend/src/core/theme.ts`, `frontend/electron/vendor/we-scene/` |
+| 角色/模型能力 | `config/characters/`, `config/avatar_profiles/`, `config/avatar.yaml`, `config/live2d_models.json`, `models/` |
 | 可回归行为 | `tests/`, `frontend/src/**/*.test.*` |
 
 带日期的审计、交接和方案文档是历史证据或设计记录，不替代上述来源。文档分类见 [docs/README.md](docs/README.md)。

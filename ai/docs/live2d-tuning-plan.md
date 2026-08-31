@@ -1,5 +1,7 @@
 # Live2D 生动度微调 — 实施计划（Phase A/B/C）
 
+> **状态：已全部实施并合入（2026-08-28，commit d0d0f79 / 9dda27c / 32dfbb4 + 验收脚本 ecb78ee + 人工反馈三连修 9ae40f8）。本文数值即当前代码行为，作为调参基线保留。** 验收脚本见 [acceptance-motion-curve.ps1](acceptance-motion-curve.ps1)。
+>
 > 分支：`feature/live2d-vividness-tuning`（基于 main @adbc86a）
 > 依据：`.tmp_video/vividness-verification-report.md`（v3 方案）+ MinikoMew 视频观察笔记
 > 范围裁定（用户 2026-08 确认）：皮套无手臂词表 → 无手势循环；唱歌未调试 → 无唱歌态；核心痛点 = 幅度过小 + 取消路径瞬断。

@@ -15,6 +15,7 @@ __pycache__/
 soullink-pytest-*/
 .test-runs/
 .tmp/
+.tmp_live2d_eval/
 .tmp_video/
 _cache/
 _runs/

@@ -1,9 +1,10 @@
-﻿"""v1 Voice Agent  --one-click launcher with input state machine.
+﻿"""v1 Voice Agent --one-click launcher with input state machine.
 
 Usage:
-    python run.py              # Continuous VAD mode
+    python run.py              # Continuous VAD voice mode
     python run.py --no-vad     # Single-turn (fixed duration)
-    python run.py --ui          # TUI control panel
+    python run.py --text       # Text-only chat mode
+    python run.py --web        # Start backend Bridge + Web UI
 """
 
 import argparse
