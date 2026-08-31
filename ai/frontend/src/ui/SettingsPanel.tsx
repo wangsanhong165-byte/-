@@ -1283,6 +1283,7 @@ function AnimationTab({ settings, onSettingChange, accessoryParts, accessoryStat
   onAccessoryToggle?: (label: string, enabled: boolean) => void
 }) {
   const [calibrating, setCalibrating] = useState(false)
+  const [capability, setCapability] = useState<EventMap['character:model_capability'] | null>(null)
   const [calibrationValues, setCalibrationValues] = useState<Record<string, number>>({})
   const [audioDiagnostic, setAudioDiagnostic] = useState<{
     requestId: string
@@ -1314,6 +1315,14 @@ function AnimationTab({ settings, onSettingChange, accessoryParts, accessoryStat
     setCalibrating(false)
     setCalibrationValues({})
     eventBus.emit('character:calibration_override', { clear: true })
+  }, [settings.live2dModel])
+
+  useEffect(() => {
+    const dispose = eventBus.on('character:model_capability', next => {
+      if (next.model === settings.live2dModel) setCapability(next)
+    })
+    eventBus.emit('character:model_capability_request', undefined)
+    return dispose
   }, [settings.live2dModel])
 
   useEffect(() => () => {
@@ -1459,20 +1468,36 @@ function AnimationTab({ settings, onSettingChange, accessoryParts, accessoryStat
       <div style={styles.sectionDivider} />
       <div style={styles.sectionLabel}>快速试演</div>
       <div style={styles.buttonGrid}>
-        {(['happy', 'sad', 'angry', 'surprised', 'shy', 'neutral'] as const).map(emotion => (
-          <button
-            type="button"
-            key={emotion}
-            style={styles.previewButton}
-            onClick={() => eventBus.emit('character:intent', {
-              emotion,
-              behavior: 'react',
-              intensity: 0.85,
-            })}
-          >
-            {emotion}
-          </button>
-        ))}
+        {(() => {
+          // One button per visually-distinct outcome: emotions resolving to the
+          // same expression share a face, so extra buttons would feel dead.
+          const emotions = capability?.supportedEmotions?.length
+            ? capability.supportedEmotions
+            : (['happy', 'sad', 'angry', 'surprised', 'shy', 'neutral'] as const)
+          const resolution = capability?.emotionResolution ?? {}
+          const seen = new Set<string>()
+          const distinct: string[] = []
+          for (const emotion of emotions) {
+            const target = resolution[emotion] || emotion
+            if (seen.has(target)) continue
+            seen.add(target)
+            distinct.push(emotion)
+          }
+          return distinct.map((emotion: string) => (
+            <button
+              type="button"
+              key={emotion}
+              style={styles.previewButton}
+              onClick={() => eventBus.emit('character:intent', {
+                emotion,
+                behavior: 'react',
+                intensity: 0.85,
+              })}
+            >
+              {emotion}
+            </button>
+          ))
+        })()}
         <button
           type="button"
           style={styles.previewButton}

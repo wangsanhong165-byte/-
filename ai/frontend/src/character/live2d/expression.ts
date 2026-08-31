@@ -31,8 +31,8 @@ const HARDCODED_PRESETS: Record<string, ExpressionPreset> = {
     params: [
       { id: P.BROW_L_Y, value: 0 },
       { id: P.BROW_R_Y, value: 0 },
-      { id: P.EYE_L_OPEN, value: 1 },
-      { id: P.EYE_R_OPEN, value: 1 },
+      { id: P.EYE_L_OPEN, value: 1, blend: 'overwrite' },
+      { id: P.EYE_R_OPEN, value: 1, blend: 'overwrite' },
       { id: P.MOUTH_OPEN_Y, value: 0 },
     ],
   },
@@ -41,8 +41,8 @@ const HARDCODED_PRESETS: Record<string, ExpressionPreset> = {
     params: [
       { id: P.BROW_L_Y, value: 0.5 },
       { id: P.BROW_R_Y, value: 0.5 },
-      { id: P.EYE_L_OPEN, value: 0.8 },
-      { id: P.EYE_R_OPEN, value: 0.8 },
+      { id: P.EYE_L_OPEN, value: 0.8, blend: 'overwrite' },
+      { id: P.EYE_R_OPEN, value: 0.8, blend: 'overwrite' },
       { id: P.EYE_L_SMILE, value: 0.5 },
       { id: P.EYE_R_SMILE, value: 0.5 },
       { id: P.MOUTH_OPEN_Y, value: 0.2 },
@@ -57,8 +57,8 @@ const HARDCODED_PRESETS: Record<string, ExpressionPreset> = {
     params: [
       { id: P.BROW_L_Y, value: 0.12 },
       { id: P.BROW_R_Y, value: 0.12 },
-      { id: P.EYE_L_OPEN, value: 0.78 },
-      { id: P.EYE_R_OPEN, value: 0.78 },
+      { id: P.EYE_L_OPEN, value: 0.78, blend: 'overwrite' },
+      { id: P.EYE_R_OPEN, value: 0.78, blend: 'overwrite' },
       { id: P.EYE_L_SMILE, value: 0.18 },
       { id: P.EYE_R_SMILE, value: 0.18 },
       { id: P.MOUTH_OPEN_Y, value: 0.04 },
@@ -67,11 +67,17 @@ const HARDCODED_PRESETS: Record<string, ExpressionPreset> = {
 
   sad: {
     params: [
-      { id: P.BROW_L_Y, value: -0.3 },
-      { id: P.BROW_R_Y, value: -0.3 },
-      { id: P.EYE_L_OPEN, value: 0.7 },
-      { id: P.EYE_R_OPEN, value: 0.7 },
+      // Presets tuned for perceptibility on shirone: the old -0.3 brow / 0.7
+      // eye read as "nothing happened" against the standing reset face. Brow
+      // shape curls the brow inward (grief), mouth form drops to a frown.
+      { id: P.BROW_L_Y, value: -0.55 },
+      { id: P.BROW_R_Y, value: -0.55 },
+      { id: P.BROW_L_FORM, value: -0.6, blend: 'overwrite' },
+      { id: P.BROW_R_FORM, value: -0.6, blend: 'overwrite' },
+      { id: P.EYE_L_OPEN, value: 0.62, blend: 'overwrite' },
+      { id: P.EYE_R_OPEN, value: 0.62, blend: 'overwrite' },
       { id: P.MOUTH_OPEN_Y, value: 0.1 },
+      { id: P.MOUTH_FORM, value: -0.45, blend: 'overwrite' },
     ],
   },
 
@@ -79,9 +85,12 @@ const HARDCODED_PRESETS: Record<string, ExpressionPreset> = {
     params: [
       { id: P.BROW_L_Y, value: 0.28 },
       { id: P.BROW_R_Y, value: 0.18 },
-      { id: P.EYE_L_OPEN, value: 0.72 },
-      { id: P.EYE_R_OPEN, value: 0.72 },
+      { id: P.BROW_L_FORM, value: -0.4, blend: 'overwrite' },
+      { id: P.BROW_R_FORM, value: -0.4, blend: 'overwrite' },
+      { id: P.EYE_L_OPEN, value: 0.72, blend: 'overwrite' },
+      { id: P.EYE_R_OPEN, value: 0.72, blend: 'overwrite' },
       { id: P.MOUTH_OPEN_Y, value: 0.08 },
+      { id: P.MOUTH_FORM, value: -0.3, blend: 'overwrite' },
     ],
   },
 
@@ -91,8 +100,8 @@ const HARDCODED_PRESETS: Record<string, ExpressionPreset> = {
       { id: P.BROW_R_Y, value: -0.5 },
       { id: P.BROW_L_X, value: -0.3 },
       { id: P.BROW_R_X, value: 0.3 },
-      { id: P.EYE_L_OPEN, value: 0.9 },
-      { id: P.EYE_R_OPEN, value: 0.9 },
+      { id: P.EYE_L_OPEN, value: 0.9, blend: 'overwrite' },
+      { id: P.EYE_R_OPEN, value: 0.9, blend: 'overwrite' },
       { id: P.MOUTH_OPEN_Y, value: 0.3 },
     ],
   },
@@ -101,8 +110,8 @@ const HARDCODED_PRESETS: Record<string, ExpressionPreset> = {
     params: [
       { id: P.BROW_L_Y, value: 0.8 },
       { id: P.BROW_R_Y, value: 0.8 },
-      { id: P.EYE_L_OPEN, value: 1.2 },
-      { id: P.EYE_R_OPEN, value: 1.2 },
+      { id: P.EYE_L_OPEN, value: 1.2, blend: 'overwrite' },
+      { id: P.EYE_R_OPEN, value: 1.2, blend: 'overwrite' },
       { id: P.MOUTH_OPEN_Y, value: 0.5 },
     ],
   },
@@ -111,8 +120,8 @@ const HARDCODED_PRESETS: Record<string, ExpressionPreset> = {
     params: [
       { id: P.BROW_L_Y, value: 0.2 },
       { id: P.BROW_R_Y, value: 0.2 },
-      { id: P.EYE_L_OPEN, value: 0.6 },
-      { id: P.EYE_R_OPEN, value: 0.6 },
+      { id: P.EYE_L_OPEN, value: 0.6, blend: 'overwrite' },
+      { id: P.EYE_R_OPEN, value: 0.6, blend: 'overwrite' },
       { id: P.MOUTH_OPEN_Y, value: 0.05 },
       { id: P.CHEEK, value: 0.6 },
     ],
@@ -122,8 +131,8 @@ const HARDCODED_PRESETS: Record<string, ExpressionPreset> = {
     params: [
       { id: P.BROW_L_Y, value: 0.1 },
       { id: P.BROW_R_Y, value: 0.3 },
-      { id: P.EYE_L_OPEN, value: 0.6 },
-      { id: P.EYE_R_OPEN, value: 0.6 },
+      { id: P.EYE_L_OPEN, value: 0.6, blend: 'overwrite' },
+      { id: P.EYE_R_OPEN, value: 0.6, blend: 'overwrite' },
     ],
   },
 
@@ -131,8 +140,8 @@ const HARDCODED_PRESETS: Record<string, ExpressionPreset> = {
     params: [
       { id: P.BROW_L_Y, value: 0.3 },
       { id: P.BROW_R_Y, value: 0.3 },
-      { id: P.EYE_L_OPEN, value: 1.0 },
-      { id: P.EYE_R_OPEN, value: 1.0 },
+      { id: P.EYE_L_OPEN, value: 1.0, blend: 'overwrite' },
+      { id: P.EYE_R_OPEN, value: 1.0, blend: 'overwrite' },
     ],
   },
 
@@ -140,8 +149,8 @@ const HARDCODED_PRESETS: Record<string, ExpressionPreset> = {
     params: [
       { id: P.BROW_L_Y, value: -0.2 },
       { id: P.BROW_R_Y, value: 0.3 },
-      { id: P.EYE_L_OPEN, value: 0.7 },
-      { id: P.EYE_R_OPEN, value: 0.7 },
+      { id: P.EYE_L_OPEN, value: 0.7, blend: 'overwrite' },
+      { id: P.EYE_R_OPEN, value: 0.7, blend: 'overwrite' },
     ],
   },
 
@@ -151,8 +160,8 @@ const HARDCODED_PRESETS: Record<string, ExpressionPreset> = {
       { id: P.BROW_R_Y, value: 0.3 },
       { id: P.EYE_L_SMILE, value: 0.7 },
       { id: P.EYE_R_SMILE, value: 0.7 },
-      { id: P.EYE_L_OPEN, value: 0.7 },
-      { id: P.EYE_R_OPEN, value: 0.7 },
+      { id: P.EYE_L_OPEN, value: 0.7, blend: 'overwrite' },
+      { id: P.EYE_R_OPEN, value: 0.7, blend: 'overwrite' },
       { id: P.MOUTH_OPEN_Y, value: 0.15 },
     ],
   },
@@ -161,8 +170,8 @@ const HARDCODED_PRESETS: Record<string, ExpressionPreset> = {
     params: [
       { id: P.BROW_L_Y, value: 0.6 },
       { id: P.BROW_R_Y, value: 0.6 },
-      { id: P.EYE_L_OPEN, value: 1.1 },
-      { id: P.EYE_R_OPEN, value: 1.1 },
+      { id: P.EYE_L_OPEN, value: 1.1, blend: 'overwrite' },
+      { id: P.EYE_R_OPEN, value: 1.1, blend: 'overwrite' },
       { id: P.MOUTH_OPEN_Y, value: 0.4 },
     ],
   },
@@ -171,8 +180,8 @@ const HARDCODED_PRESETS: Record<string, ExpressionPreset> = {
     params: [
       { id: P.BROW_L_Y, value: -0.1 },
       { id: P.BROW_R_Y, value: -0.1 },
-      { id: P.EYE_L_OPEN, value: 0.4 },
-      { id: P.EYE_R_OPEN, value: 0.4 },
+      { id: P.EYE_L_OPEN, value: 0.4, blend: 'overwrite' },
+      { id: P.EYE_R_OPEN, value: 0.4, blend: 'overwrite' },
       { id: P.MOUTH_OPEN_Y, value: 0.05 },
     ],
   },
@@ -181,8 +190,8 @@ const HARDCODED_PRESETS: Record<string, ExpressionPreset> = {
     params: [
       { id: P.BROW_L_Y, value: -0.1 },
       { id: P.BROW_R_Y, value: -0.1 },
-      { id: P.EYE_L_OPEN, value: 0.2 },
-      { id: P.EYE_R_OPEN, value: 0.2 },
+      { id: P.EYE_L_OPEN, value: 0.2, blend: 'overwrite' },
+      { id: P.EYE_R_OPEN, value: 0.2, blend: 'overwrite' },
       { id: P.MOUTH_OPEN_Y, value: 0 },
     ],
   },
@@ -191,8 +200,8 @@ const HARDCODED_PRESETS: Record<string, ExpressionPreset> = {
     params: [
       { id: P.BROW_L_Y, value: 0.4 },
       { id: P.BROW_R_Y, value: 0.6 },
-      { id: P.EYE_L_OPEN, value: 0.8 },
-      { id: P.EYE_R_OPEN, value: 0.9 },
+      { id: P.EYE_L_OPEN, value: 0.8, blend: 'overwrite' },
+      { id: P.EYE_R_OPEN, value: 0.9, blend: 'overwrite' },
       { id: P.EYE_L_SMILE, value: 0.3 },
       { id: P.EYE_R_SMILE, value: 0.4 },
       { id: P.MOUTH_OPEN_Y, value: 0.3 },

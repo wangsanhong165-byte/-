@@ -10,6 +10,8 @@ export const PARAM_IDS = {
   BROW_R_Y: 'ParamBrowRY',
   BROW_L_X: 'ParamBrowLX',
   BROW_R_X: 'ParamBrowRX',
+  BROW_L_FORM: 'ParamBrowLForm',
+  BROW_R_FORM: 'ParamBrowRForm',
   BODY_X: 'ParamBodyAngleX',
   BODY_Y: 'ParamBodyAngleY',
   ANGLE_X: 'ParamAngleX',

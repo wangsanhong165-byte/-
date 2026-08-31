@@ -221,6 +221,8 @@ export class CharacterController {
   private _currentEmotion = 'neutral'
   private _currentEmotionIntensity = 0
   private _nativeExpressions: string[] = []
+  private _expressionEmotions: string[] = []
+  private _emotionResolution: Record<string, string> = {}
   private _nativeMotions: string[] = []
   private _performanceResetTimer: ReturnType<typeof setTimeout> | null = null
   private _audioEndTimer: ReturnType<typeof setTimeout> | null = null
@@ -265,10 +267,18 @@ export class CharacterController {
     this._baseMotionPresets = (window as any).__INITIAL_MODEL_INFO__?.motionPresets ?? {}
     this.refreshMotionPresets()
     this.behaviorResolver.setConfig(config)
-    this.exprCtrl.setModelConfig(
-      { ...(config?.emotionMap ?? {}), ...(this._profile?.expressionMap ?? {}) },
-      modelExpressionNames,
+    // Per-emotion resolved target: emotionMap → profile expressionMap → '' when
+    // the key exists in the vocabulary but resolves to nothing distinctive.
+    // UIs dedupe by target so preview buttons only show visible outcomes.
+    const mergedEmotionMap: Record<string, string> = {
+      ...(config?.emotionMap ?? {}),
+      ...(this._profile?.expressionMap ?? {}),
+    }
+    this._expressionEmotions = Object.keys(mergedEmotionMap)
+    this._emotionResolution = Object.fromEntries(
+      Object.entries(mergedEmotionMap).map(([emotion, target]) => [emotion, target || '']),
     )
+    this.exprCtrl.setModelConfig(mergedEmotionMap, modelExpressionNames)
     this._nativeExpressions = modelExpressionNames
     this.emitNativeCatalog()
   }
@@ -446,8 +456,17 @@ export class CharacterController {
         this.audioPlaybackActive = true
         this.lipSync.setSpeaking(true)
         // Mouth belongs to lip-sync while audio plays; some expression presets
-        // pin mouth parameters and freeze speech otherwise.
-        this.exprCtrl.setSpeechMouthMute(true, Object.keys(this.parameterResolver.values({ 'mouth.open': 0 })))
+        // pin mouth parameters and freeze speech otherwise. Beyond mouth.open
+        // this releases mouth.form and any model-specific mouth-deforming
+        // expression params declared by the profile (e.g. shirone's 鼓嘴
+        // asset draws a closed pout mouth that visually swallows lip-sync).
+        // Profile params are already Cubism ids and bypass logical resolution.
+        const muteIds = Object.keys(this.parameterResolver.values({
+          'mouth.open': 0,
+          'mouth.form': 0,
+        }))
+        for (const id of this._profile?.speechMouthParams ?? []) muteIds.push(id)
+        this.exprCtrl.setSpeechMouthMute(true, muteIds)
         this.onActivityChange('speaking', turnId)
       }),
     )
@@ -895,6 +914,11 @@ export class CharacterController {
         generation: this._modelGeneration,
         supportedMotions: [...(this._profile?.motions ?? [])],
         supportedExpressions: [...(this._profile?.expressions ?? [])],
+        // Semantic emotion vocabulary this model can actually render (the
+        // merged emotionMap keys) plus each key's resolved target, for UIs
+        // that preview expressions and must dedupe visually-identical ones.
+        supportedEmotions: [...this._expressionEmotions],
+        emotionResolution: { ...this._emotionResolution },
         parameters: this.adapter.getParameterMetadata(),
       parts: this.adapter.getPartMetadata(),
     }

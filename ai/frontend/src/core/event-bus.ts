@@ -45,6 +45,8 @@ export interface EventMap {
       generation: number
       supportedMotions: string[]
       supportedExpressions: string[]
+      supportedEmotions?: string[]
+      emotionResolution?: Record<string, string>
       parameters: Array<{
       id: string
       displayName?: string

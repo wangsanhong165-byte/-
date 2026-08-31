@@ -117,6 +117,12 @@ export interface AvatarCapabilityProfile {
   expressionParameterPolicy?: ExpressionParameterPolicy
   /** Small per-model silent opening used only while authored native idle is active. */
   idleMouthOpen?: number
+  /**
+   * Raw model params that mouth-deforming expression assets (pout faces etc.)
+   * drive and that lip-sync must visually own during speech. Released from
+   * expression ownership whenever audio plays, restored afterwards.
+   */
+  speechMouthParams?: string[]
   /** Model-specific gain for the logical breath input used by physics rigs. */
   breathMotionGain?: number
   /** Model-specific initial framing for assets whose Cubism canvas origin is off-center. */

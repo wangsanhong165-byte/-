@@ -580,5 +580,8 @@
     "calm": "重置",
     "blank": "重置",
     "neutral": "重置"
-  }
+  },
+  "speechMouthParams": [
+    "Param216"
+  ]
 }
