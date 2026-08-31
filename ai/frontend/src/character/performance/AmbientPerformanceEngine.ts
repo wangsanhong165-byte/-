@@ -49,6 +49,7 @@ export class AmbientPerformanceEngine {
   private tailPhase = 0
   private tailRootValue = 0
   private tailRootVelocity = 0
+  private bodyEnvelope = 0
   private readonly tailSegmentValues = Array.from({ length: 15 }, () => 0)
   private readonly tailSegmentVelocities = Array.from({ length: 15 }, () => 0)
   private readonly faceSmooth = new Map<string, number>()
@@ -85,6 +86,7 @@ export class AmbientPerformanceEngine {
     this.eyeClose = 0
     this.tailRootValue = 0
     this.tailRootVelocity = 0
+    this.bodyEnvelope = 0
     this.tailSegmentValues.fill(0)
     this.tailSegmentVelocities.fill(0)
     this.idle.reset()
@@ -179,11 +181,22 @@ export class AmbientPerformanceEngine {
     gain: number,
     enabled: boolean,
   ): Record<string, number> {
-    const activityRate = this.activity === 'speaking' ? 1.12 : 0.74
+    // Cadence: a real idle tail completes a sweep every 3-5s. The old rate
+    // (0.74 rad/s ≈ 8.5s period) plus the slow 0.43× beat term let the
+    // composite dwell in one direction for 20s+ — reading as a frozen pose.
+    // Faster primary + weaker beat keeps the sweep regular.
+    const activityRate = this.activity === 'speaking' ? 1.5 : 1.15
     this.tailPhase += dt * activityRate
     const autonomous = Math.sin(this.tailPhase) * 5.4
-      + Math.sin(this.tailPhase * 0.43 + 1.3) * 1.55
-    const bodyInertia = -(pose['body.x'] ?? 0) * 1.42 - (pose['head.z'] ?? 0) * 0.76
+      + Math.sin(this.tailPhase * 0.43 + 1.3) * 0.9
+    // Body motion reaches the tail through a lagged, compressed envelope —
+    // a real tail lags and softens torso/head swings instead of mirroring
+    // them (mirroring tracking motion reads as the tail being yanked by the
+    // cursor, which is exactly the artifact body-follow coupling produced).
+    this.bodyEnvelope += (clamp(Math.abs(pose['body.x'] ?? 0) + Math.abs(pose['head.z'] ?? 0), 0, 10) - this.bodyEnvelope)
+      * (1 - Math.exp(-dt * 2.2))
+    const bodyInertia = -Math.sign(pose['body.x'] ?? 0) * this.bodyEnvelope * 0.34
+      - (pose['head.z'] ?? 0) * 0.18
     const speechPulse = this.activity === 'speaking'
       ? Math.sin(this.tailPhase * 2.35 + 0.4) * (0.8 + clamp(audioLevel, 0, 1) * 2.4)
       : 0
@@ -201,25 +214,35 @@ export class AmbientPerformanceEngine {
     let parent = driver * 0.82
     for (let index = 0; index < this.tailSegmentValues.length; index += 1) {
       // Each stage follows the previous stage rather than the shared driver.
-      // A small travelling bias prevents all segments from becoming parallel,
-      // while attenuation keeps the tip soft instead of whip-like.
+      // The attenuation stays strictly below 1 (chain gain < 1 — a per-stage
+      // gain ≥ 1 ratchets the chain into its clamp); the tip's extra swing
+      // comes from the travelling wave, which grows toward the free end and
+      // is what makes the tail whip out instead of folding in.
       const progress = index / Math.max(1, this.tailSegmentValues.length - 1)
-      const attenuation = 0.94 - index * 0.008
+      const attenuation = 0.97
       const travellingWave = Math.sin(this.tailPhase * 1.08 - index * 0.21)
-        * (0.22 + progress * 0.72)
+        * (0.3 + progress * 0.85)
       const counterWave = Math.sin(this.tailPhase * 0.51 + index * 0.11 + 0.8)
         * (0.08 + progress * 0.24)
       const desired = clamp(parent * attenuation + travellingWave + counterWave, -10, 10)
-      const stiffness = Math.max(8.4, 15.5 - index * 0.5)
-      const damping = Math.max(4.45, 6.15 - index * 0.115)
+      // Damping stays above ζ≈0.7 at every stage: below that the chain
+      // ring-resonates against the slow wave and rails into its clamp.
+      // Follow-through comes from the wave's tip growth, not from bounce.
+      const stiffness = Math.max(8.4, 15.5 - index * 0.35)
+      const damping = Math.max(4.2, 6.15 - index * 0.13)
       const acceleration = (desired - this.tailSegmentValues[index]) * stiffness
         - this.tailSegmentVelocities[index] * damping
       this.tailSegmentVelocities[index] += acceleration * dt
-      this.tailSegmentValues[index] = clamp(
-        this.tailSegmentValues[index] + this.tailSegmentVelocities[index] * dt,
-        -10,
-        10,
-      )
+      let next = this.tailSegmentValues[index] + this.tailSegmentVelocities[index] * dt
+      // Kill velocity into the wall: without this the segment ping-pongs
+      // against the clamp (position pinned at ±10 while velocity keeps
+      // pushing) and the tail reads as frozen at full deflection.
+      if ((next <= -10 && this.tailSegmentVelocities[index] < 0)
+        || (next >= 10 && this.tailSegmentVelocities[index] > 0)) {
+        this.tailSegmentVelocities[index] = 0
+        next = clamp(next, -10, 10)
+      }
+      this.tailSegmentValues[index] = next
       parent = this.tailSegmentValues[index]
     }
 

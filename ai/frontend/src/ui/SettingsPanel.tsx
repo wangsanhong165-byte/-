@@ -1600,6 +1600,28 @@ function Live2DRuntimeMonitor({ model }: { model: string }) {
     void electronWindowBridge.getPerformanceDiagnostics().then(setElectronDiagnostics)
   }
 
+  // One-shot export of the controller's 60s ring buffer — reads the global the
+  // update loop already maintains, no per-frame cost and no new listeners.
+  const exportPerformanceTrace = () => {
+    const trace = (globalThis as {
+      __SOULLINK_PERFORMANCE_TRACE__?: Array<Record<string, unknown>>
+    }).__SOULLINK_PERFORMANCE_TRACE__
+    if (!trace?.length) return
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      model,
+      sampleCount: trace.length,
+      trace,
+    }
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `performance-trace-${new Date().toISOString().replace(/[:.]/g, '-')}.json`
+    anchor.click()
+    URL.revokeObjectURL(url)
+  }
+
   useEffect(() => eventBus.on('character:performance_debug', setSnapshot), [])
   useEffect(() => {
     const dispose = eventBus.on('character:render_environment', setRenderEnvironment)
@@ -1668,6 +1690,12 @@ function Live2DRuntimeMonitor({ model }: { model: string }) {
           {frame ? `${fps.toFixed(0)} FPS` : '等待模型'}
         </span>
         <button type="button" style={styles.calibrationButton} onClick={refreshEnvironment}>刷新硬件数据</button>
+        <button
+          type="button"
+          style={styles.calibrationButton}
+          title="导出最近 60 秒的表现时间线（每 250ms 一条：表情/动作/注视/口型/参数值）"
+          onClick={exportPerformanceTrace}
+        >导出表演回放</button>
       </div>
       <div style={styles.metricGrid}>
         <RuntimeMetric label="显示器刷新率" value={display?.displayFrequency ? `${display.displayFrequency} Hz` : '浏览器模式'} />

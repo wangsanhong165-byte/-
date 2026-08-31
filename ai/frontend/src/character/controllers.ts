@@ -55,7 +55,10 @@ export class IdleController {
   private blinkPhase = 0
   private _eyeOpenValue = 1
   private _blinkBreathValue = 0.5
-  private static readonly BASE_BLINK_INTERVAL = 2.8
+  // Human blink cadence is 3-6s (10-20/min). 4.7 lands the presets in that
+  // band: lively 3.0-4.5s, default 3.4-5.0s, calm 4.0-5.0s. The old 2.8
+  // blinked ~24/min — visibly twitchy against any human reference.
+  private static readonly BASE_BLINK_INTERVAL = 4.7
   private static readonly BLINK_VARIATION = 0.6
   private static readonly BREATH_FREQ = 1.7
   private blinkRate = 1
