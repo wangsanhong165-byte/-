@@ -117,8 +117,29 @@ def _extract_voice_kwargs(ctx: CharacterTurn) -> dict:
     return kwargs
 
 
+def _wav_duration_ms(data: bytes) -> int:
+    """Real duration of synthesized WAV bytes, for segment-timeline anchoring."""
+    try:
+        import io
+        import wave
+
+        with wave.open(io.BytesIO(data), "rb") as handle:
+            frames = handle.getnframes()
+            rate = handle.getframerate()
+            if rate <= 0:
+                return 0
+            return int(round(frames / rate * 1000))
+    except Exception:
+        return 0
+
+
 class TTSStep(Step):
-    """Synthesize speech from the reply text with character voice config."""
+    """Synthesize speech from the reply text with character voice config.
+
+    Multi-segment replies are synthesized per segment so each expression
+    change lands on its own audio clip: the emitter plays the clips in order
+    and the frontend aligns each segment cue to its clip's real start.
+    """
 
     def __init__(self, tts_provider: TTSInterface):
         self.tts = tts_provider
@@ -127,11 +148,49 @@ class TTSStep(Step):
         if not ctx.reply_text:
             return
         voice_kwargs = _extract_voice_kwargs(ctx)
+
+        seg_texts = [
+            str(segment.get("text", "")).strip()
+            for segment in ctx.segments
+            if isinstance(segment, dict) and str(segment.get("text", "")).strip()
+        ]
         try:
-            audio = await self.tts.synthesize(ctx.reply_text, **voice_kwargs)
-            if audio:
-                ctx.audio = audio
+            if len(seg_texts) >= 2:
+                await self._run_segmented(ctx, seg_texts, voice_kwargs)
+            else:
+                audio = await self.tts.synthesize(ctx.reply_text, **voice_kwargs)
+                if audio:
+                    ctx.audio = audio
         except Exception as exc:
             logger.warning("TTS unavailable (%s), continuing without audio", exc)
             ctx.audio = b""
             ctx.warnings.append(f"tts.failed:{exc}")
+
+    async def _run_segmented(self, ctx: CharacterTurn, seg_texts: list[str], voice_kwargs: dict) -> None:
+        """Synthesize each semantic segment separately and record real durations."""
+        clips: list[bytes] = []
+        for text in seg_texts:
+            clip = await self.tts.synthesize(text, **voice_kwargs)
+            if clip:
+                clips.append(clip)
+        if not clips:
+            return
+        # A partially-synthesized reply (some clips failed) is worse than one
+        # clean clip: any failure falls back to whole-reply synthesis.
+        if len(clips) != len(seg_texts):
+            logger.warning(
+                "Segmented TTS incomplete (%d/%d), falling back to single clip",
+                len(clips), len(seg_texts),
+            )
+            ctx.audio = await self.tts.synthesize(ctx.reply_text, **voice_kwargs) or b""
+            return
+
+        ctx.audio_segments = clips
+        ctx.audio = b"".join(clips)
+        # Anchor each segment's cue to its clip's measured length. The frontend
+        # prefers explicit durationMs over its character-count estimate.
+        spoken = [seg for seg in ctx.segments if isinstance(seg, dict) and str(seg.get("text", "")).strip()]
+        for seg, clip in zip(spoken, clips):
+            duration = _wav_duration_ms(clip)
+            if duration > 0:
+                seg["durationMs"] = duration

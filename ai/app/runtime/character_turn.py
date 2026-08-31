@@ -100,6 +100,11 @@ class TurnOutput:
     segments: list[dict[str, Any]] = field(default_factory=list)
     performance: PerformancePlan = field(default_factory=PerformancePlan)
     audio: bytes = b""
+    # Per-segment synthesized audio (bytes, WAV). Filled by TTSStep when the
+    # reply has multiple semantic segments; emitter plays them in order via
+    # audioSequence. Empty when TTS is unavailable or there is a single chunk —
+    # consumers must fall back to `audio`.
+    audio_segments: list[bytes] = field(default_factory=list)
     persistence: dict[str, Any] = field(default_factory=dict)
 
 

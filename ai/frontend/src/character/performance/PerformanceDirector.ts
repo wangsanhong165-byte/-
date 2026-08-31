@@ -63,13 +63,73 @@ export class PerformanceDirector {
     if (this.audio?.turnId === turnId) this.scheduleFromAudio(this.staged, this.audio)
   }
 
-  onAudioStart(turnId: string, durationMs: number): void {
+  onAudioStart(turnId: string, durationMs: number, sequence = 0): void {
     this.audio = {
       turnId,
       startedAt: this.now(),
       durationMs: clamp(durationMs, 120, 120_000),
     }
-    if (this.staged?.turnId === turnId) this.scheduleFromAudio(this.staged, this.audio)
+    if (this.staged?.turnId !== turnId) return
+    // Per-segment playback (one clip per semantic segment): clip N's start IS
+    // segment N's cue time — no proportional estimation needed. Re-anchor the
+    // remaining cues so segment N fires now and later segments follow the real
+    // measured clip lengths carried in segments[].durationMs.
+    if (sequence > 0) {
+      this.reanchorCuesFrom(sequence)
+      return
+    }
+    if (this.hasMeasuredSegments()) {
+      this.scheduleFromMeasuredSegments(this.staged, this.audio)
+      return
+    }
+    this.scheduleFromAudio(this.staged, this.audio)
+  }
+
+  /** True when every staged segment carries a backend-measured durationMs. */
+  private hasMeasuredSegments(): boolean {
+    const segments = this.staged?.segments ?? []
+    return segments.length > 0 && segments.every(
+      segment => typeof segment?.durationMs === 'number' && Number.isFinite(segment.durationMs),
+    )
+  }
+
+  /**
+   * Real-clip timeline: cue i fires at startedAt + Σ(durationMs of clips 0..i-1).
+   * Durations come from the synthesized WAVs (TTSStep), not character counts.
+   */
+  private scheduleFromMeasuredSegments(staged: StagedPerformance, audio: AudioTiming): void {
+    const intents = this.buildIntents(staged)
+    let cursor = audio.startedAt
+    this.cues = intents.map((intent, index) => {
+      const raw = staged.segments[index]?.durationMs
+      const durationMs = clamp(typeof raw === 'number' && Number.isFinite(raw) ? raw : 1_200, 300, 30_000)
+      const cue = { dueAt: cursor, intent: alignIntentToDuration(intent, durationMs) }
+      cursor += durationMs
+      return cue
+    }).slice(this.emittedCueCount)
+  }
+
+  /**
+   * Sequential playback: clip `sequence` just started, so segment `sequence`'s
+   * cue is due NOW (its audio is the live clock — measured durations only pace
+   * the future). Earlier segments are dropped; later ones accumulate from here.
+   */
+  private reanchorCuesFrom(sequence: number): void {
+    const staged = this.staged
+    if (!staged) return
+    const intents = this.buildIntents(staged)
+    if (!intents.length) return
+    const anchor = this.now()
+    const current = clamp(sequence, 0, intents.length - 1)
+    let cursor = anchor
+    this.cues = intents.slice(current).map((intent, offset) => {
+      const raw = staged.segments[current + offset]?.durationMs
+      const durationMs = clamp(typeof raw === 'number' && Number.isFinite(raw) ? raw : 1_200, 300, 30_000)
+      const cue = { dueAt: cursor, intent: alignIntentToDuration(intent, durationMs) }
+      cursor += durationMs
+      return cue
+    })
+    this.emittedCueCount = current
   }
 
   onAudioEnd(turnId: string): void {
@@ -315,7 +375,7 @@ function segmentWeight(segment: Record<string, unknown> | undefined): number {
 
 function estimateSegmentMs(segment: Record<string, unknown> | undefined): number {
   const explicit = typeof segment?.durationMs === 'number' ? segment.durationMs : NaN
-  if (Number.isFinite(explicit)) return clamp(explicit, 300, 4_000)
+  if (Number.isFinite(explicit)) return clamp(explicit, 300, 30_000)
   const text = typeof segment?.text === 'string' ? [...segment.text].length : 8
   return clamp(320 + text * 95, 500, 3_200)
 }

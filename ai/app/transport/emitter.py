@@ -84,7 +84,11 @@ class TransportEmitter:
             segment["energy"] = intent.energy
             segment["intensity"] = intent.intensity
             segment["contextTags"] = list(intent.context_tags)
-            if intent.duration_ms is not None:
+            # TTSStep measures each clip's real length into raw["durationMs"];
+            # measured values take precedence over an LLM-provided estimate.
+            if "durationMs" in raw and isinstance(raw.get("durationMs"), (int, float)):
+                segment["durationMs"] = raw["durationMs"]
+            elif intent.duration_ms is not None:
                 segment["durationMs"] = intent.duration_ms
             else:
                 segment.pop("durationMs", None)
@@ -196,7 +200,23 @@ class TransportEmitter:
             "segments": self._intent_segments(turn),
         }))
 
-        if turn.audio:
+        if turn.audio_segments:
+            # Per-segment clips: each expression segment owns its own audio, so
+            # the frontend can anchor every cue to its clip's real start time.
+            # audioSequence orders the client playback queue.
+            for index, clip in enumerate(turn.audio_segments):
+                events.append(self._event(turn, "tts.started", {
+                    "format": "wav",
+                    "audioSequence": index,
+                }))
+                events.append(self._event(turn, "tts.audio", {
+                    "data": base64.b64encode(clip).decode("ascii"),
+                    "format": "wav",
+                    "audioSequence": index,
+                    "volumes": [],
+                }))
+            events.append(self._event(turn, "tts.completed", {"reason": "complete"}))
+        elif turn.audio:
             events.extend([
                 self._event(turn, "tts.started", {
                     "format": "wav",

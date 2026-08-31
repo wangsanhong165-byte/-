@@ -435,11 +435,11 @@ export class CharacterController {
     )
 
     this.cleanupFns.push(
-      eventBus.on('audio:start', ({ turnId, durationMs }) => {
+      eventBus.on('audio:start', ({ turnId, durationMs, sequence }) => {
         if (!this.stateMachine.isCurrentTurn(turnId)) return
         if (this._turnCompletionTimer) clearTimeout(this._turnCompletionTimer)
         this._turnCompletionTimer = null
-        this.performanceDirector.onAudioStart(turnId, durationMs)
+        this.performanceDirector.onAudioStart(turnId, durationMs, sequence)
         this.audioPlaybackActive = true
         this.lipSync.setSpeaking(true)
         // Mouth belongs to lip-sync while audio plays; some expression presets
@@ -1307,6 +1307,12 @@ export class CharacterController {
     if (now - this.lastDebugEmitAt >= 250) {
       this.lastDebugEmitAt = now
       const mixerFrame = this.mixer.debugFrame()
+      // _resolved is written by the animation loop's resolve() AFTER this update
+      // returns, so debugFrame()'s copy is always the previous frame (empty on
+      // first tick). Re-resolve here: resolve() is a pure read of the frame's
+      // contributions, so this neither mutates mixer state nor disturbs the
+      // caller's later resolve()/apply() — it just snapshots what WOULD resolve.
+      const resolvedNow = this.mixer.resolve()
       const contestedParameters = Object.fromEntries(
         Object.entries(mixerFrame.frameValues).filter(([, values]) =>
           values.filter(value => value.mode === 'override').length > 1),
@@ -1355,7 +1361,7 @@ export class CharacterController {
         contestedParameters,
         frame: this.frameTiming.snapshot(),
         activeChannels: this.motionArbiter.getActiveChannels(),
-        resolvedParameters: mixerFrame.resolved,
+        resolvedParameters: resolvedNow,
       }
       ;(globalThis as unknown as { __SOULLINK_RUNTIME_SNAPSHOT__?: typeof snapshot })
         .__SOULLINK_RUNTIME_SNAPSHOT__ = snapshot

@@ -236,3 +236,55 @@ test('a fully populated but front-loaded LLM plan reserves a later speech beat',
   assert.equal(cue.motionPlan?.steps.length, 3)
   assert.ok((cue.motionPlan?.steps.at(-1)?.atMs ?? 0) >= 7_000)
 })
+
+test('measured segment durations anchor cues exactly (per-clip playback)', () => {
+  let now = 1_000
+  const director = new PerformanceDirector(() => now)
+  director.stage(base, [
+    { text: '第一段。', emotion: 'shy', behavior: 'speak', durationMs: 1_500 },
+    { text: '第二段。', emotion: 'angry', behavior: 'speak', durationMs: 2_500 },
+  ])
+
+  director.onAudioStart('turn-1', 1_500)
+  // All-measured path: cue 0 at audio start, cue 1 at start + 1_500 exactly.
+  assert.equal(director.update()[0]?.emotion, 'shy')
+  assert.deepEqual(director.update(), [])
+  now += 1_500
+  assert.equal(director.update()[0]?.emotion, 'angry')
+})
+
+test('sequential per-clip playback: each clip start re-anchors its cue to now', () => {
+  let now = 1_000
+  const director = new PerformanceDirector(() => now)
+  director.stage(base, [
+    { text: '第一段。', emotion: 'shy', behavior: 'speak', durationMs: 1_500 },
+    { text: '第二段。', emotion: 'angry', behavior: 'speak', durationMs: 2_500 },
+    { text: '第三段。', emotion: 'calm', behavior: 'speak', durationMs: 900 },
+  ])
+
+  // Clip 0 starts → cue 0 (shy) fires immediately.
+  director.onAudioStart('turn-1', 1_500, 0)
+  assert.equal(director.update()[0]?.emotion, 'shy')
+
+  // Clip 1 starts late (real playback ran 2_000ms, not the measured 1_500).
+  now += 2_000
+  director.onAudioStart('turn-1', 2_500, 1)
+  // Cue 1 (angry) is re-anchored to NOW, and cue 2 (calm) follows after 2_500.
+  const due = director.update()
+  assert.equal(due[0]?.emotion, 'angry')
+
+  now += 2_500
+  assert.equal(director.update()[0]?.emotion, 'calm')
+})
+
+test('partial measurement falls back to weighted estimation', () => {
+  let now = 1_000
+  const director = new PerformanceDirector(() => now)
+  director.stage(base, [
+    { text: '有实测时长', emotion: 'shy', behavior: 'speak', durationMs: 1_000 },
+    { text: '这段没有实测时长所以走权重估算', emotion: 'calm', behavior: 'speak' },
+  ])
+  director.onAudioStart('turn-1', 4_000)
+  // Should not throw and should produce both cues via the weight path.
+  assert.equal(director.update().length, 1)
+})
