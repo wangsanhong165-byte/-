@@ -63,7 +63,13 @@ class TransportEmitter:
 
     @staticmethod
     def _intent_segments(turn: CharacterTurn) -> list[dict]:
-        """Project LLM segments to safe semantic fields for the avatar timeline."""
+        """Project LLM segments to safe semantic fields for the avatar timeline.
+
+        Only segments with spoken text are emitted: the audio timeline
+        (audioSequence) is built from exactly those segments by TTSStep, and
+        the frontend indexes this list by clip sequence. Keeping textless
+        segments here would shift every subsequent index one slot off.
+        """
         allowed = {
             "text", "emotion", "behavior", "attention", "energy", "intensity",
             "durationMs", "naturalVAD", "contextTags", "motionPlan",
@@ -71,6 +77,8 @@ class TransportEmitter:
         result: list[dict] = []
         for raw in turn.segments:
             if not isinstance(raw, dict):
+                continue
+            if not str(raw.get("text", "")).strip():
                 continue
             intent = CharacterIntent.from_llm_segment(
                 raw,

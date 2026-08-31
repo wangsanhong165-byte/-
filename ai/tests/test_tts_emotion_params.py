@@ -86,6 +86,35 @@ class TestTTSStepPassesEmotionParams(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(options["temperature"], 0.3)
             self.assertEqual(options["speed_factor"], 0.92)
 
+    async def test_segmented_clips_get_per_segment_emotion(self):
+        tts = _CaptureTTS()
+        ctx = _ctx("哼，谁要谢谢你了。不过这次就原谅你啦。", "pout")
+        ctx.character = None
+        ctx.segments = [
+            {"text": "哼，谁要谢谢你了。", "emotion": "pout"},
+            {"text": "不过这次就原谅你啦。", "emotion": "happy"},
+        ]
+        await TTSStep(tts).run(ctx)
+        self.assertEqual(len(tts.calls), 2)
+        # Dominant is pout, but the happy closing line must not inherit it.
+        self.assertEqual(tts.calls[0][1]["temperature"], 0.75)
+        self.assertEqual(tts.calls[1][1]["temperature"], 0.7)
+        self.assertEqual(tts.calls[1][1]["speed_factor"], 1.0)
+
+    async def test_all_empty_clips_fall_back_then_surface_failure(self):
+        tts = _CaptureTTS(audio=b"")
+        ctx = _ctx("第一段。第二段。", "sad")
+        ctx.character = None
+        ctx.segments = [
+            {"text": "第一段。", "emotion": "sad"},
+            {"text": "第二段。", "emotion": "sad"},
+        ]
+        await TTSStep(tts).run(ctx)
+        # 2 segment calls + 1 whole-reply fallback attempt = 3, and the silent
+        # no-audio outcome must be visible as a tts.failed warning.
+        self.assertEqual(len(tts.calls), 3)
+        self.assertTrue(any(w.startswith("tts.failed:") for w in ctx.warnings))
+
     async def test_emotion_neutral_stays_clean(self):
         tts = _CaptureTTS()
         ctx = _ctx("普通陈述。", "neutral")

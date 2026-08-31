@@ -277,6 +277,48 @@ test('sequential per-clip playback: each clip start re-anchors its cue to now', 
   assert.equal(director.update()[0]?.emotion, 'calm')
 })
 
+test('early-fired cue is not re-applied when its clip starts late (no double trigger)', () => {
+  let now = 1_000
+  const director = new PerformanceDirector(() => now, { repeatWindowMs: 0 })
+  director.stage(base, [
+    { text: '第一段。', emotion: 'shy', behavior: 'speak', durationMs: 1_500 },
+    { text: '第二段。', emotion: 'angry', behavior: 'speak', durationMs: 2_500 },
+  ])
+
+  director.onAudioStart('turn-1', 1_500, 0)
+  assert.equal(director.update()[0]?.emotion, 'shy')
+
+  // Measurement drift: cue 1 (angry) fires slightly EARLY — before clip 1's
+  // real playback actually reaches it.
+  now += 1_550
+  assert.equal(director.update()[0]?.emotion, 'angry')
+
+  // Clip 1 starts 500ms after cue 1 already fired. The re-anchor must NOT
+  // regenerate angry: only the trailing cue (none here) survives.
+  now += 500
+  director.onAudioStart('turn-1', 2_500, 1)
+  assert.deepEqual(director.update(), [], 'angry must not fire twice')
+})
+
+test('re-anchor past the last segment leaves no stale cues', () => {
+  let now = 1_000
+  const director = new PerformanceDirector(() => now)
+  director.stage(base, [
+    { text: '第一段。', emotion: 'shy', behavior: 'speak', durationMs: 1_500 },
+    { text: '第二段。', emotion: 'angry', behavior: 'speak', durationMs: 2_500 },
+  ])
+
+  director.onAudioStart('turn-1', 1_500, 0)
+  assert.equal(director.update()[0]?.emotion, 'shy')
+  now += 1_500
+  assert.equal(director.update()[0]?.emotion, 'angry')
+
+  // A straggler clip-start for an index already consumed must not resurrect cues.
+  now += 2_600
+  director.onAudioStart('turn-1', 900, 1)
+  assert.deepEqual(director.update(), [])
+})
+
 test('partial measurement falls back to weighted estimation', () => {
   let now = 1_000
   const director = new PerformanceDirector(() => now)

@@ -53,7 +53,7 @@ class VoiceRegistry:
         """Absolute file paths plus metadata for a voice pack, or raise KeyError."""
         voice_dir = self._voice_dir(voice_id)
         manifest = self._manifest(voice_id)
-        return {
+        resolved: dict[str, Any] = {
             "id": voice_id,
             "name": str(manifest.get("name") or voice_id),
             "prompt_text": str(manifest.get("prompt_text") or ""),
@@ -62,6 +62,13 @@ class VoiceRegistry:
             "gpt_weights": self._abs(voice_dir, manifest.get("gpt", "")),
             "sovits_weights": self._abs(voice_dir, manifest.get("vits", "")),
         }
+        # Per-emotion delivery overrides (temperature/speed_factor...) consumed
+        # by TTSStep._apply_emotion_params. Copied verbatim — an absent or
+        # malformed key simply falls through to the built-in defaults there.
+        emotion_params = manifest.get("emotion_params")
+        if isinstance(emotion_params, dict):
+            resolved["emotion_params"] = emotion_params
+        return resolved
 
     # ── write ────────────────────────────────────────────────────────────
 

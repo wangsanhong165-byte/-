@@ -162,6 +162,40 @@ def _apply_emotion_params(kwargs: dict, overrides: object, emotion: str) -> None
             kwargs[key] = value
 
 
+_EMOTION_PARAM_KEYS = ("temperature", "speed_factor", "top_k")
+
+
+def _emotion_param_overrides(ctx: CharacterTurn) -> object:
+    """The character's emotion_params table (card or voice pack), or None."""
+    character = ctx.character
+    if character is None:
+        return None
+    card = character.raw_card if hasattr(character, "raw_card") else {}
+    if not isinstance(card, dict):
+        return None
+    tts_cfg = card.get("tts", {})
+    if isinstance(tts_cfg.get("emotion_params"), dict):
+        return tts_cfg["emotion_params"]
+    resolved_voice = _resolve_voice(tts_cfg.get("voice_id", ""))
+    if resolved_voice and isinstance(resolved_voice.get("emotion_params"), dict):
+        return resolved_voice["emotion_params"]
+    return None
+
+
+def _kwargs_for_emotion(base: dict, overrides: object, emotion: str) -> dict:
+    """A copy of base voice kwargs with delivery params for `emotion`.
+
+    The turn-level kwargs already carry the dominant emotion's values; strip
+    them so the per-segment emotion can re-apply its own (the "explicit wins"
+    rule in _apply_emotion_params would otherwise keep the dominant values).
+    """
+    kwargs = dict(base)
+    for key in _EMOTION_PARAM_KEYS:
+        kwargs.pop(key, None)
+    _apply_emotion_params(kwargs, overrides, emotion)
+    return kwargs
+
+
 def _wav_duration_ms(data: bytes) -> int:
     """Real duration of synthesized WAV bytes, for segment-timeline anchoring."""
     try:
@@ -201,7 +235,7 @@ class TTSStep(Step):
         ]
         try:
             if len(seg_texts) >= 2:
-                await self._run_segmented(ctx, seg_texts, voice_kwargs)
+                await self._run_segmented(ctx, voice_kwargs)
             else:
                 audio = await self.tts.synthesize(ctx.reply_text, **voice_kwargs)
                 if audio:
@@ -211,30 +245,51 @@ class TTSStep(Step):
             ctx.audio = b""
             ctx.warnings.append(f"tts.failed:{exc}")
 
-    async def _run_segmented(self, ctx: CharacterTurn, seg_texts: list[str], voice_kwargs: dict) -> None:
+    async def _run_segmented(self, ctx: CharacterTurn, voice_kwargs: dict) -> None:
         """Synthesize each semantic segment separately and record real durations."""
+        overrides = _emotion_param_overrides(ctx)
+        spoken = [
+            seg for seg in ctx.segments
+            if isinstance(seg, dict) and str(seg.get("text", "")).strip()
+        ]
         clips: list[bytes] = []
-        for text in seg_texts:
-            clip = await self.tts.synthesize(text, **voice_kwargs)
+        for seg in spoken:
+            # Each segment gets its own delivery: the dominant emotion shapes
+            # the turn default, but a pout→happy reply must not voice the
+            # happy line with pout's temperature/speed.
+            clip_kwargs = _kwargs_for_emotion(voice_kwargs, overrides, str(seg.get("emotion") or ctx.emotion or "neutral"))
+            clip = await self.tts.synthesize(str(seg.get("text", "")), **clip_kwargs)
             if clip:
                 clips.append(clip)
         if not clips:
+            # Every clip came back empty (no exception raised): retry once as a
+            # single synthesis, then surface the failure instead of finishing
+            # the turn silently without audio.
+            logger.warning("Segmented TTS returned no audio, falling back to single clip")
+            fallback = await self.tts.synthesize(ctx.reply_text, **voice_kwargs)
+            if fallback:
+                ctx.audio = fallback
+                ctx.warnings.append("tts.segmented_empty_fallback")
+                return
+            ctx.audio = b""
+            ctx.warnings.append("tts.failed:segmented synthesis returned empty audio")
             return
         # A partially-synthesized reply (some clips failed) is worse than one
         # clean clip: any failure falls back to whole-reply synthesis.
-        if len(clips) != len(seg_texts):
+        if len(clips) != len(spoken):
             logger.warning(
                 "Segmented TTS incomplete (%d/%d), falling back to single clip",
-                len(clips), len(seg_texts),
+                len(clips), len(spoken),
             )
             ctx.audio = await self.tts.synthesize(ctx.reply_text, **voice_kwargs) or b""
+            if not ctx.audio:
+                ctx.warnings.append("tts.failed:fallback synthesis returned empty audio")
             return
 
         ctx.audio_segments = clips
         ctx.audio = b"".join(clips)
         # Anchor each segment's cue to its clip's measured length. The frontend
         # prefers explicit durationMs over its character-count estimate.
-        spoken = [seg for seg in ctx.segments if isinstance(seg, dict) and str(seg.get("text", "")).strip()]
         for seg, clip in zip(spoken, clips):
             duration = _wav_duration_ms(clip)
             if duration > 0:

@@ -92,13 +92,16 @@ class EmotionStep(Step):
     """
 
     async def run(self, ctx: CharacterTurn) -> None:
-        # LLM already expressed emotion through structured segments — the
-        # dominant-segment extraction upstream already wrote ctx.emotion.
-        # Re-committing it here (the old behavior) would double-apply the
-        # intensity ramp and let a stale state overwrite a fresh LLM verdict.
+        # LLM already expressed emotion through structured segments — commit
+        # the extracted dominant verdict to character state so EmotionState
+        # and MoodTrend keep evolving on normal turns. No intensity ramp: the
+        # LLM's intensity already lives in ctx.emotion_intensity, and adding
+        # another +0.1 per turn compounded run-away (the old bug).
         if ctx.segments:
+            self._commit_llm_emotion(ctx, ctx.emotion)
             return
         if ctx.emotion != "neutral":
+            self._commit_llm_emotion(ctx, ctx.emotion)
             return
 
         text = ctx.reply_text or ctx.user_text or ""
@@ -108,6 +111,16 @@ class EmotionStep(Step):
         emotion = _detect_emotion(text)
         if emotion != "neutral":
             self._update_character_emotion(ctx, emotion)
+
+    @staticmethod
+    def _commit_llm_emotion(ctx: CharacterTurn, emotion: str) -> None:
+        """Persist an LLM-derived emotion verbatim (no intensity ramp)."""
+        character = ctx.character
+        if character is not None and ctx.character_self is not None:
+            ctx.character_self.commit_emotion(emotion, intensity=ctx.emotion_intensity)
+            ctx.emotion = character.emotion.current
+        # Without a live character there is nothing to persist — ctx.emotion
+        # already carries the verdict for downstream consumers.
 
     @staticmethod
     def _update_character_emotion(ctx: CharacterTurn, emotion: str) -> None:

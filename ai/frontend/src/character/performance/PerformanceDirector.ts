@@ -113,6 +113,10 @@ export class PerformanceDirector {
    * Sequential playback: clip `sequence` just started, so segment `sequence`'s
    * cue is due NOW (its audio is the live clock — measured durations only pace
    * the future). Earlier segments are dropped; later ones accumulate from here.
+   *
+   * A cue whose segment already fired (measurement drift fired it early) must
+   * NOT be regenerated: rebuilding from `sequence` alone would rewind the
+   * counter and re-apply an expression/motion the previous cue already drove.
    */
   private reanchorCuesFrom(sequence: number): void {
     const staged = this.staged
@@ -120,7 +124,7 @@ export class PerformanceDirector {
     const intents = this.buildIntents(staged)
     if (!intents.length) return
     const anchor = this.now()
-    const current = clamp(sequence, 0, intents.length - 1)
+    const current = clamp(Math.max(sequence, this.emittedCueCount), 0, intents.length)
     let cursor = anchor
     this.cues = intents.slice(current).map((intent, offset) => {
       const raw = staged.segments[current + offset]?.durationMs
