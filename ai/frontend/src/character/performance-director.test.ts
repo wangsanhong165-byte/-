@@ -288,3 +288,36 @@ test('partial measurement falls back to weighted estimation', () => {
   // Should not throw and should produce both cues via the weight path.
   assert.equal(director.update().length, 1)
 })
+
+test('segments without emotion inherit the previous segment mood (prevExpression)', () => {
+  let now = 1_000
+  const director = new PerformanceDirector(() => now)
+  director.stage(
+    { ...base, emotion: 'pout' },
+    [
+      { text: '哼，谁要谢谢你了。', emotion: 'pout', behavior: 'speak', durationMs: 1_500 },
+      { text: '……不过这次就原谅你啦。', behavior: 'speak', durationMs: 1_500 }, // no emotion
+      { text: '下次请我吃饭就行了。', emotion: 'happy', behavior: 'speak', durationMs: 1_200 },
+    ],
+  )
+  director.onAudioStart('turn-1', 4_200)
+  assert.equal(director.update()[0]?.emotion, 'pout')
+  now += 1_500
+  // Unlabeled middle segment inherits pout instead of snapping back to base (also pout
+  // here) — assert the inheritance chain explicitly with a different base:
+  const d2 = new PerformanceDirector(() => now)
+  d2.stage(
+    { ...base, turnId: 'turn-2', emotion: 'angry' },
+    [
+      { text: 'first.', emotion: 'pout', behavior: 'speak', durationMs: 1_000 },
+      { text: 'second.', behavior: 'speak', durationMs: 1_000 }, // inherits pout, NOT angry base
+      { text: 'third.', emotion: 'calm', behavior: 'speak', durationMs: 1_000 },
+    ],
+  )
+  d2.onAudioStart('turn-2', 3_000)
+  assert.equal(d2.update()[0]?.emotion, 'pout')
+  now += 1_000
+  assert.equal(d2.update()[0]?.emotion, 'pout', 'unlabeled segment inherits previous mood')
+  now += 1_000
+  assert.equal(d2.update()[0]?.emotion, 'calm')
+})

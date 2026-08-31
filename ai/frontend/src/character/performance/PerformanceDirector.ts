@@ -219,12 +219,24 @@ export class PerformanceDirector {
 
   private buildIntents(staged: StagedPerformance): CharacterIntent[] {
     if (!staged.segments.length) return [{ ...staged.base }]
-    return staged.segments.map((segment, index) => ({
-      ...staged.base,
-      ...segment,
-      turnId: staged.turnId,
-      motionPlan: segment.motionPlan ?? (index === 0 ? staged.base.motionPlan : undefined),
-    } as CharacterIntent))
+    // Sequential inheritance: a segment without an explicit emotion continues
+    // the previous segment's mood (Amica's prevExpression rule). Without this,
+    // an unlabeled closing segment snaps back to the base (dominant-segment)
+    // emotion mid-speech — e.g. a pout→softening reply re-pouts at the softening.
+    let previousEmotion = staged.base.emotion
+    return staged.segments.map((segment, index) => {
+      const emotion = typeof segment.emotion === 'string' && segment.emotion
+        ? segment.emotion
+        : previousEmotion
+      previousEmotion = emotion
+      return {
+        ...staged.base,
+        ...segment,
+        emotion,
+        turnId: staged.turnId,
+        motionPlan: segment.motionPlan ?? (index === 0 ? staged.base.motionPlan : undefined),
+      } as CharacterIntent
+    })
   }
 
   private suppressRepeatedGesture(intent: CharacterIntent, timestamp: number): CharacterIntent {
