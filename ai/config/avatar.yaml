@@ -563,18 +563,30 @@ shirone:
       params: {}
       default: true
     happy:
-      preset: "心心眼"
+      preset: "happy"
       params: {}
       default: false
     joyful:
-      preset: "心心眼"
+      preset: "星星眼"
       params: {}
       default: false
     cheerful:
       preset: "星星眼"
       params: {}
       default: false
+    playful:
+      preset: "鸡爪眼"
+      params: {}
+      default: false
     love:
+      preset: "心心眼"
+      params: {}
+      default: false
+    shy:
+      preset: "心心眼"
+      params: {}
+      default: false
+    embarrassed:
       preset: "心心眼"
       params: {}
       default: false
@@ -582,20 +594,28 @@ shirone:
       preset: "圈圈眼"
       params: {}
       default: false
-    shy:
-      preset: "鸡爪眼"
+    confused:
+      preset: "圈圈眼"
       params: {}
       default: false
     angry:
       preset: "生气表情"
       params: {}
       default: false
+    pout:
+      preset: "生气表情"
+      params: {}
+      default: false
     sad:
+      preset: "sad"
+      params: {}
+      default: false
+    cry:
       preset: "悲伤表情"
       params: {}
       default: false
     worried:
-      preset: "悲伤表情"
+      preset: "worried"
       params: {}
       default: false
 

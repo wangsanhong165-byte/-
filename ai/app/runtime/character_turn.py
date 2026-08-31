@@ -215,6 +215,14 @@ class CharacterTurn:
         self.output.audio = value
 
     @property
+    def audio_segments(self) -> list[bytes]:
+        return self.output.audio_segments
+
+    @audio_segments.setter
+    def audio_segments(self, value: list[bytes]) -> None:
+        self.output.audio_segments = value
+
+    @property
     def live2d_intent(self) -> dict[str, Any]:
         plan = self.output.performance
         return {

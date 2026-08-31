@@ -114,9 +114,12 @@ def test_output_protocol_explains_happy_joyful_and_shy_semantics():
         "speak",
     )
 
-    assert "happy for ordinary joy" in prompt
+    assert "happy is for ordinary joy" in prompt
     assert "joyful for unmistakable high joy" in prompt
     assert "being praised" in prompt
+    # Negated emotion words must not be read as the character's own emotion
+    # (the "你不要生气了" production bug).
+    assert "negated" in prompt.lower()
 
 
 def test_semantic_fallback_distinguishes_strong_happiness_from_ordinary_happy():

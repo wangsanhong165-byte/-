@@ -218,44 +218,81 @@
       "sad",
       "angry",
       "surprised",
-      "shy"
+      "shy",
+      "calm",
+      "pout"
     ],
     "emotion_map": {
       "neutral": "重置",
       "calm": "重置",
-      "blank": "",
-      "happy": "",
+      "blank": "重置",
+      "happy": "happy",
+      "smile": "happy",
       "joyful": "星星眼",
-      "smile": "",
-      "love": "心心眼",
       "cheerful": "星星眼",
       "laughing": "星星眼",
-      "playful": "星星眼",
+      "playful": "鸡爪眼",
+      "love": "心心眼",
+      "shy": "心心眼",
+      "embarrassed": "心心眼",
+      "sad": "sad",
+      "cry": "悲伤表情",
+      "worried": "worried",
       "angry": "生气表情",
       "pout": "生气表情",
-      "sad": "悲伤表情",
-      "cry": "悲伤表情",
-      "worried": "悲伤表情",
       "surprised": "圈圈眼",
-      "confused": "圈圈眼",
-      "shy": "鸡爪眼",
-      "embarrassed": "鸡爪眼"
+      "confused": "圈圈眼"
     },
     "behaviors": [
-      "speak", "greet", "agree", "disagree", "think", "laugh",
-      "comfort", "wave", "nod", "tilt", "shrug"
+      "speak",
+      "greet",
+      "agree",
+      "disagree",
+      "think",
+      "laugh",
+      "comfort",
+      "wave",
+      "nod",
+      "tilt",
+      "shrug"
     ],
     "behavior_map": {
-      "greet": { "motion": "sway", "motionIntensityScale": 0.92 },
-      "agree": { "motion": "nod" },
-      "disagree": { "motion": "tilt" },
-      "think": { "motion": "tilt", "suppressIdle": true },
-      "laugh": { "motion": "sway", "expression": "playful", "motionIntensityScale": 1.08 },
-      "comfort": { "motion": "tilt", "motionIntensityScale": 0.72 },
-      "wave": { "motion": "sway" },
-      "nod": { "motion": "nod" },
-      "tilt": { "motion": "tilt" },
-      "shrug": { "motion": "tilt", "motionIntensityScale": 0.78 }
+      "greet": {
+        "motion": "sway",
+        "motionIntensityScale": 0.92
+      },
+      "agree": {
+        "motion": "nod"
+      },
+      "disagree": {
+        "motion": "tilt"
+      },
+      "think": {
+        "motion": "tilt",
+        "suppressIdle": true
+      },
+      "laugh": {
+        "motion": "sway",
+        "expression": "playful",
+        "motionIntensityScale": 1.08
+      },
+      "comfort": {
+        "motion": "tilt",
+        "motionIntensityScale": 0.72
+      },
+      "wave": {
+        "motion": "sway"
+      },
+      "nod": {
+        "motion": "nod"
+      },
+      "tilt": {
+        "motion": "tilt"
+      },
+      "shrug": {
+        "motion": "tilt",
+        "motionIntensityScale": 0.78
+      }
     },
     "personality": {
       "expressionIntensityScale": 1.12
