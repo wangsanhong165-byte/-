@@ -149,7 +149,9 @@ def test_legacy_embedded_emotion_prompt_chain_is_removed():
     assert not (ROOT / "app/prompts/utils/output_format.txt").exists()
     assert not (ROOT / "app/prompts/utils/available_emotions.txt").exists()
     assert "extract_emotion_tags" not in preprocessor
-    assert "Do NOT use [keyword] tags" in planner
+    # The legacy [keyword] mechanism is gone: the output protocol must not
+    # teach, mention, or rely on bracket-tag emotion markers.
+    assert "[keyword]" not in planner
 
 
 def test_realtime_controls_use_profile_binding_resolver():
