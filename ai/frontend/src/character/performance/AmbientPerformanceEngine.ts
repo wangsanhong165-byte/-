@@ -113,8 +113,12 @@ export class AmbientPerformanceEngine {
     // Arousal is the LLM-facing energy dial: emotion/intensity/naturalVAD feed
     // VADState, and high-arousal states read as bigger body language while
     // low arousal contracts it. This is where body amplitude meets intent.
+    // Speaking never freezes: the reference stays visibly alive even in blank
+    // low-arousal moods, so the dial floors at 0.75 during speech.
     const arousal = Math.max(-1, Math.min(1, input.vad.arousal))
-    const energyGain = 1 + arousal * 0.45
+    const energyGain = this.activity === 'speaking'
+      ? Math.max(0.75, 1 + arousal * 0.45)
+      : 1 + arousal * 0.45
     let target: Record<string, number> = {}
     if (input.enabled) {
       if (this.activity === 'idle') target = logicalIdlePose(idle, gain * energyGain)

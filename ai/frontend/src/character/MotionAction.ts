@@ -335,33 +335,37 @@ export function compileMotionPlanForModel(
 }
 
 function primitiveFrames(primitive: MotionPrimitive): PrimitiveFrame[] {
+  // Peaks are tuned against the Neuro reference (docs/neuro-upgrade-plan-2026-09.md
+  // §2.1): 8-11 salient beats/min only read as body language when each beat is
+  // visible. +~30% over the previous values, still inside the models' safe
+  // parameter ranges (head ±15°, body axes ±10).
   switch (primitive) {
     case 'nod':
       return [
         { progress: 0, values: { 'head.y': 0 } },
-        { progress: .28, values: { 'head.y': -9 } },
-        { progress: .62, values: { 'head.y': 5 } },
+        { progress: .28, values: { 'head.y': -12 } },
+        { progress: .62, values: { 'head.y': 6 } },
         { progress: 1, values: { 'head.y': 0 } },
       ]
     case 'tilt_left':
-      return axisFrames('head.z', -12)
+      return axisFrames('head.z', -15)
     case 'tilt_right':
-      return axisFrames('head.z', 12)
+      return axisFrames('head.z', 15)
     case 'lean_forward':
-      return combinedFrames({ 'body.y': 6, 'head.y': 3 })
+      return combinedFrames({ 'body.y': 8, 'head.y': 4 })
     case 'lean_back':
-      return combinedFrames({ 'body.y': -5, 'head.y': -2 })
+      return combinedFrames({ 'body.y': -6.5, 'head.y': -2.5 })
     case 'sway':
       return [
         { progress: 0, values: { 'body.x': 0, 'head.z': 0 } },
-        { progress: .3, values: { 'body.x': -7, 'head.z': -4 } },
-        { progress: .7, values: { 'body.x': 7, 'head.z': 4 } },
+        { progress: .3, values: { 'body.x': -9, 'head.z': -5 } },
+        { progress: .7, values: { 'body.x': 9, 'head.z': 5 } },
         { progress: 1, values: { 'body.x': 0, 'head.z': 0 } },
       ]
     case 'look_left':
-      return combinedFrames({ 'eye.x': -.75, 'head.x': -7 })
+      return combinedFrames({ 'eye.x': -.75, 'head.x': -9 })
     case 'look_right':
-      return combinedFrames({ 'eye.x': .75, 'head.x': 7 })
+      return combinedFrames({ 'eye.x': .75, 'head.x': 9 })
     case 'breathe':
       return axisFrames('body.y', 3.5)
     case 'shrug':

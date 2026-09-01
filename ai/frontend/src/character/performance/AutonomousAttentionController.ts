@@ -7,6 +7,12 @@ export interface AutonomousAttentionContext {
   activity: string
   /** Pointer/user focus suspends autonomous gaze even while activity is idle. */
   interactionEngaged?: boolean
+  /**
+   * Speaking glances are peeks, not stares: scale every emitted value so the
+   * episode structure (acquire/hold/release) stays but its amplitude drops
+   * well below idle gaze-away moves. 1 = idle strength.
+   */
+  strengthScale?: number
 }
 
 export interface AutonomousAttentionSample {
@@ -38,6 +44,8 @@ export class AutonomousAttentionController {
   private direction: -1 | 1 = 1
   private vertical = 0
   private strength = 1
+  private strengthScale = 1
+  private prevSpeaking = false
   private episode = 0
   private lastWeight = 0
   private eyeProgress = 0
@@ -60,14 +68,25 @@ export class AutonomousAttentionController {
     this.headProgress = 0
     this.releaseEyeStart = 0
     this.releaseHeadStart = 0
+    this.strengthScale = 1
+    this.prevSpeaking = false
     this.scheduleWaiting(true)
   }
 
   update(dt: number, context: AutonomousAttentionContext): AutonomousAttentionSample {
     const delta = clamp(dt, 0, 0.1)
+    this.strengthScale = clamp(context.strengthScale ?? 1, 0.1, 1)
     const allowed = context.enabled
-      && context.activity === 'idle'
+      && (context.activity === 'idle' || context.activity === 'speaking')
       && context.interactionEngaged !== true
+    // Speaking episodes run at reduced strength and hold for half as long:
+    // a glance away mid-sentence, not a distracted stare.
+    const speaking = context.activity === 'speaking'
+    // A speech turn is shorter than the idle gaze cadence: when speech begins,
+    // pull the next episode forward so at least one glance lands mid-turn
+    // instead of the countdown outliving the utterance.
+    if (speaking && !this.prevSpeaking) this.nextEpisodeIn = Math.min(this.nextEpisodeIn, 0.8 + this.random() * 1.4)
+    this.prevSpeaking = speaking
     if (!allowed && this.phase !== 'waiting' && this.phase !== 'release') {
       this.beginPhase('release', 0.55)
     }
@@ -88,7 +107,7 @@ export class AutonomousAttentionController {
       this.eyeProgress = smoothstep(clamp(progress / 0.58, 0, 1))
       this.headProgress = smoothstep(clamp((progress - 0.18) / 0.82, 0, 1))
       this.lastWeight = Math.max(this.eyeProgress, this.headProgress)
-      if (progress >= 1) this.beginPhase('hold', 0.75 + this.random() * 1.15)
+      if (progress >= 1) this.beginPhase('hold', (speaking ? 0.35 : 0.75) + this.random() * (speaking ? 0.5 : 1.15))
     } else if (this.phase === 'hold') {
       this.eyeProgress = 1
       this.headProgress = 1
@@ -154,13 +173,14 @@ export class AutonomousAttentionController {
         episode: this.episode,
       }
     }
+    const scale = this.strengthScale
     return {
       values: {
-        'eye.x': this.direction * 0.62 * this.strength,
-        'eye.y': this.vertical,
-        'head.x': this.direction * 5.2 * this.strength,
-        'head.y': this.vertical * 8,
-        'head.z': -this.direction * 0.85 * this.strength,
+        'eye.x': this.direction * 0.62 * this.strength * scale,
+        'eye.y': this.vertical * scale,
+        'head.x': this.direction * 5.2 * this.strength * scale,
+        'head.y': this.vertical * 8 * scale,
+        'head.z': -this.direction * 0.85 * this.strength * scale,
       },
       weight: this.lastWeight,
       channelWeights: { head: headProgress, gaze: eyeProgress },

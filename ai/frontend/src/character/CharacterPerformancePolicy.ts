@@ -68,6 +68,8 @@ export class CharacterPerformancePolicy {
       ? executableMotion
       : undefined
     const tagEnergyScale = contextTags.has('whisper') ? 0.58
+      : contextTags.has('somber') ? 0.5
+      : contextTags.has('formal') ? 0.62
       : contextTags.has('excited') ? 1.18
       : contextTags.has('reassuring') ? 0.78 : 1
     const energy = Math.max(0.12, Math.min(1,
@@ -75,11 +77,17 @@ export class CharacterPerformancePolicy {
       * (mapping.motionIntensityScale ?? 1) * tagEnergyScale,
     ))
     const transitionMs = contextTags.has('whisper') || contextTags.has('reassuring')
-      ? 520 : emotion === 'surprised' || contextTags.has('excited') ? 140 : 360
+      ? 520 : emotion === 'surprised' || contextTags.has('excited') ? 140 : 220
     const baseMotionProbability = motion
       ? contextTags.has('interaction')
         ? 1
-        : ((behavior === 'greet' || behavior === 'speak') ? 1 : Math.min(0.75, 0.2 + intensity * 0.5))
+        // Neuro reference measures 8-11 salient head beats/min while talking.
+        // The old min(0.75, 0.2 + intensity*0.5) silently dropped over half of
+        // the policy's fallback gestures, which read as "the director does
+        // nothing". Floor the speak behavior high and scale the rest on
+        // intensity, keeping the arbiter and the director's repeat window as
+        // the real de-duplicators.
+        : behavior === 'speak' ? 1 : Math.min(0.9, 0.55 + intensity * 0.35)
       : 0
     const motionProbability = contextTags.has('close-up') || contextTags.has('whisper')
       ? baseMotionProbability * 0.55

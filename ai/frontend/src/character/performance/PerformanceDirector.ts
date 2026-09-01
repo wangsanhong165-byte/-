@@ -312,8 +312,16 @@ function withLocalSemanticChoreography(intent: CharacterIntent): CharacterIntent
   const ordered = candidates.map((_, index) => candidates[(index + hash) % candidates.length])
   const durationMs = Math.round(clamp(intent.durationMs ?? 1_800, 600, 30_000))
   const beatCount = durationMs >= 5_500 ? 3 : durationMs >= 1_800 ? 2 : 1
-  const fractions = beatCount === 3 ? [0.06, 0.42, 0.72]
-    : beatCount === 2 ? [0.08, 0.58] : [0.12]
+  // Jitter the beat positions off the fixed [0.06,0.42,0.72] grid with the
+  // turn hash: real co-speech beats land on prosodic stress, not on a
+  // metronome. The last beat of a long line keeps a wider floor (>0.62 of the
+  // utterance) so the closing gesture still lands in the late tail.
+  const fractions = (beatCount === 3 ? [0.06, 0.42, 0.72]
+    : beatCount === 2 ? [0.08, 0.58] : [0.12]).map((fraction, index) => {
+    const last = index === beatCount - 1
+    const wobble = (((hash >>> (index * 3)) & 1) === 1 ? 0.07 : -0.07) * (last ? 0.4 : 1)
+    return clamp(fraction + wobble, last ? 0.62 : 0.04, 0.85)
+  }).sort((left, right) => left - right)
   const baseIntensity = clamp(
     (intent.intensity ?? 0.5) * 0.5 + (intent.energy ?? 0.5) * 0.24,
     0.34,

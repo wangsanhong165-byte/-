@@ -72,6 +72,21 @@ export class IdleController {
     this.breathVariance = Math.max(0, Math.min(1, breathVariance))
   }
 
+  /**
+   * Expression-linked blink modulation: surprised holds a wide-eyed stare
+   * (rate < 1), happy blinks a touch faster. Overrides the style rate until
+   * cleared — applyIntent sets it per emotion and clears it on neutral.
+   */
+  setBlinkRateOverride(rate: number): void {
+    this.blinkRateOverride = Math.max(0.4, Math.min(1.6, rate))
+  }
+
+  clearBlinkRateOverride(): void {
+    this.blinkRateOverride = 1
+  }
+
+  private blinkRateOverride = 1
+
   setBreathMotionGain(gain = 1): void {
     this.breathMotionGain = Math.max(0.25, Math.min(3, gain))
   }
@@ -80,7 +95,7 @@ export class IdleController {
     this.time = 0
     this.nextBlink = IdleController.BASE_BLINK_INTERVAL
       * (0.72 + Math.random() * IdleController.BLINK_VARIATION * this.breathVariance)
-      / this.blinkRate
+      / (this.blinkRate * this.blinkRateOverride)
   }
 
   detach(): void {
@@ -152,7 +167,7 @@ export class IdleController {
           this._eyeOpenValue = 1
           this.nextBlink = this.time + IdleController.BASE_BLINK_INTERVAL
             * (0.72 + Math.random() * IdleController.BLINK_VARIATION * this.breathVariance)
-            / this.blinkRate
+            / (this.blinkRate * this.blinkRateOverride)
         }
       }
     }
@@ -619,6 +634,9 @@ export class CharacterController {
         break
       case 'thinking':
         this.idleCtrl.setBreathing(true)
+        // Thinking gaze drifts up/away before the answer (Neuro reference:
+        // recall is preceded by a visible gaze-away beat).
+        this.attention.set('away', 2_400)
         this.motionArbiter.request({
           name: 'thinking',
           owner: `state:${turnId || this.stateMachine.turnId || 'local'}`,
@@ -741,6 +759,13 @@ export class CharacterController {
     }
     if (channels.has('expression')) {
       this.exprCtrl.apply(policy.expression, policy.expressionIntensity, policy.transitionMs)
+      // Consume the previously dead modifiers.blinkRate: expression-linked
+      // blink pacing (surprised stare / happy quicker), cleared on neutral.
+      if (policy.modifiers.blinkRate !== 1) {
+        this.idleCtrl.setBlinkRateOverride(policy.modifiers.blinkRate)
+      } else {
+        this.idleCtrl.clearBlinkRateOverride()
+      }
     }
     const plannedMotion = intent.motionPlan
       ? compileMotionPlanForModel(

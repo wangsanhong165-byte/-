@@ -63,8 +63,8 @@ test('overlapping action steps compose into one continuous parameter track', () 
   const peak = sampleMotionKeyframes(preset.keyframes, 450)
   const trackKeys = preset.keyframes.map(frame => `${frame.parameter}:${frame.time}`)
 
-  assert.equal(peak['body.y'], 6)
-  assert.equal(peak['head.y'], 3)
+  assert.equal(peak['body.y'], 8)
+  assert.equal(peak['head.y'], 4)
   assert.equal(new Set(trackKeys).size, trackKeys.length)
 })
 

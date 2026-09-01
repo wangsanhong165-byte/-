@@ -84,7 +84,7 @@ export class PerformanceCoordinator {
     )
     const autonomous = this.autonomous.update(dt, {
       enabled: input.enabled
-        && input.emotion === 'neutral'
+        && (input.emotion === 'neutral' || input.activity === 'speaking')
         && input.explicitAttention.weight <= 0.05
         && trackingEngagement <= 0.02
         && (input.canControlHead || input.canControlGaze)
@@ -92,6 +92,9 @@ export class PerformanceCoordinator {
         && !input.blockedChannels.has('gaze'),
       activity: input.activity,
       interactionEngaged: trackingEngagement > 0.02,
+      // Speaking glances are peeks at ~1/3 idle strength (Neuro reference:
+      // gaze rhythm continues during speech, quieter than idle episodes).
+      strengthScale: input.activity === 'speaking' ? 0.35 : 1,
     })
     const attention = mergeAttentionSamples(input.explicitAttention, autonomous)
     const headWeight = attention.channelWeights?.head ?? attention.weight

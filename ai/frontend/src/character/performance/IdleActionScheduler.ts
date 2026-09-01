@@ -150,9 +150,9 @@ export class IdleActionScheduler {
 
   private sampleInterval(focusLevel: number): number {
     const activity = clamp(this.spontaneity, 0.1, 1.25)
-    // ~6-11s base cadence so idle behaviours stay occasional highlights
-    // rather than a steady stream of theatrical moves.
-    return (6 + this.random() * 5) / activity + clamp(focusLevel, 0, 1) * 2
+    // ~4.5-9s base cadence (Neuro reference: idle behaviours every 4-8s —
+    // the old 6-11s left multi-second stretches of complete stillness).
+    return (4.5 + this.random() * 4.5) / activity + clamp(focusLevel, 0, 1) * 2
   }
 }
 

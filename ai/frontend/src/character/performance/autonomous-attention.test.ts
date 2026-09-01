@@ -55,6 +55,29 @@ test('speaking or explicit focus cancels autonomous attention smoothly', () => {
   assert.equal(sample.weight, 0)
 })
 
+test('speaking runs reduced-strength gaze episodes instead of none', () => {
+  const attention = new AutonomousAttentionController(5)
+  let sawEpisode = false
+  let peakEyeX = 0
+  let idlePeakEyeX = 0
+  // Speaking: episodes must still occur (Neuro reference: gaze rhythm
+  // continues during speech) but with smaller values than idle glances.
+  for (let frame = 0; frame < 60 * 40 && !sawEpisode; frame += 1) {
+    const sample = attention.update(1 / 60, { enabled: true, activity: 'speaking', strengthScale: 0.35 })
+    peakEyeX = Math.max(peakEyeX, Math.abs(sample.values['eye.x'] ?? 0))
+    if (sample.weight > 0.5) sawEpisode = true
+  }
+  assert.equal(sawEpisode, true, 'speaking must still produce gaze episodes')
+  const idle = new AutonomousAttentionController(5)
+  for (let frame = 0; frame < 60 * 40; frame += 1) {
+    const sample = idle.update(1 / 60, { enabled: true, activity: 'idle' })
+    idlePeakEyeX = Math.max(idlePeakEyeX, Math.abs(sample.values['eye.x'] ?? 0))
+    if (idlePeakEyeX > 0.2) break
+  }
+  assert.ok(peakEyeX > 0, 'speaking episodes must emit eye values')
+  assert.ok(peakEyeX < idlePeakEyeX * 0.6, `speaking glances (${peakEyeX.toFixed(2)}) must be visibly quieter than idle (${idlePeakEyeX.toFixed(2)})`)
+})
+
 test('attention release cross-fades back to the current tracking pose', () => {
   const tracking = { 'eye.x': 0.6, 'head.x': 10, 'head.y': -3 }
   const attention = { 'eye.x': -0.4, 'head.x': -5, 'head.y': 1 }

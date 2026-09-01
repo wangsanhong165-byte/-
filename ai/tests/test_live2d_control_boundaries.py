@@ -283,7 +283,10 @@ def test_pet_mode_does_not_compete_with_continuous_idle_or_restart_interaction()
 def test_blink_clock_and_breath_amplitude_use_natural_ranges():
     controllers = (ROOT / "frontend/src/character/controllers.ts").read_text(encoding="utf-8")
 
-    assert "BASE_BLINK_INTERVAL = 2.8" in controllers
+    # 8bb5295 moved the blink base 2.8 → 4.7s so the lively preset lands in the
+    # human 3-6s band instead of ~24 blinks/min.
+    assert "BASE_BLINK_INTERVAL = 4.7" in controllers
+    assert "BASE_BLINK_INTERVAL = 2.8" not in controllers
     assert "breath * 8" not in controllers
     assert "this.mixer.setParams('breath', this.idleCtrl.getBreathParams())" in controllers
 
