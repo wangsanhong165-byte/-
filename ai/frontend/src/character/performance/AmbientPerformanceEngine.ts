@@ -172,7 +172,12 @@ export class AmbientPerformanceEngine {
       if (Math.abs(value) > 0.001) this.emotionPose[key] = value
       else delete this.emotionPose[key]
     }
-    if (Object.keys(this.emotionPose).length) target = addLogical(target, this.emotionPose)
+    if (Object.keys(this.emotionPose).length) {
+      // Living hold: the stance breathes ±12% at ~0.17Hz — a held pose that
+      // freezes solid reads as mannequin, real posture keeps micro-adjusting.
+      const hold = 1 + 0.12 * Math.sin(this.clockSeconds * 1.05 + 1.3)
+      for (const key of Object.keys(this.emotionPose)) target[key] = (target[key] ?? 0) + this.emotionPose[key] * hold
+    }
     target = filterChannels(target, input.blockedChannels)
     // Post-switch handoff: slow the release direction so the pose glides back
     // over ~1.5s instead of every idle layer collapsing to center in one beat.
