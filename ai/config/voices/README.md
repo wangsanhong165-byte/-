@@ -44,3 +44,24 @@ config/voices/monika/ （同构）
 - 权重文件较大（ckpt~150MB / pth~130MB），已被 .gitignore 忽略，不提交 git；换机器需手动放回
 - 架构匹配：v2Pro 权重（文件头 05）与 v2ProPlus（06）均可被同一服务动态加载（api 按文件头自动识别），无需改 yaml
 - `tts_infer.yaml` 的 custom 段只是服务启动默认音色，运行时切角色会通过 /set_gpt_weights + /set_sovits_weights 动态切换，不用手工改 yaml
+
+## 自查音色架构版本（v2Pro / v2ProPlus）
+
+SoVITS 权重的架构版本写在 .pth 文件头前 2 字节（魔数）：
+
+- `05` = v2Pro
+- `06` = v2ProPlus
+
+PowerShell 一行命令：
+
+```powershell
+$b = [System.IO.File]::ReadAllBytes((Resolve-Path 'config\voices\<音色id>\<权重>.pth'))[0..1]
+-join ($b | ForEach-Object { [char]$_ })   # 输出 05 或 06
+```
+
+实测（2026-09-03）：
+- alims/Aemeath_e8_s272.pth  -> 06 = v2ProPlus
+- amiya/Amiya.pth            -> 05 = v2Pro
+- monika/Monika_e8_s224.pth  -> 05 = v2Pro
+
+**不需要你操心匹配**：api_v2 在切换音色时会按权重文件头自动识别架构并重建模型（`get_sovits_version_from_path_fast`），三个音色混用 v2Pro/v2ProPlus 在同一服务上没有问题，也无需改 yaml。GPT 侧 .ckpt（s1v3 底模微调）在 v2Pro/v2ProPlus 下通用。
