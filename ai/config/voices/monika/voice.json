@@ -3,5 +3,7 @@
   "name": "Monika",
   "ref": "monika_voice.flac_0009371520_0009560000.wav",
   "prompt_text": "Like, come on, isn't it obvious? They all want your attention, and, you know, I'm just in the background watching them.",
-  "prompt_lang": "en"
+  "prompt_lang": "en",
+  "gpt": "Monika-e15.ckpt",
+  "vits": "Monika_e8_s224.pth"
 }
