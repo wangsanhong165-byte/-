@@ -13,6 +13,8 @@ import { VoiceWaitingMotionController } from './VoiceWaitingMotionController.ts'
 export type AmbientPerformanceChannel = 'head' | 'body' | 'gaze'
 
 export interface AmbientPerformanceInput {
+  /** Segment emotion name; keys the sustained body-language pose layer. */
+  emotion?: string
   vad: VADVector
   audioLevel: number
   enabled: boolean
@@ -37,6 +39,31 @@ export interface AmbientPerformanceFrame {
  * posture, activity transitions, capability filtering and motion ownership
  * are resolved here so callers submit one coherent pose layer to the mixer.
  */
+/** Sustained per-emotion body language: a held posture, not a gesture.
+ *  Ramped in/out slowly, it gives each expression its own readable stance
+ *  (pout turns away, shy drops the head, angry leans in) on top of which the
+ *  speech rhythm and brief beats play. Amplitudes stay inside the calibrated
+ *  Phase-A envelope so the stance reads as mood, not pantomime.
+ */
+const EMOTION_BODY_POSES: Readonly<Record<string, Readonly<Record<string, number>>>> = {
+  pout: { 'head.z': -3.0, 'head.y': 1.2, 'body.x': -2.0 },
+  angry: { 'head.y': -2.4, 'body.y': 2.4, 'head.z': -1.2 },
+  shy: { 'head.y': -3.0, 'head.x': -1.6, 'body.x': -1.3 },
+  embarrassed: { 'head.y': -2.6, 'head.x': -1.4, 'body.x': -1.2 },
+  sad: { 'head.y': -2.6, 'body.y': -2.0, 'head.z': 1.6 },
+  crying: { 'head.y': -2.4, 'body.y': -1.8, 'head.z': 1.8 },
+  cry: { 'head.y': -2.4, 'body.y': -1.8, 'head.z': 1.8 },
+  worried: { 'head.y': -1.3, 'head.z': 1.4 },
+  surprised: { 'head.y': 2.0, 'body.y': -1.3 },
+  happy: { 'head.z': 1.3, 'body.x': 0.9, 'head.y': 0.7 },
+  joyful: { 'head.z': 1.7, 'body.x': 1.1, 'head.y': 0.9 },
+  laughing: { 'head.z': 1.9, 'body.y': 1.1 },
+  cheerful: { 'head.z': 1.5, 'body.x': 1.0 },
+  love: { 'head.z': 1.5, 'body.x': 1.3 },
+  sleepy: { 'head.y': -1.7 },
+  smile: { 'head.z': 1.0, 'head.y': 0.5 },
+}
+
 export class AmbientPerformanceEngine {
   private readonly idle = new IdleBehaviorController()
   private readonly speech = new SpeechPerformanceController()
@@ -45,6 +72,7 @@ export class AmbientPerformanceEngine {
   private activity = 'idle'
   private clockSeconds = 0
   private lastSwitchAt = -10
+  private emotionPose: Record<string, number> = {}
   private current: Record<string, number> = {}
   private eyeClose = 0
   private enhanced = true
@@ -132,6 +160,19 @@ export class AmbientPerformanceEngine {
       else if (this.activity === 'listening' || this.activity === 'thinking') target = waiting
     }
     if (input.enabled && this.enhanced) target = addLogical(target, vadPosture(input.vad, gain))
+    // Sustained emotion posture: ramp toward the segment's stance slowly so it
+    // reads as mood settling in, and melt back on emotion change.
+    const poseTarget = EMOTION_BODY_POSES[input.emotion ?? ''] ?? null
+    const poseKeys = new Set([...Object.keys(this.emotionPose), ...Object.keys(poseTarget ?? {})])
+    const poseRate = poseTarget ? 2.4 : 3.0
+    for (const key of poseKeys) {
+      const from = this.emotionPose[key] ?? 0
+      const to = (poseTarget && poseTarget[key]) ?? 0
+      const value = from + (to - from) * (1 - Math.exp(-delta * poseRate))
+      if (Math.abs(value) > 0.001) this.emotionPose[key] = value
+      else delete this.emotionPose[key]
+    }
+    if (Object.keys(this.emotionPose).length) target = addLogical(target, this.emotionPose)
     target = filterChannels(target, input.blockedChannels)
     // Post-switch handoff: slow the release direction so the pose glides back
     // over ~1.5s instead of every idle layer collapsing to center in one beat.

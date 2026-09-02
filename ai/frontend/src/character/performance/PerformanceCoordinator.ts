@@ -115,6 +115,7 @@ export class PerformanceCoordinator {
       : supportedTracking
 
     const ambient = this.ambient.update(dt, {
+      emotion: input.emotion,
       vad: input.vad,
       audioLevel: input.audioLevel,
       enabled: input.enabled,

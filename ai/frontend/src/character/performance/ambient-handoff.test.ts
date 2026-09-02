@@ -86,3 +86,40 @@ test('post-switch handoff slows the release direction without touching attack', 
     'attack direction keeps its crisp response even in the handoff window',
   )
 })
+test('segment emotion holds a distinct body stance (pout turns away and stays)', () => {
+  const engine = new AmbientPerformanceEngine(31)
+  const emoInput = (activity: string, emotion: string) => ({
+    activity,
+    emotion,
+    vad: { valence: -0.4, arousal: 0.2, dominance: -0.3 },
+    audioLevel: activity === 'speaking' ? 0.8 : 0,
+    enabled: true,
+    blockedChannels: new Set(),
+    tracking: {},
+    trackingEngagement: 0,
+    explicitAttention: { values: {}, weight: 0 },
+    canControlHead: true,
+    canControlGaze: true,
+    gain: 1,
+  })
+  for (let frame = 0; frame < 120; frame += 1) {
+    engine.update(1 / 60, emoInput('speaking', 'neutral'))
+  }
+  const neutralZ = engine.update(1 / 60, emoInput('speaking', 'neutral')).values['head.z'] ?? 0
+  for (let frame = 0; frame < 90; frame += 1) {
+    engine.update(1 / 60, emoInput('speaking', 'pout'))
+  }
+  const values = engine.update(1 / 60, emoInput('speaking', 'pout')).values
+  const poutZ = values['head.z'] ?? 0
+  const poutBodyX = values['body.x'] ?? 0
+  // The held stance must be clearly offset from neutral and STABLE (not a
+  // transient gesture): head tilted away ~-3 and body turned with it.
+  assert.ok(poutZ < neutralZ - 2, `pout must hold a turned-away head tilt (z ${poutZ.toFixed(2)} vs neutral ${neutralZ.toFixed(2)})`)
+  assert.ok(poutBodyX < -1, `pout body must turn away (x ${poutBodyX.toFixed(2)})`)
+  // Back to neutral: stance melts away.
+  for (let frame = 0; frame < 90; frame += 1) {
+    engine.update(1 / 60, emoInput('speaking', 'neutral'))
+  }
+  const resetZ = engine.update(1 / 60, emoInput('speaking', 'neutral')).values['head.z'] ?? 0
+  assert.ok(Math.abs(resetZ - neutralZ) < 0.8, `stance must melt back on neutral (z ${resetZ.toFixed(2)})`)
+})
