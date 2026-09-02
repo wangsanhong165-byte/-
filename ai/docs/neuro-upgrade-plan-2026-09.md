@@ -5,6 +5,12 @@
 > 分级：P0=直接决定"导演层有没有存在感"，P1=显著提质，P2=锦上添花，P3=记录暂缓。
 > 约束：不改协议格式（segments/motionPlan 不动）、不动眨眼 4.7 基准、全部走现有通道仲裁与能力开关。
 
+> **⚠️ 2026-09-03 勘误（d82ddc3）**：本计划实施后经用户真机反馈与项目基线复核，以下条目已撤回或调整，以代码现状为准：
+> - §P1"动作振幅 +30%"已撤回——超出 Phase-A 校准基线（live2d-tuning-plan.md），实测读感"作"；现恢复基线值并改用非对称节拍形状（快起-慢收-轻微回落）与逐拍强度 ±15% 变化。
+> - §P0"表情过渡 360→220ms"已回退 360ms——vividness-report §2 判定原值已匹配视频带（300-600ms）。
+> - 保留项：motionProbability 改革、speaking 期视线节律（strengthCurrent 平滑版）、fractions 抖动、idle 间隔 4.5-9s、眨眼联动、formal/somber 调制、contextTags 受控词表（b33d580）。
+> - 新增（计划外）：活动切换 handoff 窗口——approachPose 回落速率 3.8→1.7/s 持续 1.2s，修复"发送→思考态瞬间回正"（提交 d82ddc3，基线见 live2d-tuning-plan.md）。
+
 ---
 
 ## 0. 量化依据（本方案数值的来源）

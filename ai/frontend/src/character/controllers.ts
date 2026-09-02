@@ -625,6 +625,7 @@ export class CharacterController {
     switch (activity) {
       case 'idle':
         this.idleCtrl.setBreathing(true)
+        this.idleCtrl.setBlinkRateOverride(1)
         this.exprCtrl.apply('neutral', 1, 520)
         this._currentEmotion = 'neutral'
         this._currentEmotionIntensity = 0

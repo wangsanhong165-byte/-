@@ -29,7 +29,10 @@ export class AttentionController {
     }
     const ownsAttention = this.target === 'screen' || this.target === 'away'
     const targetWeight = ownsAttention ? 1 : 0
-    this.weight += (targetWeight - this.weight) * (1 - Math.exp(-Math.max(0, dt) * 8))
+    // 'away' (thinking recall glance) rises gently so a mid-swing flip reads as
+    // turning the head, not a whip-pan; other targets keep the snappy response.
+    const riseRate = this.target === 'away' ? 2.6 : 8
+    this.weight += (targetWeight - this.weight) * (1 - Math.exp(-Math.max(0, dt) * riseRate))
     if (this.weight < 0.001 && !ownsAttention) {
       this.weight = 0
       return { values: {}, weight: 0 }
@@ -37,9 +40,9 @@ export class AttentionController {
     if (this.target === 'away') {
       return {
         values: {
-          'eye.x': this.awaySign * 0.35,
+          'eye.x': this.awaySign * 0.3,
           'eye.y': 0.04,
-          'head.x': this.awaySign * 6,
+          'head.x': this.awaySign * 4.2,
           'head.y': 0.5,
         },
         weight: this.weight,

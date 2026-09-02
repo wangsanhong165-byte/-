@@ -17,6 +17,8 @@ soullink-pytest-*/
 .tmp/
 .tmp_live2d_eval/
 .tmp_video/
+.tmp_neuro/
+.playwright-cli/
 _cache/
 _runs/
 

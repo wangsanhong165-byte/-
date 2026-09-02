@@ -86,6 +86,8 @@ export class AmbientPerformanceEngine {
 
   reset(): void {
     this.current = {}
+    this.clockSeconds = 0
+    this.lastSwitchAt = -10
     this.eyeClose = 0
     this.tailRootValue = 0
     this.tailRootVelocity = 0

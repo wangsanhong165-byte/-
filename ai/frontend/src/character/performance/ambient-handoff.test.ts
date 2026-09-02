@@ -29,6 +29,9 @@ test('speaking to idle activity switch never snaps the pose between frames', () 
     current = Math.max(current, Math.abs(frameOut.values['head.x'] ?? 0))
   }
   assert.ok(current > 0.5, 'fixture must reach a visible speaking pose')
+  // Baseline from the LAST rendered frame, not the settle peak — comparing
+  // against a sinusoid peak manufactured phantom 3° deltas at phase shifts.
+  current = Math.abs(engine.update(1 / 60, speechInput('speaking')).values['head.x'] ?? 0)
   let maxDelta = 0
   for (let frame = 0; frame < 120; frame += 1) {
     const activity = frame < 60 ? 'idle' : frame < 90 ? 'speaking' : 'idle'
