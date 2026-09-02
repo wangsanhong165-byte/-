@@ -43,6 +43,8 @@ export class AmbientPerformanceEngine {
   private readonly waiting: VoiceWaitingMotionController
   private style: ResolvedMotionStyle
   private activity = 'idle'
+  private clockSeconds = 0
+  private lastSwitchAt = -10
   private current: Record<string, number> = {}
   private eyeClose = 0
   private enhanced = true
@@ -72,6 +74,7 @@ export class AmbientPerformanceEngine {
   }
 
   setActivity(activity: string): void {
+    if (activity !== this.activity) this.lastSwitchAt = this.clockSeconds
     this.activity = activity
     this.speech.setSpeaking(activity === 'speaking')
   }
@@ -97,6 +100,7 @@ export class AmbientPerformanceEngine {
 
   update(dt: number, input: AmbientPerformanceInput): AmbientPerformanceFrame {
     const delta = Math.max(0, Math.min(0.1, dt))
+    this.clockSeconds += delta
     const gain = Math.max(0, Math.min(2.5, input.gain ?? 1))
     const idleAllowed = input.enabled
       && this.activity === 'idle'
@@ -127,7 +131,10 @@ export class AmbientPerformanceEngine {
     }
     if (input.enabled && this.enhanced) target = addLogical(target, vadPosture(input.vad, gain))
     target = filterChannels(target, input.blockedChannels)
-    this.current = approachPose(this.current, target, delta)
+    // Post-switch handoff: slow the release direction so the pose glides back
+    // over ~1.5s instead of every idle layer collapsing to center in one beat.
+    const handoff = this.clockSeconds - this.lastSwitchAt < 1.2
+    this.current = approachPose(this.current, target, delta, handoff)
     // Tracking already owns a hierarchical response model (eyes -> head ->
     // torso). Filtering it again here recreates the slow, smooth stiffness
     // this engine is intended to avoid.
@@ -298,16 +305,20 @@ function addLogical(
   return result
 }
 
-function approachPose(
+export function approachPose(
   current: Record<string, number>,
   target: Record<string, number>,
   dt: number,
+  handoff = false,
 ): Record<string, number> {
   const result: Record<string, number> = {}
   for (const key of new Set([...Object.keys(current), ...Object.keys(target)])) {
     const from = current[key] ?? 0
     const to = target[key] ?? 0
-    const response = 1 - Math.exp(-dt * (Math.abs(to) > Math.abs(from) ? 5.2 : 3.8))
+    // Release slows during the post-switch handoff; attack keeps its crisp
+    // response so speech ramp-up is never delayed.
+    const baseRate = Math.abs(to) > Math.abs(from) ? 5.2 : 3.8
+    const response = 1 - Math.exp(-dt * (handoff && baseRate === 3.8 ? 1.7 : baseRate))
     const value = from + (to - from) * response
     if (Math.abs(value) > 0.0001 || key in target) result[key] = value
   }

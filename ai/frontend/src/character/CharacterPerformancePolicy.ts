@@ -77,7 +77,7 @@ export class CharacterPerformancePolicy {
       * (mapping.motionIntensityScale ?? 1) * tagEnergyScale,
     ))
     const transitionMs = contextTags.has('whisper') || contextTags.has('reassuring')
-      ? 520 : emotion === 'surprised' || contextTags.has('excited') ? 140 : 220
+      ? 520 : emotion === 'surprised' || contextTags.has('excited') ? 140 : 360
     const baseMotionProbability = motion
       ? contextTags.has('interaction')
         ? 1

@@ -356,7 +356,8 @@ function withLocalSemanticChoreography(intent: CharacterIntent): CharacterIntent
       atMs,
       durationMs: Math.round(Math.min(2_200, Math.max(900, durationMs * 0.18), available)),
       primitive,
-      intensity: clamp(baseIntensity * (index === 0 ? 0.9 : index === 1 ? 1 : 0.82), 0, 1),
+      intensity: clamp(baseIntensity * (index === 0 ? 0.9 : index === 1 ? 1 : 0.82)
+        * (0.85 + (((hash >>> (index * 4)) & 7) / 7) * 0.3), 0, 1),
     }
   })
   return {

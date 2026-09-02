@@ -78,6 +78,28 @@ test('speaking runs reduced-strength gaze episodes instead of none', () => {
   assert.ok(peakEyeX < idlePeakEyeX * 0.6, `speaking glances (${peakEyeX.toFixed(2)}) must be visibly quieter than idle (${idlePeakEyeX.toFixed(2)})`)
 })
 
+test('mid-episode activity flips glide instead of jumping the gaze pose', () => {
+  const attention = new AutonomousAttentionController(7)
+  let peakHeadX = 0
+  for (let frame = 0; frame < 60 * 40; frame += 1) {
+    const sample = attention.update(1 / 60, { enabled: true, activity: 'idle' })
+    peakHeadX = Math.max(peakHeadX, Math.abs(sample.values['head.x'] ?? 0))
+    if (sample.weight >= 0.99) break
+  }
+  assert.ok(peakHeadX > 1, 'fixture must reach a real idle glance')
+  let maxFrameDelta = 0
+  for (let frame = 0; frame < 90; frame += 1) {
+    const previous = attention.update(1 / 60, { enabled: true, activity: 'idle' }).values['head.x'] ?? 0
+    const activity = frame < 30 ? 'speaking' : frame < 60 ? 'idle' : 'speaking'
+    const strengthScale = activity === 'speaking' ? 0.35 : 1
+    const current = attention.update(1 / 60, { enabled: true, activity, strengthScale }).values['head.x'] ?? 0
+    maxFrameDelta = Math.max(maxFrameDelta, Math.abs(current - previous))
+  }
+  assert.ok(
+    maxFrameDelta < 0.8,
+    `activity flips must glide: worst per-frame head.x delta ${maxFrameDelta.toFixed(2)}`,
+  )
+})
 test('attention release cross-fades back to the current tracking pose', () => {
   const tracking = { 'eye.x': 0.6, 'head.x': 10, 'head.y': -3 }
   const attention = { 'eye.x': -0.4, 'head.x': -5, 'head.y': 1 }

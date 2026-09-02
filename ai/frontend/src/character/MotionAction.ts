@@ -335,41 +335,42 @@ export function compileMotionPlanForModel(
 }
 
 function primitiveFrames(primitive: MotionPrimitive): PrimitiveFrame[] {
-  // Peaks are tuned against the Neuro reference (docs/neuro-upgrade-plan-2026-09.md
-  // §2.1): 8-11 salient beats/min only read as body language when each beat is
-  // visible. +~30% over the previous values, still inside the models' safe
-  // parameter ranges (head ±15°, body axes ±10).
+  // Peaks restore the Phase-A calibration baseline (docs/live2d-tuning-plan.md,
+  // validated against the video reference) — the earlier +30% overshoot read as
+  // overacted. Shape stays asymmetric: fast attack, settle, no metronome.
   switch (primitive) {
     case 'nod':
       return [
         { progress: 0, values: { 'head.y': 0 } },
-        { progress: .28, values: { 'head.y': -12 } },
-        { progress: .62, values: { 'head.y': 6 } },
+        { progress: .28, values: { 'head.y': -9 } },
+        { progress: .62, values: { 'head.y': 5 } },
         { progress: 1, values: { 'head.y': 0 } },
       ]
     case 'tilt_left':
-      return axisFrames('head.z', -15)
+      return axisFrames('head.z', -12)
     case 'tilt_right':
-      return axisFrames('head.z', 15)
+      return axisFrames('head.z', 12)
     case 'lean_forward':
-      return combinedFrames({ 'body.y': 8, 'head.y': 4 })
+      return combinedFrames({ 'body.y': 6, 'head.y': 3 })
     case 'lean_back':
-      return combinedFrames({ 'body.y': -6.5, 'head.y': -2.5 })
+      return combinedFrames({ 'body.y': -5, 'head.y': -2 })
     case 'sway':
+      // Asymmetric travel with unequal endpoints: same time and distance
+      // both ways reads as a metronome, not a weight shift.
       return [
         { progress: 0, values: { 'body.x': 0, 'head.z': 0 } },
-        { progress: .3, values: { 'body.x': -9, 'head.z': -5 } },
-        { progress: .7, values: { 'body.x': 9, 'head.z': 5 } },
+        { progress: .32, values: { 'body.x': -7, 'head.z': -4 } },
+        { progress: .7, values: { 'body.x': 6.4, 'head.z': 3.6 } },
         { progress: 1, values: { 'body.x': 0, 'head.z': 0 } },
       ]
     case 'look_left':
-      return combinedFrames({ 'eye.x': -.75, 'head.x': -9 })
+      return combinedFrames({ 'eye.x': -.75, 'head.x': -7 })
     case 'look_right':
-      return combinedFrames({ 'eye.x': .75, 'head.x': 9 })
+      return combinedFrames({ 'eye.x': .75, 'head.x': 7 })
     case 'breathe':
       return axisFrames('body.y', 3.5)
     case 'shrug':
-      return combinedFrames({ 'body.y': 4.5, 'head.z': 3 })
+      return combinedFrames({ 'body.y': 3.5, 'head.z': 2.5 })
   }
 }
 
@@ -379,9 +380,15 @@ function axisFrames(parameter: string, peak: number): PrimitiveFrame[] {
 
 function combinedFrames(values: Record<string, number>): PrimitiveFrame[] {
   const zero = Object.fromEntries(Object.keys(values).map(key => [key, 0]))
+  const settle = Object.fromEntries(
+    Object.keys(values).map(key => [key, values[key] * -0.1]),
+  )
+  // Fast attack, slow release with a slight counter-sway settle: a symmetric
+  // out-and-back arch reads as canned animation, real beats recoil a little.
   return [
     { progress: 0, values: zero },
-    { progress: .45, values },
+    { progress: .3, values },
+    { progress: .82, values: settle },
     { progress: 1, values: zero },
   ]
 }

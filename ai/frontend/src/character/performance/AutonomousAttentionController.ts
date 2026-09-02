@@ -45,6 +45,7 @@ export class AutonomousAttentionController {
   private vertical = 0
   private strength = 1
   private strengthScale = 1
+  private strengthCurrent = 1
   private prevSpeaking = false
   private episode = 0
   private lastWeight = 0
@@ -69,6 +70,7 @@ export class AutonomousAttentionController {
     this.releaseEyeStart = 0
     this.releaseHeadStart = 0
     this.strengthScale = 1
+    this.strengthCurrent = 1
     this.prevSpeaking = false
     this.scheduleWaiting(true)
   }
@@ -76,6 +78,11 @@ export class AutonomousAttentionController {
   update(dt: number, context: AutonomousAttentionContext): AutonomousAttentionSample {
     const delta = clamp(dt, 0, 0.1)
     this.strengthScale = clamp(context.strengthScale ?? 1, 0.1, 1)
+    // Glance amplitude follows the activity target exponentially (~310ms):
+    // an instant flip here jumped the gaze pose several degrees in one frame
+    // at every speaking<->idle boundary, reading as a twitch.
+    this.strengthCurrent += (this.strengthScale - this.strengthCurrent)
+      * (1 - Math.exp(-delta * 3.2))
     const allowed = context.enabled
       && (context.activity === 'idle' || context.activity === 'speaking')
       && context.interactionEngaged !== true
@@ -173,7 +180,7 @@ export class AutonomousAttentionController {
         episode: this.episode,
       }
     }
-    const scale = this.strengthScale
+    const scale = this.strengthCurrent
     return {
       values: {
         'eye.x': this.direction * 0.62 * this.strength * scale,
