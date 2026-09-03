@@ -95,7 +95,11 @@ export class IdleBehaviorController {
     const blend = 1 - Math.exp(-dt * (allowed ? 1.8 : 4.5))
     const weight = this._snapshot.transitionProgress
       + (targetWeight - this._snapshot.transitionProgress) * blend
-    const sway = this._bodySway.update(seconds, allowed ? 0 : 1, this._style.bodyMotionGain)
+    // BodySway wanders organically regardless of activity — its output is
+    // only consumed by logicalIdlePose (when activity is 'idle'), but keeping
+    // it running through thinking/listening prevents a jarring re-expansion
+    // when the character returns to idle (the "snap to center" artifact).
+    const sway = this._bodySway.update(seconds, 0, this._style.bodyMotionGain)
     const focus = Math.max(focusWeights.head, focusWeights.gaze)
     const action = this._actions.update(seconds, {
       // SoulLink-style interruption: an interaction cancels an idle action

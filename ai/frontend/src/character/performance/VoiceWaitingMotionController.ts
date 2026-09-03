@@ -69,33 +69,33 @@ function sampleTemplate(
   gain: number,
 ): Record<string, number> {
   if (template === 'figure-eight') return {
-    'head.x': Math.sin(time * .82) * 1.25 * gain,
-    'head.y': Math.sin(time * 1.64) * .65 * gain - .35 * gain,
-    'head.z': Math.cos(time * .82) * 1.2 * gain,
-    'body.x': Math.sin(time * .41) * .65 * gain,
+    'head.x': Math.sin(time * .82) * 2.8 * gain,
+    'head.y': Math.sin(time * 1.64) * 1.4 * gain - .8 * gain,
+    'head.z': Math.cos(time * .82) * 2.6 * gain,
+    'body.x': Math.sin(time * .41) * 1.5 * gain,
     'eye.y': .1,
   }
   if (template === 'curious-lean') return {
-    'head.x': Math.sin(time * .55) * .75 * gain,
-    'head.y': .55 * gain + Math.sin(time * .43) * .28 * gain,
-    'head.z': 1.15 * gain + Math.sin(time * .68) * .55 * gain,
-    'body.x': Math.sin(time * .31) * .6 * gain,
-    'body.y': .55 * gain,
+    'head.x': Math.sin(time * .55) * 1.7 * gain,
+    'head.y': 1.2 * gain + Math.sin(time * .43) * .6 * gain,
+    'head.z': 2.4 * gain + Math.sin(time * .68) * 1.2 * gain,
+    'body.x': Math.sin(time * .31) * 1.4 * gain,
+    'body.y': 1.2 * gain,
     'eye.y': .06,
   }
   if (template === 'contained-tension') return {
-    'head.x': Math.sin(time * 1.35) * .55 * gain,
-    'head.y': -.75 * gain + Math.sin(time * .72) * .22 * gain,
-    'head.z': Math.cos(time * 1.08) * .8 * gain,
-    'body.x': Math.sin(time * .64) * .42 * gain,
-    'body.y': -.48 * gain,
+    'head.x': Math.sin(time * 1.35) * 1.2 * gain,
+    'head.y': -1.6 * gain + Math.sin(time * .72) * .48 * gain,
+    'head.z': Math.cos(time * 1.08) * 1.8 * gain,
+    'body.x': Math.sin(time * .64) * .95 * gain,
+    'body.y': -1.0 * gain,
     'eye.y': .12,
   }
   return {
-    'head.x': Math.sin(time * .52) * .72 * gain,
-    'head.y': .25 * gain + Math.sin(time * .29) * .25 * gain,
-    'head.z': Math.sin(time * .41 + 1.2) * .58 * gain,
-    'body.x': Math.sin(time * .25) * .62 * gain,
+    'head.x': Math.sin(time * .52) * 1.6 * gain,
+    'head.y': .55 * gain + Math.sin(time * .29) * .55 * gain,
+    'head.z': Math.sin(time * .41 + 1.2) * 1.3 * gain,
+    'body.x': Math.sin(time * .25) * 1.4 * gain,
     'eye.y': .02,
   }
 }
