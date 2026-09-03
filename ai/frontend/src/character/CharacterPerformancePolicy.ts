@@ -1,6 +1,6 @@
 import type { AvatarCapabilityProfile } from './AvatarCapabilityProfile.ts'
 import { supportsExpression, supportsMotion } from './AvatarCapabilityProfile.ts'
-import type { CharacterIntent, CharacterBehaviorConfig, CharacterPresentationPlan, BehaviorMapping } from './CharacterBehaviorResolver.ts'
+import { DEFAULT_BEHAVIORS, type CharacterIntent, type CharacterBehaviorConfig, type CharacterPresentationPlan } from './CharacterBehaviorResolver.ts'
 
 export interface PerformanceModifiers {
   blinkRate: number
@@ -23,15 +23,10 @@ export class CharacterPerformancePolicy {
     const emotion = (intent.emotion || 'neutral').toLowerCase()
     const behavior = (intent.behavior || '').toLowerCase()
     const contextTags = new Set((intent.contextTags ?? []).map(tag => tag.toLowerCase()))
-    const defaults: Record<string, BehaviorMapping> = {
-      speak: {},
-      greet: { expression: 'happy', motion: 'wave' },
-      agree: { motion: 'nod' },
-      disagree: { motion: 'tilt' },
-      think: { motion: 'thinking', suppressIdle: true },
-      excited: { expression: 'happy', motion: 'wave', motionIntensityScale: 1.15 },
-    }
-    const mapping = config.behaviorMap?.[behavior] ?? defaults[behavior as keyof typeof defaults] ?? {}
+    // Single source of truth: DEFAULT_BEHAVIORS lives in the resolver. The
+    // policy must not keep a shadow subset — it silently lost the intensity
+    // scales for laugh/comfort/shrug etc. that only existed in the resolver.
+    const mapping = config.behaviorMap?.[behavior] ?? DEFAULT_BEHAVIORS[behavior] ?? {}
     const personality = config.personality ?? {}
     const requestedExpression = emotion === 'neutral' && mapping.expression
       ? mapping.expression

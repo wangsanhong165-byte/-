@@ -45,7 +45,7 @@ export interface CharacterPresentationPlan {
   suppressIdle: boolean
 }
 
-const DEFAULT_BEHAVIORS: Record<string, BehaviorMapping> = {
+export const DEFAULT_BEHAVIORS: Record<string, BehaviorMapping> = {
   speak: {},
   greet: { motion: 'wave', expression: 'happy' },
   agree: { motion: 'nod' },
