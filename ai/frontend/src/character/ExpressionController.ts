@@ -2,8 +2,8 @@
 // Takes abstract emotion names and translates them to Live2D expression presets.
 // Uses model-specific .exp3.json presets (via emotion_map) with hardcoded fallback.
 
-import { getExpression, EXPRESSION_PRESETS } from './live2d/expression'
-import type { ParameterController } from './ExpressionParameterController'
+import { getExpression, EXPRESSION_PRESETS } from './live2d/expression.ts'
+import type { ParameterController } from './ExpressionParameterController.ts'
 
 export interface ExpressionBlend {
   name: string

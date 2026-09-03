@@ -78,7 +78,7 @@ interface ReleasingMotion {
   source: string
 }
 
-export function smoothstep(value: number): number {
+function smoothstep(value: number): number {
   const t = clamp(value, 0, 1)
   return t * t * (3 - 2 * t)
 }

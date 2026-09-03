@@ -235,23 +235,3 @@ export function getExpression(name: string): ExpressionPreset {
   return EXPRESSION_PRESETS[name.toLowerCase()] ?? EXPRESSION_PRESETS.neutral
 }
 
-/**
- * Resolve model-specific expression: first check model presets, then fall back
- * to hardcoded semantic presets. Returns the expression name to actually apply.
- */
-export function resolveExpression(
-  expressionName: string,
-  modelPresetNames: string[] = [],
-): string {
-  // 1. Direct hit on a model-specific expression
-  if (modelPresetNames.length > 0 && modelPresetNames.includes(expressionName)) {
-    return expressionName
-  }
-  // 2. Try semantic preset (hardcoded)
-  const lower = expressionName.toLowerCase()
-  if (HARDCODED_PRESETS[lower]) {
-    return lower
-  }
-  // 3. Try neutral
-  return 'neutral'
-}
