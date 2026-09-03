@@ -169,10 +169,10 @@ def test_tts_step_resolves_system_voice_id(tmp_path: Path, monkeypatch):
     turn.character = _character_with_tts(voice_id="monika")
     monkeypatch.setattr(tts_step, "_PROJECT_ROOT", tmp_path)
 
+    # No explicit tts.text_lang on the card: engine auto-detects from content.
     assert tts_step._extract_voice_kwargs(turn) == {
         "engine": "gsvi-v2pro",
         "voice": "Monika",
-        "text_lang": "zh",
         "prompt_lang": "en",
         "prompt_text": "reference transcript",
         "ref_audio_path": str(voice_dir / "ref.wav"),

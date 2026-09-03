@@ -88,9 +88,14 @@ def _extract_voice_kwargs(ctx: CharacterTurn) -> dict:
     if voice:
         kwargs["voice"] = voice
 
-    reply_language = card.get("reply_language") or tts_cfg.get("text_lang")
-    if reply_language:
-        kwargs["text_lang"] = reply_language
+    # reply_language is the LLM's *intended* reply language; it must not be
+    # forced onto the TTS engine, which should detect from the actual output
+    # text (an EN character replying in Chinese to a Chinese user would
+    # otherwise be read as en and drop words). Only an explicit card-level
+    # tts.text_lang overrides auto-detection.
+    text_lang = tts_cfg.get("text_lang", "")
+    if text_lang:
+        kwargs["text_lang"] = text_lang
 
     prompt_language = tts_cfg.get("prompt_lang", "")
     if prompt_language:

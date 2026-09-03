@@ -18,3 +18,11 @@ def test_infer_text_lang_picks_zh_for_chinese_and_mixed():
 def test_infer_text_lang_picks_en_for_pure_english():
     assert gsvi_v2._infer_text_lang("Today is a nice day, let us go for a walk.") == "en"
     assert gsvi_v2._infer_text_lang("OK, sounds great!") == "en"
+
+def test_infer_text_lang_picks_ja_for_japanese_kana():
+    assert gsvi_v2._infer_text_lang("こんにちは、今日はいい天気ですね。") == "ja"
+    assert gsvi_v2._infer_text_lang("おはようございます！") == "ja"
+
+
+def test_infer_text_lang_picks_ko_for_hangul():
+    assert gsvi_v2._infer_text_lang("안녕하세요, 오늘 날씨가 좋네요.") == "ko"

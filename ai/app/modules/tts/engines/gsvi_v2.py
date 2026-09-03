@@ -52,14 +52,18 @@ _last_sovits_weights: str = ""
 
 
 def _infer_text_lang(text: str) -> str:
-    """Auto-detect text language for GSVI text_lang parameter."""
+    """Auto-detect text language for GSVI text_lang parameter.
+
+    Order matters: kana and hangul are language-exclusive, so check them
+    first. Han characters are shared by zh/ja/ko — a sentence with kana is
+    Japanese, otherwise CJK han defaults to Chinese (zh handles embedded
+    English correctly; see test_gsvi_text_lang_detect).
+    """
     for ch in text:
-        if "\u4e00" <= ch <= "\u9fff" or "\u3040" <= ch <= "\u30ff":
-            return "zh"
+        if "\u3040" <= ch <= "\u30ff":
+            return "ja"
         if "\uac00" <= ch <= "\ud7af":
             return "ko"
-    # Check for common CJK characters
-    # Default to zh if mixed, en otherwise
     return "zh" if any("\u4e00" <= c <= "\u9fff" for c in text) else "en"
 
 
@@ -156,14 +160,17 @@ class GSVIV2TTS(BaseTTS):
 
         ref_audio_path = _resolve_ref_audio(ref_audio_path)
 
-        # text_lang must match the DOMINANT language of the actual text being
-        # synthesized. The character card's reply_language is the *intended*
-        # reply language, which can disagree with what the model really
-        # outputs (e.g. an EN character replying in Chinese to a Chinese user).
-        # Measured: en mode reading Chinese drops whole words, zh mode reading
-        # pure English also degrades; zh mode handles embedded English words
-        # correctly. So always detect from content: any CJK => zh, else en.
-        detected_lang = _infer_text_lang(text)
+        # Explicit text_lang (env GSVI_TEXT_LANG, config, or per-call option)
+        # wins; otherwise detect from the actual content. reply_language is
+        # the *intended* reply language and can disagree with what the model
+        # really outputs (an EN character replying in Chinese), so it must
+        # never be forced here — detect instead: zh mode reads Chinese with
+        # embedded English correctly, en mode drops whole Chinese words.
+        explicit_lang = (text_lang_raw or "").strip().lower()
+        if explicit_lang and explicit_lang not in ("auto",):
+            detected_lang = _map_lang(explicit_lang, _TEXT_LANG_MAP)
+        else:
+            detected_lang = _infer_text_lang(text)
 
         # Set model weights (cached — skips if already loaded)
         if gpt_weights or sovits_weights:

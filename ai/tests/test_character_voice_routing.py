@@ -41,10 +41,11 @@ def test_character_voice_configuration_is_routed_with_separate_reply_and_referen
     turn.character = character
     monkeypatch.setattr(tts_step, "_PROJECT_ROOT", tmp_path)
 
+    # reply_language must NOT be forced as TTS text_lang: only an explicit
+    # tts.text_lang overrides the engine's content-based auto-detection.
     assert tts_step._extract_voice_kwargs(turn) == {
         "engine": "gsvi-v2pro",
         "voice": "Lantern",
-        "text_lang": "zh",
         "prompt_lang": "ja",
         "prompt_text": "reference transcript",
         "ref_audio_path": str(model_dir / "reference.wav"),
