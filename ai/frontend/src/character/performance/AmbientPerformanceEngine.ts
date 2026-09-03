@@ -114,6 +114,7 @@ export class AmbientPerformanceEngine {
 
   reset(): void {
     this.current = {}
+    this.emotionPose = {}
     this.clockSeconds = 0
     this.lastSwitchAt = -10
     this.eyeClose = 0

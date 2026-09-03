@@ -3,6 +3,7 @@ import type {
   CharacterPerformancePersonality,
 } from './AvatarCapabilityProfile'
 import { BodySwayController } from './performance/BodySwayController.ts'
+import { createSeededRandom } from './performance/SeededRandom.ts'
 import { IdleActionScheduler, type IdleActionLabel } from './performance/IdleActionScheduler.ts'
 import { deriveMotionSeed, resolveMotionStyle, type MotionStyleOptions } from './performance/MotionStyle.ts'
 import type { VADVector } from './performance/VADState.ts'
@@ -24,8 +25,8 @@ export interface IdleBehaviorSnapshot {
 
 export class IdleBehaviorController {
   private _elapsedMs = 0
-  private _phase = Math.random() * Math.PI * 2
   private _style = resolveMotionStyle()
+  private _phase = createSeededRandom(deriveMotionSeed(this._style.seed, 7))() * Math.PI * 2
   private _bodySway = new BodySwayController(deriveMotionSeed(this._style.seed, 5))
   private _actions = new IdleActionScheduler(
     deriveMotionSeed(this._style.seed, 6),
@@ -56,6 +57,7 @@ export class IdleBehaviorController {
     capabilities?: AvatarPerformanceCapabilities,
   ): void {
     this._style = resolveMotionStyle(options)
+    this._phase = createSeededRandom(deriveMotionSeed(this._style.seed, 7))() * Math.PI * 2
     this._personality = personality
     this._capabilities = capabilities
     this._actions = new IdleActionScheduler(
