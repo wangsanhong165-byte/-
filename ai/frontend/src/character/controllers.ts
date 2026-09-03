@@ -547,8 +547,14 @@ export class CharacterController {
     this.cleanupFns.push(
       eventBus.on('runtime:character.intent', ({ turnId, emotion, behavior, attention, energy, intensity, durationMs, naturalVAD, contextTags, motionPlan, segments }) => {
         if (!this.stateMachine.isCurrentTurn(turnId)) return
+        // attention arrives as an untyped string over the event bus; fold any
+        // value outside the documented target set back to the 'user' default
+        // (the policy already treats unrecognized attention as 'user').
+        const intentAttention = attention === 'screen' || attention === 'away' || attention === 'neutral'
+          ? attention
+          : 'user'
         this.performanceDirector.stage(
-          { turnId, emotion, behavior, attention: attention as any, energy, intensity, durationMs, naturalVAD, contextTags, motionPlan },
+          { turnId, emotion, behavior, attention: intentAttention, energy, intensity, durationMs, naturalVAD, contextTags, motionPlan },
           segments,
         )
       }),
