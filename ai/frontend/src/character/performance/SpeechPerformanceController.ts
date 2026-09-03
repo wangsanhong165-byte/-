@@ -99,9 +99,9 @@ export class SpeechPerformanceController {
       this.microTarget['head.x'] = pick(3.5)
       this.microTarget['head.y'] = pick(0.9)
       this.microTarget['head.z'] = pick(2.4)
-      this.microTarget['body.x'] = pick(2.6)
-      this.microTarget['body.y'] = pick(1.0)
-      this.microTarget['body.z'] = pick(1.4)
+      this.microTarget['body.x'] = pick(3.2)
+      this.microTarget['body.y'] = pick(1.3)
+      this.microTarget['body.z'] = pick(1.7)
       this.microFreq = 0.34 + this.random() * 0.12
       this.microHoldUntil = this.elapsed + 1.4 + this.random() * 1.2
     }

@@ -321,9 +321,11 @@ function logicalIdlePose(snapshot: IdleBehaviorSnapshot, gain: number): Record<s
     'head.z': snapshot.headZ * gain,
     'eye.x': snapshot.eyeX * gain,
     'eye.y': snapshot.eyeY * gain,
-    'body.x': snapshot.bodyX * gain,
-    'body.y': snapshot.bodyY * gain,
-    'body.z': (-snapshot.bodyX * 0.18 + snapshot.headZ * 0.24) * gain,
+    // Whole-body linkage: torso follows head rotation so the character moves
+    // as a connected figure, not a floating head on a static body.
+    'body.x': (snapshot.bodyX + snapshot.headX * 0.32) * gain,
+    'body.y': (snapshot.bodyY + snapshot.headY * 0.18) * gain,
+    'body.z': (-snapshot.bodyX * 0.18 + snapshot.headZ * 0.24 + snapshot.headX * 0.12) * gain,
   }
 }
 
@@ -335,9 +337,11 @@ function logicalSpeechPose(
     'head.x': sample.headX * gain,
     'head.y': sample.headY * gain,
     'head.z': sample.headZ * gain,
-    'body.x': sample.bodyX * gain,
-    'body.y': sample.bodyY * gain,
-    'body.z': sample.bodyZ * gain,
+    // Torso follows head rotation (30%) and head pitch (15%) for whole-body
+    // linkage — the character speaks with their body, not just their face.
+    'body.x': (sample.bodyX + sample.headX * 0.30) * gain,
+    'body.y': (sample.bodyY + sample.headY * 0.15) * gain,
+    'body.z': (sample.bodyZ + sample.headZ * 0.18) * gain,
   }
 }
 
@@ -366,8 +370,10 @@ export function approachPose(
     const to = target[key] ?? 0
     // Release slows during the post-switch handoff; attack keeps its crisp
     // response so speech ramp-up is never delayed.
-    const baseRate = Math.abs(to) > Math.abs(from) ? 5.2 : 3.8
-    const response = 1 - Math.exp(-dt * (handoff && baseRate === 3.8 ? 1.7 : baseRate))
+    // Faster rates for livelier transitions: attack 6.8 (was 5.2), release 5.0 (was 3.8).
+    // Handoff release 2.8 (was 1.7) — still gliding but noticeably quicker settle.
+    const baseRate = Math.abs(to) > Math.abs(from) ? 6.8 : 5.0
+    const response = 1 - Math.exp(-dt * (handoff && baseRate === 5.0 ? 2.8 : baseRate))
     const value = from + (to - from) * response
     if (Math.abs(value) > 0.0001 || key in target) result[key] = value
   }
