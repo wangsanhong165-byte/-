@@ -683,43 +683,12 @@ async def serve_index():
         content = index.read_text(encoding="utf-8")
 
         # Inject model config into HTML so Live2D renders immediately
-        # without waiting for a WebSocket configuration event
-        cfg = _load_live2d_config()
-        model_cfg = cfg.get(_live2d_model, {})
-        capabilities = _get_presentation_registry().capabilities_for(_live2d_model)
-        emotion_map = model_cfg.get("emotion_map", {})
-        behaviors = model_cfg.get("behaviors", [])
-        accessories = model_cfg.get("accessories", {})
-        behavior_config = {
-            name: {
-                "emotionMap": value.get("emotion_map", {}),
-                "behaviorMap": value.get("behavior_map", {}),
-                "personality": value.get("personality", {}),
-            }
-            for name, value in cfg.items()
-        }
-        model_url = f"/live2d-models/{_live2d_model}/{_live2d_model}.model3.json"
-
-        # Inject avatar config for ALL models (not just active) so model
-        # switching picks up the correct component/expression/motion definitions.
-        avatar_cfg = _load_avatar_config()
-        avatar_profiles = _load_avatar_profiles()
-        motion_presets = _load_motion_presets()
-
+        # without waiting for a WebSocket configuration event. Single source:
+        # _build_model_info() also feeds /api/model-info, so the two surfaces
+        # cannot drift apart (see the "dual-build" audit).
         inject = (
             '<script>window.__INITIAL_MODEL_INFO__ = '
-            + json.dumps({
-                "name": _live2d_model,
-                "url": model_url,
-                "promptEmotions": list(capabilities.allowed_emotions),
-                "emotionMap": emotion_map,
-                "behaviors": behaviors,
-                "accessories": accessories,
-                "behaviorConfig": behavior_config,
-                "avatarProfiles": avatar_profiles,
-                "motionPresets": motion_presets,
-                "avatar": avatar_cfg,  # full per-model config
-            }, ensure_ascii=False)
+            + json.dumps(_build_model_info(), ensure_ascii=False)
             + ';</script>'
         )
         content = content.replace("</head>", inject + "</head>") if "</head>" in content else content + inject
