@@ -156,11 +156,14 @@ class GSVIV2TTS(BaseTTS):
 
         ref_audio_path = _resolve_ref_audio(ref_audio_path)
 
-        # Auto-detect text language if set to "auto"
-        if text_lang_raw.strip().lower() in ("auto", ""):
-            detected_lang = _infer_text_lang(text)
-        else:
-            detected_lang = _map_lang(text_lang_raw, _TEXT_LANG_MAP)
+        # text_lang must match the DOMINANT language of the actual text being
+        # synthesized. The character card's reply_language is the *intended*
+        # reply language, which can disagree with what the model really
+        # outputs (e.g. an EN character replying in Chinese to a Chinese user).
+        # Measured: en mode reading Chinese drops whole words, zh mode reading
+        # pure English also degrades; zh mode handles embedded English words
+        # correctly. So always detect from content: any CJK => zh, else en.
+        detected_lang = _infer_text_lang(text)
 
         # Set model weights (cached — skips if already loaded)
         if gpt_weights or sovits_weights:
