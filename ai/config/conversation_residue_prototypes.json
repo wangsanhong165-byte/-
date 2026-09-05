@@ -1,0 +1,50 @@
+{
+  "description": "对话残留情境原型——表演层待机画像的语义匹配语料（小脑）。进入待机时把最近几轮对话与这些原型做最近邻匹配，命中的 label 携带 idle_profile 提示（姿态/表情/能量倾向），交由表演层 IdleBehaviorScheduler 消费。可编辑；保存后向量缓存自动重算。匹配失败回落现有待机行为。",
+  "prototypes": {
+    "playful_residue": {
+      "sentences": [
+        "哈哈刚才笑死我了",
+        "继续继续，刚才那个梗还没玩完",
+        "你就知道逗我",
+        "卖萌卖上瘾了啦"
+      ],
+      "idle_profile": {"energy": 0.7, "expression_hint": "playful", "gesture_tendency": "bouncy"}
+    },
+    "stress_residue": {
+      "sentences": [
+        "这个bug又失败了，改了一天",
+        "被领导批评了，烦死了",
+        "压力好大，事情做不完",
+        "调试到现在还没搞定"
+      ],
+      "idle_profile": {"energy": 0.3, "expression_hint": "worried", "gesture_tendency": "tired"}
+    },
+    "tender_residue": {
+      "sentences": [
+        "有你在身边感觉安心多了",
+        "谢谢你陪我聊这么久",
+        "今天被你治愈了",
+        "晚安，做个好梦"
+      ],
+      "idle_profile": {"energy": 0.4, "expression_hint": "gentle", "gesture_tendency": "settled"}
+    },
+    "deep_talk_residue": {
+      "sentences": [
+        "原来你是这样理解那件事的",
+        "我们聊到人生意义这种话题了",
+        "这个观点让我想了很多",
+        "说到价值观，我觉得"
+      ],
+      "idle_profile": {"energy": 0.35, "expression_hint": "thoughtful", "gesture_tendency": "pensive"}
+    },
+    "calm_daily_residue": {
+      "sentences": [
+        "今天吃了顿好的",
+        "天气不错出去走了走",
+        "日常打卡，一切都平常",
+        "随便聊聊最近的小事"
+      ],
+      "idle_profile": {"energy": 0.5, "expression_hint": "neutral", "gesture_tendency": "ambient"}
+    }
+  }
+}

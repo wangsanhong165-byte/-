@@ -14,13 +14,15 @@ Search strategy (two-tier, same as openhanako v2):
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
 import threading
 import re
 import time
-from datetime import datetime, timezone
+from array import array
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -30,6 +32,118 @@ _FTS_LIMIT = 20
 # Memory lifecycle decay (deterministic, no LLM; Hermes curator-inspired).
 STALE_DAYS = 30
 ARCHIVE_DAYS = 90
+
+# Ephemeral memories (recent_state) carry an explicit validity window.
+# Overridable for tests/ops; floored at 1h so a bad env value cannot make
+# states expire instantly.
+DEFAULT_RECENT_STATE_TTL_HOURS = 48
+
+
+def _recent_state_ttl_seconds() -> float:
+    try:
+        hours = float(os.environ.get("MEMORY_RECENT_STATE_TTL_HOURS", str(DEFAULT_RECENT_STATE_TTL_HOURS)))
+    except (TypeError, ValueError):
+        hours = float(DEFAULT_RECENT_STATE_TTL_HOURS)
+    return max(1.0, hours) * 3600.0
+
+
+def _sanitize_timestamp(value: Any) -> Optional[datetime]:
+    """Parse an ISO datetime or bare date; None when unparseable."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text)
+    except (ValueError, TypeError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _clean_tags(tags: Any) -> list[str]:
+    if not isinstance(tags, (list, tuple)):
+        return []
+    cleaned: list[str] = []
+    for tag in tags:
+        text = str(tag).strip()
+        if text and text not in cleaned:
+            cleaned.append(text)
+    return cleaned[:8]
+
+
+# One-time v5 cleanup: relative-time phrases that mark a memory as a frozen
+# "current state" snapshot. Conservative on purpose (see _migrate_v5_cleanup).
+_RELATIVE_STATE_MARKERS = ("今天", "刚刚", "刚才", "今晚", "今早", "昨晚", "凌晨", "现在")
+
+
+def _embeddings_enabled() -> bool:
+    return os.environ.get("MEMORY_EMBEDDINGS", "1").strip().lower() not in (
+        "0", "false", "off", "no",
+    )
+
+
+# 小脑·摘要选材：与现有摘要/更早保留回合近重复的高线（只删近乎相同的内容，
+# 同主题的新进展一律保留——真实更新会把余弦拉到线下）。
+SUMMARY_NEAR_DUP_COSINE = 0.90
+
+
+def _clean_paraphrases(paraphrases: Any) -> list[str]:
+    if not isinstance(paraphrases, (list, tuple)):
+        return []
+    cleaned: list[str] = []
+    for text in paraphrases:
+        value = str(text).strip()
+        if value and value not in cleaned:
+            cleaned.append(value)
+    return cleaned[:6]
+
+
+def _compose_document(content: str, tags: list[str], paraphrases: list[str]) -> str:
+    """The text that gets embedded: fact + retrieval keys in one document."""
+    parts = [content.strip()]
+    if tags:
+        parts.append("关键词：" + "、".join(tags))
+    if paraphrases:
+        parts.append("相关说法：" + "；".join(paraphrases))
+    return "\n".join(parts)
+
+
+def _encode_vector(vector: list[float]) -> bytes:
+    return array("f", vector).tobytes()
+
+
+def _decode_vector(blob: Any) -> Optional[list[float]]:
+    if not blob:
+        return None
+    try:
+        values = array("f")
+        values.frombytes(bytes(blob))
+        return list(values)
+    except (ValueError, TypeError):
+        return None
+
+
+def _renormalized_cosine(a: Optional[list[float]], b: Optional[list[float]]) -> Optional[float]:
+    """Cosine of two L2-normalized vectors, remapped to [0, 1].
+
+    Floor/span are engine-specific and calibrated on the real DB
+    (scripts/calibrate_embedding_thresholds.py):
+      - Qwen3-Embedding-0.6B: floor 0.40 / span 0.60 (default; unrelated
+        q-doc p99=0.557, related ≥0.52)
+      - bge-small-zh-v1.5 (rollback): floor 0.656 / span 0.344
+    Overridable via MEMORY_COSINE_FLOOR / MEMORY_COSINE_SPAN for engine A/B.
+    RE-MEASURE whenever the model file changes.
+    """
+    if not a or not b or len(a) != len(b):
+        return None
+    try:
+        floor = float(os.environ.get("MEMORY_COSINE_FLOOR", "0.40"))
+        span = max(0.05, float(os.environ.get("MEMORY_COSINE_SPAN", "0.60")))
+    except (TypeError, ValueError):
+        floor, span = 0.40, 0.60
+    dot = sum(x * y for x, y in zip(a, b))
+    return max(0.0, min(1.0, (dot - floor) / span))
 
 
 def _safe_history_metadata(metadata: dict[str, Any] | None) -> dict[str, Any]:
@@ -101,13 +215,83 @@ def _decay_decision(row: dict, now_ts: float) -> str | None:
     if activity <= 0:
         return None
     age_days = (now_ts - activity) / 86400.0
-    if str(row.get("state", "active")) == "archived":
+    if str(row.get("state", "active")) in ("archived", "expired"):
         return None
     if age_days > ARCHIVE_DAYS:
         return "archive"
     if age_days > STALE_DAYS:
         return "stale"
     return None
+
+
+def _migrate_v5_cleanup(conn: sqlite3.Connection, backup_dir: Path) -> int:
+    """One-time conservative cleanup of relative-time rot (soft, reversible).
+
+    Expires (active=0, state='expired', never destructive):
+      - recent_state rows observed before the TTL window (they are snapshots,
+        not facts — "凌晨仍未睡觉" must not outlive its night);
+      - recent_state rows whose content freezes a relative moment
+        (今天/刚刚/今晚/昨晚/凌晨/现在…);
+      - rows claiming "明天 X" whose day has long passed;
+      - open_loop rows that leaked the summary's "（无）" empty marker.
+    A full-table JSON backup is written before the first batch of changes so
+    the operation stays auditable and reversible. Idempotent: expired rows no
+    longer match, so later startups do not re-run or re-backup.
+    """
+    rows = conn.execute(
+        "SELECT id, memory_type, content, created_at, observed_at "
+        "FROM memories WHERE active = 1"
+    ).fetchall()
+    now = datetime.now(timezone.utc)
+    ttl = timedelta(seconds=_recent_state_ttl_seconds())
+    stale_ids: list[int] = []
+    for row in rows:
+        content = str(row["content"] or "")
+        observed = _sanitize_timestamp(row["observed_at"] or row["created_at"])
+        if row["memory_type"] == "recent_state":
+            if observed is not None and (now - observed) > ttl:
+                stale_ids.append(int(row["id"]))
+                continue
+            # Relative-time markers only condemn rows without a usable clock:
+            # a fresh "用户今天很累" with a real observed_at is a legitimate
+            # current state and expires via the TTL rule instead.
+            if observed is None and any(
+                marker in content for marker in _RELATIVE_STATE_MARKERS
+            ):
+                stale_ids.append(int(row["id"]))
+                continue
+        if "明天" in content and observed is not None and (now - observed) > timedelta(days=2):
+            stale_ids.append(int(row["id"]))
+            continue
+        if row["memory_type"] == "open_loop" and content.strip().startswith("（无）"):
+            stale_ids.append(int(row["id"]))
+            continue
+    if not stale_ids:
+        return 0
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    # The embedding blob is excluded: it is recomputable and the backup stays
+    # JSON-serializable; default=str guards against any future binary column.
+    backup = {
+        "schema_version": 5,
+        "backed_up_at": now.isoformat(),
+        "reason": "v5 relative-time cleanup",
+        "expired_ids": stale_ids,
+        "rows": [
+            {key: value for key, value in dict(row).items() if key != "embedding"}
+            for row in conn.execute("SELECT * FROM memories").fetchall()
+        ],
+    }
+    backup_path = backup_dir / f"memories_backup_{now:%Y%m%dT%H%M%S}.json"
+    backup_path.write_text(
+        json.dumps(backup, ensure_ascii=False, indent=2, default=str), "utf-8"
+    )
+    stamp = now.isoformat()
+    conn.executemany(
+        "UPDATE memories SET state = 'expired', active = 0, updated_at = ? "
+        "WHERE id = ?",
+        [(stamp, row_id) for row_id in stale_ids],
+    )
+    return len(stale_ids)
 
 
 class MemoryStore:
@@ -176,6 +360,10 @@ class MemoryStore:
                 created_at TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_logs_created ON logs(created_at);
+            CREATE TABLE IF NOT EXISTS embedding_meta (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS turn_commits (
                 character_id TEXT NOT NULL,
                 turn_id TEXT NOT NULL,
@@ -200,6 +388,11 @@ class MemoryStore:
                 confidence   REAL NOT NULL DEFAULT 0.6,
                 active       INTEGER NOT NULL DEFAULT 1,
                 access_count INTEGER NOT NULL DEFAULT 0,
+                tags         TEXT NOT NULL DEFAULT '[]',
+                paraphrases  TEXT NOT NULL DEFAULT '[]',
+                observed_at  TEXT,
+                expires_at   TEXT,
+                embedding    BLOB,
                 last_retrieved_at TEXT,
                 state        TEXT NOT NULL DEFAULT 'active',
                 created_at   TEXT NOT NULL,
@@ -279,9 +472,37 @@ class MemoryStore:
             conn.execute(
                 "ALTER TABLE memories ADD COLUMN state TEXT NOT NULL DEFAULT 'active'"
             )
+        if "tags" not in memory_columns:
+            conn.execute(
+                "ALTER TABLE memories ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'"
+            )
+        if "paraphrases" not in memory_columns:
+            conn.execute(
+                "ALTER TABLE memories ADD COLUMN paraphrases TEXT NOT NULL DEFAULT '[]'"
+            )
+        if "observed_at" not in memory_columns:
+            conn.execute("ALTER TABLE memories ADD COLUMN observed_at TEXT")
+        if "expires_at" not in memory_columns:
+            conn.execute("ALTER TABLE memories ADD COLUMN expires_at TEXT")
+        if "embedding" not in memory_columns:
+            conn.execute("ALTER TABLE memories ADD COLUMN embedding BLOB")
+        # v5: semantic time. Existing rows get observed_at = created_at so
+        # date rendering works before the extractor starts supplying it.
+        conn.execute(
+            "UPDATE memories SET observed_at = created_at WHERE observed_at IS NULL"
+        )
+        _migrate_v5_cleanup(conn, Path(self._db_path).parent)
         conn.execute(
             "INSERT OR IGNORE INTO schema_version(version, applied_at) VALUES (?, ?)",
             (4, datetime.now(timezone.utc).isoformat()),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_version(version, applied_at) VALUES (?, ?)",
+            (5, datetime.now(timezone.utc).isoformat()),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_version(version, applied_at) VALUES (?, ?)",
+            (6, datetime.now(timezone.utc).isoformat()),
         )
         # Migrate legacy unicode61 FTS tables to trigram so CJK substring
         # search works (unicode61 treats a whole CJK run as one token).
@@ -328,14 +549,50 @@ class MemoryStore:
             """)
         conn.commit()
 
+    def _compute_embedding(
+        self, content: str, tags: list[str], paraphrases: list[str]
+    ) -> Optional[bytes]:
+        """Local-embed one memory document; None when the channel is off."""
+        if not _embeddings_enabled():
+            return None
+        try:
+            from app.memory.embedder import get_embedder
+
+            embedder = get_embedder()
+            if embedder is None:
+                return None
+            vector = embedder.embed_document(
+                _compose_document(content, tags, paraphrases)
+            )
+        except Exception:
+            return None
+        return _encode_vector(vector) if vector else None
+
     def upsert_memory(
         self, *, memory_type: str, subject: str, predicate: str, content: str,
         character_id: str = "", importance: float = 0.5,
         confidence: float = 0.6, stable_key: str = "",
+        observed_at: str | None = None, expires_at: str | None = None,
+        tags: list[str] | None = None,
+        paraphrases: list[str] | None = None,
     ) -> int:
         now = datetime.now(timezone.utc).isoformat()
         key = stable_key or f"{memory_type}:{subject}:{predicate}"
         normalized_content = content.strip()
+        observed = _sanitize_timestamp(observed_at)
+        observed_iso = observed.isoformat() if observed else None
+        if memory_type == "recent_state" and not expires_at:
+            expires_at = (
+                datetime.now(timezone.utc)
+                + timedelta(seconds=_recent_state_ttl_seconds())
+            ).isoformat()
+        clean_tags = _clean_tags(tags)
+        clean_paraphrases = _clean_paraphrases(paraphrases)
+        tags_json = json.dumps(clean_tags, ensure_ascii=False)
+        paraphrases_json = json.dumps(clean_paraphrases, ensure_ascii=False)
+        embedding_blob = self._compute_embedding(
+            normalized_content, clean_tags, clean_paraphrases
+        )
         conn = self._get_conn()
         # BEGIN IMMEDIATE makes the read-then-write atomic: two concurrent
         # writers (reviewer + extractor daemon threads) cannot both read "not
@@ -349,13 +606,15 @@ class MemoryStore:
                 (character_id, key),
             ).fetchone()
             if current and current["content"] == normalized_content:
-                # Re-confirmation also clears the stale tag so state mirrors
-                # the fresh activity clock.
+                # Re-confirmation also clears the stale/expired tags so state
+                # mirrors the fresh activity clock, and pushes a recent_state's
+                # validity window forward (the state is true *again*).
                 conn.execute(
                     "UPDATE memories SET state = 'active', "
                     "importance = MAX(importance, ?), "
-                    "confidence = MAX(confidence, ?), updated_at = ? WHERE id = ?",
-                    (importance, confidence, now, current["id"]),
+                    "confidence = MAX(confidence, ?), updated_at = ?, "
+                    "expires_at = COALESCE(?, expires_at) WHERE id = ?",
+                    (importance, confidence, now, expires_at, current["id"]),
                 )
                 conn.commit()
                 return int(current["id"])
@@ -374,26 +633,75 @@ class MemoryStore:
                     "UPDATE memories SET active = 1, state = 'active', "
                     "memory_type = ?, subject = ?, "
                     "predicate = ?, importance = MAX(importance, ?), "
-                    "confidence = MAX(confidence, ?), updated_at = ? WHERE id = ?",
+                    "confidence = MAX(confidence, ?), updated_at = ?, "
+                    "observed_at = COALESCE(?, observed_at), "
+                    "expires_at = COALESCE(?, expires_at), "
+                    "tags = CASE WHEN ? != '[]' THEN ? ELSE tags END, "
+                    "paraphrases = CASE WHEN ? != '[]' THEN ? ELSE paraphrases END, "
+                    "embedding = COALESCE(?, embedding) "
+                    "WHERE id = ?",
                     (
                         memory_type, subject, predicate, importance,
-                        confidence, now, existing["id"],
+                        confidence, now, observed_iso, expires_at,
+                        tags_json, tags_json,
+                        paraphrases_json, paraphrases_json,
+                        embedding_blob, existing["id"],
                     ),
                 )
                 conn.commit()
                 return int(existing["id"])
             cursor = conn.execute(
                 "INSERT INTO memories(memory_type, subject, predicate, content, "
-                "character_id, stable_key, importance, confidence, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (memory_type, subject, predicate, normalized_content, character_id, key,
-                 importance, confidence, now, now),
+                "character_id, stable_key, importance, confidence, tags, "
+                "paraphrases, observed_at, expires_at, embedding, "
+                "created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (memory_type, subject, predicate, normalized_content, character_id,
+                 key, importance, confidence, tags_json, paraphrases_json,
+                 observed_iso, expires_at, embedding_blob, now, now),
             )
+            # Supersession: a factual/recent update about the same predicate
+            # retires older transient rows that were captured under a different
+            # stable_key (the LLM rewords predicates freely — "interaction_mode"
+            # vs "conversation_mode" describe the same user state). Only
+            # fact/recent_state writes retire; preference/episode additions
+            # are complementary, not replacements.
+            if memory_type in ("fact", "recent_state"):
+                conn.execute(
+                    "UPDATE memories SET active = 0, updated_at = ? "
+                    "WHERE character_id = ? AND subject = ? AND predicate = ? "
+                    "AND active = 1 AND stable_key != ? "
+                    "AND memory_type IN ('recent_state', 'open_loop')",
+                    (now, character_id, subject, predicate, key),
+                )
             conn.commit()
             return int(cursor.lastrowid)
         except Exception:
             conn.rollback()
             raise
+
+    def expire_memories(
+        self, character_id: str = "", now: str | None = None
+    ) -> dict:
+        """Expire ephemeral memories past their validity window (reversible).
+
+        Rows with expires_at <= now flip to state='expired', active=0 — hidden
+        from active_only retrieval but revivable by a later upsert (the state
+        being true again is a re-confirmation, not a new memory).
+        """
+        stamp = now or datetime.now(timezone.utc).isoformat()
+        clauses = ["active = 1", "expires_at IS NOT NULL", "expires_at <= ?"]
+        params: list[Any] = [stamp]
+        if character_id:
+            clauses.append("character_id = ?")
+            params.append(character_id)
+        cursor = self._get_conn().execute(
+            "UPDATE memories SET state = 'expired', active = 0, updated_at = ? "
+            "WHERE " + " AND ".join(clauses),
+            (stamp, *params),
+        )
+        self._get_conn().commit()
+        return {"expired": int(cursor.rowcount)}
 
     def list_memories(
         self, *, character_id: str = "", memory_type: str = "",
@@ -413,7 +721,15 @@ class MemoryStore:
             "SELECT * FROM memories" + where +
             " ORDER BY importance DESC, updated_at DESC LIMIT ?", (*params, limit)
         ).fetchall()
-        return [dict(row) for row in rows]
+        results = [dict(row) for row in rows]
+        for row in results:
+            for json_field in ("tags", "paraphrases"):
+                try:
+                    parsed = json.loads(row.get(json_field) or "[]")
+                except (json.JSONDecodeError, TypeError):
+                    parsed = []
+                row[json_field] = parsed if isinstance(parsed, list) else []
+        return results
 
     def decay_memories(
         self, character_id: str = "", now_ts: float | None = None
@@ -426,7 +742,7 @@ class MemoryStore:
         """
         now_ts = now_ts if now_ts is not None else time.time()
         conn = self._get_conn()
-        clauses: list[str] = ["state != 'archived'", "active = 1"]
+        clauses: list[str] = ["state NOT IN ('archived', 'expired')", "active = 1"]
         params: list[Any] = []
         if character_id:
             clauses.append("character_id = ?")
@@ -462,7 +778,7 @@ class MemoryStore:
     def update_memory(
         self, memory_id: int, *, character_id: str = "",
         content: str | None = None, importance: float | None = None,
-        confidence: float | None = None,
+        confidence: float | None = None, observed_at: str | None = None,
     ) -> dict | None:
         clauses, params = ["id = ?"], [int(memory_id)]
         if character_id:
@@ -483,6 +799,9 @@ class MemoryStore:
         if confidence is not None:
             updates.append("confidence = ?")
             values.append(max(0.0, min(1.0, float(confidence))))
+        if observed_at is not None:
+            updates.append("observed_at = ?")
+            values.append(observed_at)
         if updates:
             updates.append("updated_at = ?")
             values.append(datetime.now(timezone.utc).isoformat())
@@ -512,8 +831,22 @@ class MemoryStore:
     def search_memories(
         self, query: str, *, character_id: str = "", limit: int = 10
     ) -> list[dict]:
-        from app.memory.retrieval import score_memory
+        from app.memory.retrieval import document_frequencies, score_memory
         candidates = self.list_memories(character_id=character_id, limit=250)
+        df = document_frequencies(candidates)
+        # Vector channel: enabled uniformly for this ranking only when the
+        # query itself embedded successfully (shared weight set for all rows).
+        query_vector = None
+        if _embeddings_enabled():
+            try:
+                from app.memory.embedder import get_embedder
+
+                embedder = get_embedder()
+                if embedder is not None:
+                    query_vector = embedder.embed_query(query)
+            except Exception:
+                query_vector = None
+        vector_enabled = query_vector is not None
         ranked = []
         for item in candidates:
             def _ts(value):
@@ -523,16 +856,28 @@ class MemoryStore:
                     return 0.0
             item["created_ts"] = _ts(item.get("created_at"))
             item["updated_ts"] = _ts(item.get("updated_at"))
-            score, reasons = score_memory(query, item)
-            if score < 0.24:
+            if vector_enabled:
+                item["vector_enabled"] = True
+                item["vector_score"] = _renormalized_cosine(
+                    query_vector, _decode_vector(item.get("embedding"))
+                ) or 0.0
+            score, reasons = score_memory(query, item, df=df)
+            # The 0.24 score bar exempts pinned-level rows: the vector weight
+            # set leaves < 0.24 for evidence-free rows, and the documented
+            # contract is that user-pinned memories always surface.
+            if (
+                score < 0.24
+                and float(item.get("importance", 0.5) or 0.5) < 0.9
+            ):
                 continue
-            # Retrieval noise gate: without lexical evidence an entry passes
-            # purely on its weights (importance/confidence/recency/familiarity
-            # sum to 0.34 > 0.24), which let unrelated-but-important memories
-            # crowd the limited retrieval slots every turn. Pinned-level
+            # Retrieval noise gate: without lexical (or vector/tag) evidence an
+            # entry passes purely on its weights (importance/confidence/recency/
+            # familiarity sum to 0.34 > 0.24), which let unrelated-but-important
+            # memories crowd the limited retrieval slots every turn. Pinned-level
             # importance (>= 0.9) is exempt so user-pinned rows always surface.
             lexical_evidence = bool(
-                {"direct_match", "semantic_overlap"} & set(reasons)
+                {"direct_match", "semantic_overlap", "tag_match", "vector_match"}
+                & set(reasons)
             )
             if (
                 not lexical_evidence
@@ -561,6 +906,102 @@ class MemoryStore:
             )
         self._get_conn().commit()
         return results
+
+    def _engine_fingerprint(self, embedder: Any) -> Optional[str]:
+        """Engine identity: model+tokenizer filename, size and mtime.
+
+        同维度不同引擎的向量无法靠维度区分——指纹变更即全量重嵌。
+        """
+        try:
+            model_path = embedder._model_path
+            tokenizer_path = embedder._tokenizer_path
+            parts = []
+            for p in (model_path, tokenizer_path):
+                stat = p.stat()
+                parts.append(f"{p.name}:{stat.st_size}:{int(stat.st_mtime)}")
+            return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
+        except Exception:
+            return None
+
+    def backfill_embeddings(
+        self, character_id: str = "", limit: int = 100
+    ) -> dict:
+        """Embed active rows that predate the vector channel OR were produced
+        by a different engine (fingerprint mismatch → full re-embed).
+
+        Runs on the offline extraction cadence (ticker), never on the voice
+        loop; a no-op when the embedding channel is unavailable.
+        """
+        if not _embeddings_enabled():
+            return {"embedded": 0}
+        try:
+            from app.memory.embedder import get_embedder
+
+            embedder = get_embedder()
+            if embedder is None:
+                return {"embedded": 0}
+        except Exception:
+            return {"embedded": 0}
+        expected = embedder.expected_dim()
+        fingerprint = self._engine_fingerprint(embedder)
+        conn = self._get_conn()
+        stored_fingerprint = None
+        try:
+            row = conn.execute(
+                "SELECT value FROM embedding_meta WHERE key = 'engine_fingerprint'"
+            ).fetchone()
+            stored_fingerprint = row["value"] if row else None
+        except Exception:
+            stored_fingerprint = None
+        engine_changed = (
+            fingerprint is not None and fingerprint != stored_fingerprint
+        )  # 首次建指纹（stored=None）也视为变更：存量向量归属未知，全量重嵌一次
+        clauses = ["active = 1"]
+        if not engine_changed:
+            # 同引擎增量：只补缺失/维度失配的行
+            clauses.append("embedding IS NULL")
+        params: list[Any] = []
+        if character_id:
+            clauses.append("character_id = ?")
+            params.append(character_id)
+        rows = conn.execute(
+            "SELECT id, content, tags, paraphrases, embedding FROM memories "
+            "WHERE " + " AND ".join(clauses),
+            params,
+        ).fetchall()
+        embedded = 0
+        for row in rows:
+            if embedded >= max(1, int(limit)):
+                break
+            if not engine_changed:
+                current = _decode_vector(row["embedding"])
+                if current is not None and expected is not None and len(current) == expected:
+                    continue
+            try:
+                tags = json.loads(row["tags"] or "[]")
+            except (json.JSONDecodeError, TypeError):
+                tags = []
+            try:
+                paraphrases = json.loads(row["paraphrases"] or "[]")
+            except (json.JSONDecodeError, TypeError):
+                paraphrases = []
+            blob = self._compute_embedding(
+                str(row["content"]), tags or [], paraphrases or []
+            )
+            if blob:
+                self._get_conn().execute(
+                    "UPDATE memories SET embedding = ? WHERE id = ?",
+                    (blob, row["id"]),
+                )
+                embedded += 1
+        if fingerprint is not None:
+            conn.execute(
+                "INSERT INTO embedding_meta(key, value) VALUES ('engine_fingerprint', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (fingerprint,),
+            )
+        self._get_conn().commit()
+        return {"embedded": embedded, "engine_changed": engine_changed}
 
     def save_character_state(self, character_id: str, state: dict) -> None:
         now = datetime.now(timezone.utc).isoformat()
@@ -972,7 +1413,12 @@ class MemoryStore:
         keep_recent: int = 10,
         limit: int = 100,
     ) -> list[dict]:
-        """Return unsummarized rows while reserving the exact recent tail."""
+        """Return unsummarized rows while reserving the exact recent tail.
+
+        小脑：语义选材——与现有摘要近重复的回合（测试刷屏、原地改写）以及
+        窗口内的近重复回合被丢弃，让摘要吃有信息量的回合。顺序保持时间序
+        （摘要有叙事价值）；嵌入通道不可用或判断失败时原样返回（失败开放）。
+        """
         rows = self._get_conn().execute(
             "SELECT id, role, content, intent, created_at FROM logs "
             "WHERE character_id = ? AND id > ? ORDER BY id LIMIT ?",
@@ -980,7 +1426,51 @@ class MemoryStore:
         ).fetchall()
         if len(rows) <= keep_recent:
             return []
-        return [dict(row) for row in rows[:-keep_recent]]
+        rows = [dict(row) for row in rows[:-keep_recent]]
+        if not rows or not _embeddings_enabled():
+            return rows
+        try:
+            from app.memory.compiler import get_conversation_summary
+            from app.memory.embedder import get_embedder
+
+            embedder = get_embedder()
+            if embedder is None:
+                return rows
+            summary_vec = None
+            existing_summary = get_conversation_summary(character_id)
+            if existing_summary:
+                summary_vec = embedder.embed_document(existing_summary)
+            kept: list[dict] = []
+            kept_vecs: list[list[float]] = []
+            for row in rows:
+                text = str(row.get("content", "")).strip()
+                if len(text) < 2:
+                    kept.append(row)
+                    continue
+                vec = embedder.embed_document(text)
+                if vec is None:
+                    kept.append(row)
+                    continue
+                # 与现有摘要近重复 → 已覆盖，丢弃
+                if summary_vec is not None and sum(
+                    x * y for x, y in zip(vec, summary_vec)
+                ) >= SUMMARY_NEAR_DUP_COSINE:
+                    continue
+                # 与窗口内更早保留的回合近重复 → 保留首次出现，丢弃复读
+                if any(
+                    sum(x * y for x, y in zip(vec, prev)) >= SUMMARY_NEAR_DUP_COSINE
+                    for prev in kept_vecs
+                ):
+                    continue
+                kept.append(row)
+                kept_vecs.append(vec)
+            if len(kept) < 3:
+                # 语义过滤把窗口饿到不足以摘要（刷屏会话的钉死场景）→ 回退
+                # 全量窗口：宁可摘要吃垃圾，不可让回合永久卡在未摘要状态。
+                return rows
+            return kept
+        except Exception:
+            return rows
 
     def search_logs(
         self, query: str, limit: int = 5, character_id: str = ""

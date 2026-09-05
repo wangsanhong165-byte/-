@@ -5,12 +5,15 @@ Extracted from the legacy PromptBuilder — standalone functions, no class wrapp
 
 from __future__ import annotations
 
+from app.utils.temporal import current_time_context
+
 
 def build_initiative_prompt(
     intent_type: str, topic: str,
     activity: str = "", app_name: str = "",
     language: str = "zh",
     recent_conversation: str = "",
+    current_time: str = "",
 ) -> str:
     """Build initiative prompt — direct, natural, no meta-explanation.
 
@@ -24,6 +27,7 @@ def build_initiative_prompt(
         app_name: Current app name
         language: Language code (zh/en/ja/ko)
         recent_conversation: Optional summary of recent conversation history
+        current_time: Optional preformatted current-time label (temporal anchor)
     """
     labels_en = {
         "follow_up": "Follow up",
@@ -44,6 +48,8 @@ def build_initiative_prompt(
 
     if language == "zh":
         parts = ["[主动对话 - 发起对话的缘由]"]
+        if current_time:
+            parts.append(f"[当前时间] {current_time}")
         parts.append(f"要提及的话题: {topic}")
         if activity:
             al = {"coding": "在写代码", "writing": "在写作",
@@ -62,6 +68,8 @@ def build_initiative_prompt(
         parts.append("- 用标准双语 JSON 格式输出")
     else:
         parts = ["[Initiative - Reason for speaking]"]
+        if current_time:
+            parts.append(f"[Current time] {current_time}")
         parts.append(f"Topic to mention: {topic}")
         if activity:
             al = {"coding": "coding", "writing": "writing",

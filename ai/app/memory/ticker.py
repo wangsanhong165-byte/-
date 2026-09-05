@@ -269,6 +269,15 @@ class MemoryTicker:
 
         # A1 decay runs here (background thread), not on the voice-loop path.
         self._store.decay_memories(character_id=char_id)
+        # Ephemeral states (recent_state) past their validity window expire
+        # on the same offline cadence — never on the voice loop.
+        self._store.expire_memories(character_id=char_id)
+        # Vector backfill for rows written before the embedding channel was
+        # available; a no-op when the local model is absent.
+        try:
+            self._store.backfill_embeddings(character_id=char_id, limit=50)
+        except Exception:
+            logger.exception("Embedding backfill failed for %s", char_id)
 
         stats = run_extraction_pipeline(
             self._llm_adapter, character_name=char_name, character_id=char_id,
@@ -320,6 +329,7 @@ class MemoryTicker:
         for character_id in dict.fromkeys(self._character_ids_getter()):
             if character_id:
                 self._store.decay_memories(character_id=character_id)
+                self._store.expire_memories(character_id=character_id)
                 compile_and_assemble(character_id)
                 # LLM merge of near-duplicate memories (only when there are
                 # enough to be worth it; no-ops otherwise).
@@ -328,6 +338,16 @@ class MemoryTicker:
                     merge_memories(self._llm_adapter, self._store, character_id=character_id)
                 except Exception:
                     logger.exception("Memory merge failed for %s", character_id)
+                # Weekly reflection (insights + relationship style): gated by
+                # its own stamp, offline, never on the voice loop.
+                try:
+                    from app.memory.reflection import reflect_if_due
+                    reflect_if_due(
+                        self._llm_adapter, self._store, character_id,
+                        character_name=self._get_char_name(character_id),
+                    )
+                except Exception:
+                    logger.exception("Reflection failed for %s", character_id)
                 self._store.prune_character_history(character_id, cutoff)
                 self._store.delete_memories_before(
                     cutoff, character_id=character_id

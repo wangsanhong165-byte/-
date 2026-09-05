@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import threading
 from typing import Any
 
 from app.interfaces.memory import MemoryInterface
@@ -90,6 +91,23 @@ class SQLiteMemory(MemoryInterface):
         self._llm_adapter = llm_adapter
         if llm_adapter is not None:
             set_compiler_llm(llm_adapter)
+
+        # Prewarm the embedding engine in the background: the Qwen3 ONNX
+        # session takes ~1.4s to load, and without this the FIRST user turn
+        # after startup pays it on the voice path. Failure is silent — the
+        # vector channel degrades gracefully anyway.
+        def _prewarm_embedder():
+            try:
+                from app.memory.embedder import get_embedder
+
+                embedder = get_embedder()
+                if embedder is not None:
+                    embedder.embed_document("预热")
+            except Exception:
+                pass
+
+        threading.Thread(target=_prewarm_embedder, daemon=True,
+                         name="memory-embedder-prewarm").start()
 
         # Create and start the ticker
         from app.memory.ticker import MemoryTicker
@@ -253,6 +271,8 @@ class SQLiteMemory(MemoryInterface):
                         "content": memory.get("content", ""),
                         "score": memory.get("score", 0),
                         "reasons": memory.get("reasons", []),
+                        "observed_at": memory.get("observed_at", ""),
+                        "updated_at": memory.get("updated_at", ""),
                     },
                     "source": "hybrid",
                 })
@@ -260,6 +280,28 @@ class SQLiteMemory(MemoryInterface):
             # tail already comes from Conversation, and older history is
             # represented by the rolling summary.  This prevents the same turn
             # entering the prompt as verbatim + search hit + summary.
+
+            # Relationship-style memories ride along on every turn: they shape
+            # how the character interacts and must not depend on query
+            # relevance. assemble_character_state lifts them into the
+            # character_state system segment.
+            if character_id:
+                try:
+                    for style in self._store.list_memories(
+                        character_id=character_id,
+                        memory_type="relationship_style",
+                        active_only=True, limit=3,
+                    ):
+                        results.append({
+                            "type": "relationship_style",
+                            "data": {
+                                "content": style.get("content", ""),
+                                "observed_at": style.get("observed_at", ""),
+                            },
+                            "source": "styles",
+                        })
+                except Exception:
+                    logger.exception("Style memory append failed")
 
             # Compiled memory context (if available).
             # Cap at 4000: memory.md is a 4-section file (facts/today/week/

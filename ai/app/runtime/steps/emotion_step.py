@@ -25,6 +25,21 @@ _ANGRY_WORDS = {
     "生气", "烦", "讨厌", "可恶", "愤怒",
 }
 
+_POUT_WORDS = {
+    "哼，", "哼！", "哼。", "嘟嘴", "撅嘴", "闹别扭", "不理你",
+    "hmph", "pout",
+}
+
+_WORRIED_WORDS = {
+    "担心", "忧虑", "不安", "没事吧", "还好吗", "怎么办",
+    "worried", "anxious",
+}
+
+_CONFUSED_WORDS = {
+    "疑惑", "不明白", "没明白", "搞不懂", "困惑",
+    "confused", "puzzled",
+}
+
 _SURPRISED_WORDS = {
     "wow", "really?", "surprising", "unexpected", "incredible",
     "真的吗", "哇", "天哪", "不会吧", "竟然",
@@ -71,12 +86,31 @@ def _detect_emotion(text: str) -> str:
         "sad": len(_marker_hits(lower, _SAD_WORDS)),
         "angry": len(_marker_hits(lower, _ANGRY_WORDS)),
         "surprised": len(_marker_hits(lower, _SURPRISED_WORDS)),
+        "pout": len(_marker_hits(lower, _POUT_WORDS)),
+        "worried": len(_marker_hits(lower, _WORRIED_WORDS)),
+        "confused": len(_marker_hits(lower, _CONFUSED_WORDS)),
     }
 
     best = max(scores, key=scores.get)
     if scores[best] > 0:
         return best
     return "neutral"
+
+
+_ALL_MARKERS = (
+    _POSITIVE_WORDS | _SAD_WORDS | _ANGRY_WORDS | _SURPRISED_WORDS
+    | _POUT_WORDS | _WORRIED_WORDS | _CONFUSED_WORDS
+)
+
+
+def _has_negated_marker(text: str) -> bool:
+    """True when an emotion marker ONLY appears negated in the text
+    （如"你不要生气了"）——安抚/复杂语气，原型匹配不可信。"""
+    lower = text.lower()
+    for marker in _ALL_MARKERS:
+        if marker in lower and not _marker_hits(lower, {marker}):
+            return True
+    return False
 
 
 class EmotionStep(Step):
@@ -108,7 +142,20 @@ class EmotionStep(Step):
         if not text:
             return
 
+        # 回退链（已定稿）：否定感知关键词扫描是首选兜底——它的否定前缀/
+        # 度量副词缓冲是向量空间不具备的能力。小脑③原型匹配仅作**召回增强
+        # 器**：关键词判 neutral 时，强匹配（cos≥0.60 且领先第二名、文本
+        # ≥6 字、文本含被否定的情绪标记时拒绝）才采纳。LLM 情绪永远优先。
         emotion = _detect_emotion(text)
+        if emotion == "neutral" and len(text) >= 6:
+            try:
+                from app.memory.emotion_prototypes import classify_emotion
+
+                match = classify_emotion(text)
+                if match is not None and not _has_negated_marker(text):
+                    emotion = match[0]
+            except Exception:
+                emotion = "neutral"
         if emotion != "neutral":
             self._update_character_emotion(ctx, emotion)
 

@@ -13,6 +13,9 @@ has enough active memories that fragmentation is plausible. Design constraints:
 - Candidate selection uses list_memories (pure read) — never search_memories,
   which would bump access_count/last_retrieved_at and pollute the familiarity
   signal.
+- Grouping is two-channel: identical predicate (legacy) plus semantic
+  near-duplicate clusters over stored embeddings — the LLM rewords predicates
+  freely, so same-fact fragments often live under different predicates.
 """
 
 from __future__ import annotations
@@ -26,7 +29,8 @@ logger = logging.getLogger("memory.merger")
 
 _MIN_GROUP_SIZE = 2
 _MAX_GROUPS = 3
-_MIN_MEMORIES_TO_MERGE = 80
+_MIN_MEMORIES_TO_MERGE = 40
+_SEMANTIC_GROUP_COSINE = 0.75  # raw cosine: near-duplicate fragments (Qwen3-0.6B calibrated)
 
 
 def _call_llm(system: str, user: str, llm_adapter: Any, timeout: int = 20) -> str:
@@ -42,17 +46,61 @@ def _call_llm(system: str, user: str, llm_adapter: Any, timeout: int = 20) -> st
 
 
 def _group_candidates(store: Any, character_id: str) -> list[list[dict]]:
-    """Group active memories by predicate; return groups with >= 2 members."""
+    """Group active memories by predicate + semantic near-duplicates."""
     memories = store.list_memories(
         character_id=character_id, active_only=True, limit=500
     )
     by_predicate: dict[str, list[dict]] = {}
     for m in memories:
         by_predicate.setdefault(str(m.get("predicate") or "other"), []).append(m)
-    return [
+    groups = [
         group for group in by_predicate.values()
         if len(group) >= _MIN_GROUP_SIZE
     ]
+    grouped_ids = {m["id"] for group in groups for m in group}
+
+    clusters = _semantic_clusters(
+        [m for m in memories if m["id"] not in grouped_ids]
+    )
+    return groups + [cluster for cluster in clusters if len(cluster) >= _MIN_GROUP_SIZE]
+
+
+def _semantic_clusters(memories: list[dict]) -> list[list[dict]]:
+    """Greedy clustering over stored embeddings (numpy when available)."""
+    from app.memory.store import _decode_vector
+
+    embedded = []
+    for m in memories:
+        vector = _decode_vector(m.get("embedding"))
+        if vector:
+            embedded.append((m, vector))
+    if len(embedded) < _MIN_GROUP_SIZE:
+        return []
+    try:
+        import numpy as np
+
+        matrix = np.array([vector for _, vector in embedded], dtype="float32")
+        similarity = matrix @ matrix.T
+    except ImportError:
+        return []
+    # Greedy assignment in importance order: join the most-similar existing
+    # cluster above the threshold, else open a new cluster.
+    order = sorted(
+        range(len(embedded)),
+        key=lambda i: -float(embedded[i][0].get("importance", 0.5) or 0.5),
+    )
+    clusters: list[list[int]] = []
+    for i in order:
+        best: tuple[float, int] = (0.0, -1)
+        for index, cluster in enumerate(clusters):
+            score = max(float(similarity[i][j]) for j in cluster)
+            if score > best[0]:
+                best = (score, index)
+        if best[0] >= _SEMANTIC_GROUP_COSINE:
+            clusters[best[1]].append(i)
+        else:
+            clusters.append([i])
+    return [[embedded[i][0] for i in cluster] for cluster in clusters]
 
 
 def _merge_prompt(group: list[dict]) -> str:
@@ -66,8 +114,9 @@ def _merge_prompt(group: list[dict]) -> str:
         )
     return (
         "You are merging near-duplicate memory entries. The following memories "
-        "share a predicate (the same stable attribute of the user) and are "
-        "candidates for collapse into one fact.\n\n"
+        "were grouped as fragments of the same fact (shared attribute or "
+        "semantic near-duplicates) and are candidates for collapse into one "
+        "fact.\n\n"
         + "\n".join(lines) + "\n\n"
         "Output JSON only: {\"merge_into\": <target id>, \"obsolete\": [<ids>], "
         "\"new_content\": \"<merged text>\", \"importance\": 0.8}\n"

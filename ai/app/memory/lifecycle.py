@@ -8,7 +8,7 @@ import re
 
 VALID_TYPES = {
     "fact", "preference", "recent_state", "episode",
-    "relationship", "open_loop",
+    "relationship", "open_loop", "insight", "relationship_style",
 }
 
 
@@ -42,6 +42,18 @@ def normalize_candidate(raw: dict[str, Any]) -> dict | None:
         else:
             signature = re.sub(r"[\W_]+", "", content.lower())[:48]
             stable_key = f"{memory_type}:{subject}:{signature}"
+    # Semantic time + retrieval keys. The extractor is instructed to rewrite
+    # relative time into absolute dates inside `content`; `observed` is when
+    # the fact was seen. Unparseable values are dropped by the store.
+    observed = str(raw.get("observed") or raw.get("time") or "").strip() or None
+    tags = [
+        str(tag).strip() for tag in (raw.get("tags") or [])
+        if str(tag).strip()
+    ][:8]
+    paraphrases = [
+        str(text).strip() for text in (raw.get("paraphrases") or [])
+        if str(text).strip()
+    ][:6]
     return {
         "memory_type": memory_type,
         "subject": subject,
@@ -50,6 +62,9 @@ def normalize_candidate(raw: dict[str, Any]) -> dict | None:
         "importance": float(raw.get("importance", 0.65) or 0.65),
         "confidence": confidence,
         "stable_key": stable_key,
+        "observed_at": observed,
+        "tags": tags,
+        "paraphrases": paraphrases,
     }
 
 

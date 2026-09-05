@@ -203,8 +203,10 @@ def _call_llm(system: str, user: str, timeout: int = 15) -> str:
     global _llm_adapter_global
     if not _llm_adapter_global:
         return ""
+    from app.utils.temporal import time_anchor
+
     return _llm_adapter_global.generate_text(
-        system=system,
+        system=time_anchor() + "\n\n" + system,
         user=user,
         temperature=0.3,
         max_tokens=1024,
@@ -336,11 +338,20 @@ def longterm_digest(char_id: str = "", week_summary: str = "") -> str:
 
 
 def facts_digest(char_id: str = "") -> str:
-    """Compile all stored facts into a stable user profile summary."""
+    """Compile stored facts + insights into a stable user profile summary."""
     cid = char_id or _current_char_id or "default"
 
     facts = memory_store.list_memories(
         character_id=cid, memory_type="fact", active_only=True, limit=30
+    )
+    # Insights are the reflection layer's syntheses — they belong with facts
+    # in the always-relevant profile section, ranked below raw facts.
+    insights = memory_store.list_memories(
+        character_id=cid, memory_type="insight", active_only=True, limit=10
+    )
+    facts = sorted(
+        facts + insights,
+        key=lambda row: (row["memory_type"] != "fact", -float(row.get("importance", 0.5) or 0.5)),
     )
     if not facts:
         _clear_section(cid, "facts")

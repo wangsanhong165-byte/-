@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 
@@ -112,6 +113,27 @@ def _memory_category(item: dict[str, Any]) -> str:
     return "about_user"
 
 
+def _memory_status(item: dict[str, Any]) -> str:
+    """active / stale / expired — matches the store's lifecycle vocabulary."""
+    state = str(item.get("state", "active"))
+    expires_at = str(item.get("expires_at") or "").strip()
+    if state == "expired":
+        return "expired"
+    if expires_at:
+        try:
+            expiry = datetime.fromisoformat(expires_at)
+        except (ValueError, TypeError):
+            expiry = None
+        if expiry is not None:
+            if expiry.tzinfo is None:
+                expiry = expiry.replace(tzinfo=timezone.utc)
+            if expiry <= datetime.now(timezone.utc):
+                return "expired"
+    if state == "stale":
+        return "stale"
+    return "active"
+
+
 def build_memory_view(
     memories: list[dict[str, Any]],
     *,
@@ -127,16 +149,31 @@ def build_memory_view(
         pinned = bool(item.get("pinned", False)) or float(
             item.get("importance", 0.0) or 0.0
         ) >= 0.85
+        status = _memory_status(item)
+        # User-forgotten rows (active=0, not lifecycle-expired) never render,
+        # regardless of what the caller passed in.
+        if int(item.get("active", 1) or 0) == 0 and status != "expired":
+            continue
         if normalized_query and normalized_query not in summary.casefold():
+            continue
+        if category == "expired":
+            if status != "expired":
+                continue
+        elif status == "expired":
+            # Expired states surface only in the dedicated 已过期 view so
+            # stale snapshots never masquerade as current facts.
             continue
         if category == "pinned" and not pinned:
             continue
-        if category not in {"", "all", "pinned"} and item_category != category:
+        if category not in {"", "all", "pinned", "expired"} and item_category != category:
             continue
         items.append({
             "ref": f"memory:{int(item.get('id', 0))}",
             "category": item_category,
             "summary": summary,
+            "status": status,
+            "observedAt": _short_text(item.get("observed_at")),
+            "expiresAt": _short_text(item.get("expires_at")),
             "updatedAt": _short_text(item.get("updated_at")),
             "formedAt": _short_text(item.get("created_at")),
             "lastUsedAt": _short_text(item.get("updated_at")),
@@ -145,6 +182,9 @@ def build_memory_view(
                 "habit": "从持续出现的习惯中形成",
                 "goal": "从需要持续关注的目标中形成",
                 "open_loop": "从尚未完成的事情中形成",
+                "recent_state": "从你当时的状态中形成",
+                "insight": "她从你们的相处中自己归纳得出",
+                "relationship_style": "从你们的长期相处中演化而来",
                 "experience": "从你们共同经历的对话中形成",
             }.get(str(item.get("memory_type", "")), "从相关对话中形成"),
             "pinned": pinned,
@@ -161,6 +201,7 @@ def build_memory_view(
             {"id": "preferences", "label": "偏好习惯"},
             {"id": "goals", "label": "持续目标"},
             {"id": "pinned", "label": "已置顶"},
+            {"id": "expired", "label": "已过期"},
         ],
         "items": items,
     }

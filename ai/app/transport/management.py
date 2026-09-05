@@ -159,6 +159,26 @@ class ManagementHandler:
             )}
         if action == "get_compiled_memory_view":
             return {"view": self._manager.get_compiled_memory_view()}
+        if action == "regenerate_compiled_memory":
+            return self._manager.regenerate_compiled_memory()
+        if action == "semantic_classify":
+            texts = params.get("texts", [])
+            if not isinstance(texts, list):
+                raise ManagementFailure("semantic_classify_invalid", "texts must be a list")
+            # 本地推理可达秒级——卸到线程池，不阻塞事件循环。
+            return await asyncio.to_thread(
+                self._manager.semantic_classify,
+                [str(item) for item in texts],
+                str(params.get("context", "")),
+            )
+        if action == "classify_residue":
+            recent = params.get("recent_texts", [])
+            if not isinstance(recent, list):
+                raise ManagementFailure("classify_residue_invalid", "recent_texts must be a list")
+            return await asyncio.to_thread(
+                self._manager.classify_residue,
+                [str(item) for item in recent],
+            )
         if action == "update_memory_view":
             result = self._manager.update_memory_view(str(params.get("ref", "")), params)
             return self._result_or_raise(result, "memory_update_failed")

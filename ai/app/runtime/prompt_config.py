@@ -46,6 +46,13 @@ PROMPT_SOURCE_DEFINITIONS: tuple[dict[str, Any], ...] = (
         "editable": True,
     },
     {
+        "id": "temporal",
+        "title": "时间感知",
+        "description": "注入当前日期时间，并声明记忆为历史观察、相对时间以当前时间换算。",
+        "dynamic": True,
+        "editable": True,
+    },
+    {
         "id": "emotion",
         "title": "当前情绪",
         "description": "当前角色情绪对语言表达的动态影响。",

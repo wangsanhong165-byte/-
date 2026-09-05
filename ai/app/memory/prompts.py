@@ -21,6 +21,7 @@ def system_rolling_summary(char_name: str = "") -> str:
 - 把同一主题的多次往返归并为一件事，不要逐条流水账
 - 优先记录用户是谁、喜欢什么、在意什么、最近关注什么
 - 工作相关内容只保留到大主题层级，不写具体细节
+- 相对时间写成绝对表述：对话行带有日期标注，涉及"今天/昨晚/凌晨X点"等时，参照该标注写"8月27日凌晨"这样的绝对表述，不要留下无法定位的"今天/昨晚"
 
 迭代更新规则（重要）：
 - 输入里可能包含上一份摘要。上一份的"[还悬着]"如果这轮解决了，移入"[已聊透]"；新出现的悬而未决，加入"[还悬着]"。
@@ -61,12 +62,20 @@ def system_fact_extraction() -> str:
 8. predicate 表示可被后续事实替换的稳定属性，例如 city、favorite_food、current_project、
    sleep_schedule、personality_trait、sensitive_topic、mood_trigger
 9. stable_key 使用 type:user:predicate；同一属性发生变化时必须返回相同 stable_key
+10. 相对时间必须换算：摘要里"今天/昨晚/明天/凌晨X点"等相对表述，参照系统提示开头的当前时间
+    与对话行的日期标注，改写成绝对日期与时刻写进事实内容（如"8月27日凌晨5点"），不要原样保留
+11. 每条必须输出 "observed"：该事实被观察到的日期，格式 YYYY-MM-DD；无法确定就用当前日期
+12. tags 必填 2-5 个有辨识度的关键词；predicate 优先从词表选：city, occupation,
+    current_project, sleep_schedule, personality_trait, sensitive_topic, mood_trigger,
+    emotional_state, conversation_mode, work_status, likes, dislikes；都不合适才自拟
+13. 每条必须输出 "paraphrases"：2-4 个用户日后可能提起这条记忆的说法（同义词或换一种问法，
+    如"熬夜"→["失眠", "晚睡", "几点睡"]），用于日后检索，不要与 tags 重复
 
 输出格式（严格的 JSON 数组，不要 markdown 代码块）：
 [
-  {"fact": "...", "type": "fact", "subject": "user", "predicate": "...", "stable_key": "fact:user:...", "confidence": 0.8, "importance": 0.7, "tags": ["tag1", "tag2"], "time": null},
-  {"fact": "用户习惯深夜活跃，常在凌晨两点后还在聊天", "type": "fact", "subject": "user", "predicate": "sleep_schedule", "stable_key": "fact:user:sleep_schedule", "confidence": 0.75, "importance": 0.6, "tags": ["作息", "熬夜"], "time": null},
-  {"fact": "用户不想被提起工作失误的往事", "type": "preference", "subject": "user", "predicate": "sensitive_topic", "stable_key": "preference:user:sensitive_topic", "confidence": 0.8, "importance": 0.85, "tags": ["雷区"], "time": null}
+  {"fact": "...", "type": "fact", "subject": "user", "predicate": "...", "stable_key": "fact:user:...", "confidence": 0.8, "importance": 0.7, "tags": ["tag1", "tag2"], "paraphrases": ["说法1", "说法2"], "observed": "2026-09-04", "time": null},
+  {"fact": "用户习惯深夜活跃，常在凌晨两点后还在聊天", "type": "fact", "subject": "user", "predicate": "sleep_schedule", "stable_key": "fact:user:sleep_schedule", "confidence": 0.75, "importance": 0.6, "tags": ["作息", "熬夜"], "paraphrases": ["失眠", "晚睡", "几点睡"], "observed": "2026-08-27", "time": null},
+  {"fact": "用户不想被提起工作失误的往事", "type": "preference", "subject": "user", "predicate": "sensitive_topic", "stable_key": "preference:user:sensitive_topic", "confidence": 0.8, "importance": 0.85, "tags": ["雷区"], "paraphrases": ["工作失误", "翻车的事"], "observed": "2026-09-04", "time": null}
 ]"""
 
 def system_compile_today(char_name: str = "") -> str:

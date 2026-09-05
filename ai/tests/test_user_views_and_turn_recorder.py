@@ -76,6 +76,9 @@ def test_memory_view_filters_and_hides_technical_fields():
         "ref": "memory:8",
         "category": "preferences",
         "summary": "用户喜欢安静的界面",
+        "status": "active",
+        "observedAt": "",
+        "expiresAt": "",
         "updatedAt": "2026-07-26T00:00:00+00:00",
         "formedAt": "2026-07-20T00:00:00+00:00",
         "lastUsedAt": "2026-07-26T00:00:00+00:00",
@@ -83,6 +86,15 @@ def test_memory_view_filters_and_hides_technical_fields():
         "pinned": True,
         "editable": True,
     }]
+    # Expired lifecycle states are quarantined out of ordinary categories.
+    quarantined = build_memory_view(
+        [dict(memories[0], active=0, state="expired")], category="all"
+    )
+    assert quarantined["items"] == []
+    expired_view = build_memory_view(
+        [dict(memories[0], active=0, state="expired")], category="expired"
+    )
+    assert expired_view["items"][0]["status"] == "expired"
     assert "confidence" not in str(view)
     assert '"id": 8' not in str(view)
 

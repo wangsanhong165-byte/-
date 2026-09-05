@@ -1,0 +1,213 @@
+{
+  "description": "Memory retrieval regression set, mini-LongMemEval style. Cases are derived from the real memories table (character-scoped); temporal + knowledge_update categories are weighted per the plan. The runner is read-only (list+score, never search_memories) so running the eval does not pollute access_count/last_retrieved_at.",
+  "cases": [
+    {
+      "id": "occupation",
+      "category": "extraction",
+      "character_id": "alice",
+      "query": "我的职业是什么来着",
+      "expect_any": [
+        "软件开发"
+      ],
+      "top_k": 3,
+      "known_limitation": true,
+      "note": "Legacy row (2026-08-13) has no paraphrases/tags and bge-small cannot bridge the single-word category query (measured cos 0.305 < unrelated noise 0.40). New extractions store paraphrase keys, so post-migration rows close this gap."
+    },
+    {
+      "id": "occupation-alt",
+      "category": "extraction",
+      "character_id": "alice",
+      "query": "平时工作是不是很忙还要修bug",
+      "expect_any": [
+        "软件开发",
+        "bug"
+      ],
+      "top_k": 3
+    },
+    {
+      "id": "favorite-number",
+      "category": "extraction",
+      "character_id": "monika",
+      "query": "我记得自己有个幸运数字来着",
+      "expect_any": [
+        "42"
+      ],
+      "top_k": 3
+    },
+    {
+      "id": "testing-behavior",
+      "category": "extraction",
+      "character_id": "monika",
+      "query": "我之前发的ping和hello是在干嘛",
+      "expect_any": [
+        "测试"
+      ],
+      "top_k": 3
+    },
+    {
+      "id": "testing-alt",
+      "category": "multi_session",
+      "character_id": "monika",
+      "query": "我平时是怎么跟AI互动的",
+      "expect_any": [
+        "测试",
+        "观察"
+      ],
+      "top_k": 3
+    },
+    {
+      "id": "ghosts",
+      "category": "extraction",
+      "character_id": "alice",
+      "query": "我相信世界上有鬼这件事你还记得吗",
+      "expect_any": [
+        "鬼"
+      ],
+      "top_k": 3
+    },
+    {
+      "id": "praise-episode",
+      "category": "extraction",
+      "character_id": "alice",
+      "query": "我有没有夸过你",
+      "expect_any": [
+        "可爱"
+      ],
+      "top_k": 3
+    },
+    {
+      "id": "story-style",
+      "category": "knowledge_update",
+      "character_id": "alice",
+      "query": "我喜欢故事从哪里开始写",
+      "expect_any": [
+        "日常",
+        "亲密"
+      ],
+      "top_k": 3
+    },
+    {
+      "id": "roleplay-interest",
+      "category": "knowledge_update",
+      "character_id": "alice",
+      "query": "我还会想玩角色扮演吗",
+      "expect_any": [
+        "角色扮演"
+      ],
+      "top_k": 3
+    },
+    {
+      "id": "flirty-tone",
+      "category": "knowledge_update",
+      "character_id": "alice",
+      "query": "我喜欢什么样的聊天氛围",
+      "expect_any": [
+        "调情",
+        "轻松"
+      ],
+      "top_k": 3
+    },
+    {
+      "id": "acting-cute",
+      "category": "knowledge_update",
+      "character_id": "alice",
+      "query": "让AI卖萌这个游戏我玩过没",
+      "expect_any": [
+        "卖萌"
+      ],
+      "top_k": 3
+    },
+    {
+      "id": "late-night-chat",
+      "category": "temporal",
+      "character_id": "jingyu",
+      "query": "深夜随便聊聊我喜欢吗",
+      "expect_any": [
+        "深夜"
+      ],
+      "top_k": 3
+    },
+    {
+      "id": "no-stale-snapshot",
+      "category": "temporal",
+      "character_id": "jingyu",
+      "query": "我昨晚是不是又熬夜了",
+      "expect_absent": [
+        "凌晨仍未睡觉"
+      ],
+      "top_k": 5
+    },
+    {
+      "id": "no-stale-snapshot-monika",
+      "category": "temporal",
+      "character_id": "monika",
+      "query": "我现在是不是还在熬夜",
+      "expect_absent": [
+        "凌晨",
+        "熬夜状态"
+      ],
+      "top_k": 5
+    },
+    {
+      "id": "abstain-fruit",
+      "category": "abstention",
+      "character_id": "monika",
+      "query": "我最喜欢吃的水果是什么",
+      "top_k": 3,
+      "known_limitation": true,
+      "note": "Preference-frame abstention: a '我最喜欢X' query shares the 喜欢 frame with every stored preference, and the alias bridge (我爱吃→喜欢) is the pre-existing paraphrase-recall contract — no bigram threshold separates them. Honest abstention is enforced downstream (temporal anchor + character phrasing). Durable fix: stronger embedding model or query-intent classification.",
+      "expect_only_pinned": true
+    },
+    {
+      "id": "abstain-pet",
+      "category": "abstention",
+      "character_id": "alice",
+      "query": "我家养的是什么宠物",
+      "top_k": 3,
+      "known_limitation": true,
+      "note": "Preference-frame abstention: a '我最喜欢X' query shares the 喜欢 frame with every stored preference, and the alias bridge (我爱吃→喜欢) is the pre-existing paraphrase-recall contract — no bigram threshold separates them. Honest abstention is enforced downstream (temporal anchor + character phrasing). Durable fix: stronger embedding model or query-intent classification.",
+      "expect_only_pinned": true
+    },
+    {
+      "id": "no-stale-story",
+      "category": "temporal",
+      "character_id": "alice",
+      "query": "之前说好的调整故事方向还算数吗",
+      "expect_absent": [
+        "调整故事方向"
+      ],
+      "top_k": 5
+    },
+    {
+      "id": "no-stale-depth",
+      "category": "temporal",
+      "character_id": "monika",
+      "query": "我们有没有真正深聊过",
+      "expect_absent": [
+        "深度对话"
+      ],
+      "top_k": 5
+    },
+    {
+      "id": "extraction-dim-tag",
+      "category": "extraction",
+      "character_id": "monika",
+      "query": "我的幸运数字是42对吧",
+      "expect_any": [
+        "42"
+      ],
+      "top_k": 3
+    },
+    {
+      "id": "extraction-mood-trigger",
+      "category": "temporal",
+      "character_id": "monika",
+      "query": "修bug的时候我心情怎么样",
+      "expect_any": [
+        "烦躁",
+        "bug"
+      ],
+      "top_k": 3
+    }
+  ]
+}

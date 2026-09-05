@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.memory.store import memory_store
-from app.memory.extractor import extract_facts
+from app.memory.extractor import extract_facts, _turn_label
 
 _MIN_TURN_CHARS = 10
 
@@ -33,11 +33,9 @@ def review_turn(
     turns = store.recent_turns(2, character_id=character_id)
     lines = []
     for t in turns:
-        role = t.get("role", "")
         content = str(t.get("content", "")).strip()
         if content:
-            label = "用户" if role == "user" else (character_name or "我")
-            lines.append(f"{label}: {content}")
+            lines.append(_turn_label(t, character_name or "我"))
     conv_text = "\n".join(lines)
     if len(conv_text) < _MIN_TURN_CHARS:
         return {"reviewed": False, "stored": []}

@@ -21,6 +21,8 @@ import uuid
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
+
+from app.runtime.turn_recorder import latest_visual_outcome
 from typing import Any
 
 from app.runtime.runtime import runtime as default_runtime
@@ -653,6 +655,7 @@ class RuntimeManager:
     def _source_id_from_content(content: str) -> str:
         prefixes = (
             ("LANGUAGE LOCK:", "language"),
+            ("[当前时间]", "temporal"),
             ("Compiled memory context:", "memory_summary"),
             ("Relevant past context:", "relevant_memory"),
             ("Current emotion:", "emotion"),
@@ -693,11 +696,118 @@ class RuntimeManager:
     ) -> dict:
         from app.runtime.user_views import build_memory_view
 
+        memories = self.get_memories(False, limit)
+        # Expired rows are soft-deleted (active=0), so they need the inactive
+        # scan — but only lifecycle-expired rows, never user-forgotten ones.
+        expired_rows = [
+            row for row in self.get_memories(True, limit)
+            if str(row.get("state", "")) == "expired"
+        ]
+        rows = memories + expired_rows
+
+        query_text = str(query or "").strip()
+        if query_text and str(category or "all") != "expired":
+            # 语义搜索：向量通道排序（搜"熬夜"能找到"深夜聊天"）。已过期
+            # 分类不走语义路径——过期行不在检索结果里，走子串过滤即可。
+            store = self._memory_store()
+            if store is not None:
+                try:
+                    ranked = store.search_memories(
+                        query_text,
+                        character_id=self.get_character_id(),
+                        limit=max(5, min(50, limit)),
+                    )
+                    rank = {int(row["id"]): row["score"] for row in ranked}
+                    rows = [
+                        row for row in rows if int(row.get("id", 0)) in rank
+                    ]
+                    rows.sort(
+                        key=lambda row: rank.get(int(row.get("id", 0)), 0.0),
+                        reverse=True,
+                    )
+                    query_text = ""  # ranking replaces substring filtering
+                except Exception:
+                    query_text = str(query)  # fall back to substring
+
         return build_memory_view(
-            self.get_memories(False, limit),
-            query=str(query),
+            rows,
+            query=query_text,
             category=str(category or "all"),
         )
+
+    def semantic_classify(self, texts: list[str], context: str = "") -> dict:
+        """Generic semantic ranking service for cross-layer consumers.
+
+        Ranks candidate texts against a context string with the local
+        embedding engine (performance-layer idle residue, E2 motion corpus,
+        any future consumer). Read-only; degrades to {"available": False}
+        when the vector channel is off.
+        """
+        from app.memory.embedder import get_embedder
+
+        embedder = get_embedder()
+        if embedder is None:
+            return {"available": False, "ranking": []}
+        clean_texts = [str(text or "").strip() for text in (texts or [])]
+        clean_texts = [text for text in clean_texts if text][:50]
+        if not clean_texts:
+            return {"available": True, "ranking": []}
+        context_vec = embedder.embed_query(str(context or "")) if str(context or "").strip() else None
+        scored = []
+        for text in clean_texts:
+            vec = embedder.embed_document(text)
+            if not vec:
+                continue
+            score = (
+                round(sum(x * y for x, y in zip(context_vec, vec)), 4)
+                if context_vec else 0.0
+            )
+            scored.append({"text": text, "score": score})
+        scored.sort(key=lambda item: item["score"], reverse=True)
+        return {"available": True, "ranking": scored}
+
+    def classify_residue(self, recent_texts: list[str]) -> dict:
+        """Match recent conversation turns against the residue corpus and
+        return the nearest context label with its idle-behavior profile hint
+        (config/conversation_residue_prototypes.json). Failure returns
+        {"matched": False} — the performance layer keeps its current behavior.
+        """
+        from app.memory.prototypes import PrototypeClassifier
+
+        config_path = (
+            Path(__file__).resolve().parents[1] / "config"
+            / "conversation_residue_prototypes.json"
+        )
+        if not config_path.exists():
+            return {"matched": False, "error": "residue corpus missing"}
+        # 向量缓存放 data/memory（与情绪原型一致）——不污染 config/ 目录。
+        classifier = PrototypeClassifier(
+            config_path,
+            cache_dir=Path(__file__).resolve().parents[1] / "data" / "memory",
+        )
+        joined = " ".join(str(text or "") for text in (recent_texts or []) if text)
+        if not joined.strip():
+            return {"matched": False, "error": "no recent turns"}
+        match = classifier.classify(joined[:800])
+        if match is None:
+            return {"matched": False}
+        label, score = match
+        profile = {}
+        try:
+            data = json.loads(config_path.read_text(encoding="utf-8"))
+            profile = data.get("idle_profiles", {}).get(label, {})
+        except (OSError, json.JSONDecodeError):
+            profile = {}
+        # The corpus nests profiles per label; fall back to the inline map.
+        if not profile:
+            try:
+                data = json.loads(config_path.read_text(encoding="utf-8"))
+                entry = (data.get("prototypes") or {}).get(label)
+                if isinstance(entry, dict):
+                    profile = entry.get("idle_profile", {})
+            except (OSError, json.JSONDecodeError):
+                profile = {}
+        return {"matched": True, "label": label, "score": round(score, 4), "idle_profile": profile}
 
     def get_compiled_memory_view(self) -> dict:
         """Return the active character's compiled memory (the LLM-facing summary)."""
@@ -710,11 +820,33 @@ class RuntimeManager:
             memory_md = get_compiled_memory(character_id)
         except Exception:
             memory_md = ""
+        compiled_at = 0.0
+        try:
+            from app.memory.compiler import _char_dir
+
+            path = _char_dir(character_id) / "memory.md"
+            if path.exists():
+                compiled_at = path.stat().st_mtime
+        except Exception:
+            compiled_at = 0.0
         return {
             "characterId": character_id,
             "characterName": name,
             "memoryMd": memory_md,
+            "compiledAt": compiled_at,
         }
+
+    def regenerate_compiled_memory(self) -> dict:
+        """Queue an offline recompile of the active character's memory.md."""
+        from app.memory.compiler import get_active_char_id
+
+        character_id = self.get_character_id() or get_active_char_id()
+        provider = getattr(self._runtime, "providers", {}).get("memory")
+        ticker = getattr(provider, "_ticker", None)
+        if ticker is None:
+            return {"queued": False, "error": "memory ticker unavailable"}
+        ticker.regenerate(character_id)
+        return {"queued": True, "characterId": character_id}
 
     def update_memory_view(self, memory_ref: str, params: dict) -> dict:
         from app.runtime.user_views import build_memory_view, parse_memory_ref
@@ -812,24 +944,7 @@ class RuntimeManager:
             if detail:
                 provider_status["detail"] = detail
             provider_statuses.append(provider_status)
-        recent_visual = None
-        try:
-            from app.runtime.turn_recorder import get_turn_recorder
-
-            recorder = get_turn_recorder()
-            for summary in recorder.list_turns(limit=20):
-                detail = recorder.get_turn(summary["turnId"]) or {}
-                visual = detail.get("visual") or detail.get("input", {}).get("visual")
-                if isinstance(visual, dict) and visual.get("hasVisionInput"):
-                    recent_visual = {
-                        key: value for key, value in visual.items()
-                        if key not in {"attachmentIds", "attachmentHashes"}
-                    }
-                    recent_visual["turnId"] = summary["turnId"]
-                    recent_visual["createdAt"] = summary["createdAt"]
-                    break
-        except Exception:
-            recent_visual = None
+        recent_visual = latest_visual_outcome()
         return {
             "readOnly": True,
             "runtime": {
@@ -1076,7 +1191,8 @@ class RuntimeManager:
             if sw is not None:
                 if enabled:
                     sw.start()
-                else:
+                elif not getattr(self._runtime, "_screen_vision_enabled", False):
+                    # Screen vision may be the other reason the watcher runs.
                     sw.stop()
         except Exception as e:
             logger.error("[Proactive] Error: %s", e)
@@ -1092,27 +1208,47 @@ class RuntimeManager:
             logger.error("[Proactive] Error setting idle threshold: %s", e)
 
     def set_screen_vision(self, enabled: bool) -> None:
-        """Enable or disable screen-frame grounding for proactive turns."""
+        """Enable or disable screen-frame grounding for proactive turns.
+
+        Also drives the watcher lifecycle so the settings toggle actually
+        produces frames: turn the watcher on with screen vision, and stop it on
+        disable only when the proactive system does not still need it.
+        """
         try:
             runtime = self._runtime
             if hasattr(runtime, "_screen_vision_enabled"):
                 runtime._screen_vision_enabled = bool(enabled)
+            watcher = getattr(runtime, "screen_watcher", None)
+            if watcher is not None:
+                if enabled:
+                    watcher.start()
+                elif not self._proactive_wants_watcher():
+                    watcher.stop()
             logger.info("[ScreenVision] %s", "enabled" if enabled else "disabled")
         except Exception as e:
             logger.error("[ScreenVision] Error: %s", e)
 
+    def _proactive_wants_watcher(self) -> bool:
+        """The watcher also feeds proactive context, so it must keep running
+        while the initiative system is active even when screen vision is off."""
+        checker = getattr(self._runtime, "initiative_checker", None)
+        return bool(getattr(checker, "_running", False))
+
     def set_vision_source(self, source: str, enabled: bool) -> None:
         """Enable or disable a visual source for user turns.
 
-        Valid sources: ``voice_camera`` (frontend-only hint), ``voice_screen``
-        (attach a desktop frame to voice turns), ``text_camera`` (frontend-only
-        hint, camera frames are uploaded and sent with the text turn) and
-        ``text_screen`` (attach a desktop frame to text turns).
+        Valid sources: ``voice_screen`` (attach a desktop frame to voice turns)
+        and ``text_screen`` (attach a desktop frame to text turns). Camera
+        sources (``voice_camera``/``text_camera``) are accepted for protocol
+        compatibility but intentionally ignored — the frontend owns camera
+        capture and upload end to end, and the old backend flags for them were
+        write-only state that three code paths computed three different ways.
         """
+        if source in {"voice_camera", "text_camera"}:
+            logger.info("[VisionSource] %s ignored (frontend-owned)", source)
+            return
         key = {
-            "voice_camera": "_voice_camera_enabled",
             "voice_screen": "_voice_screen_enabled",
-            "text_camera": "_text_camera_enabled",
             "text_screen": "_text_screen_enabled",
         }.get(source)
         if not key:

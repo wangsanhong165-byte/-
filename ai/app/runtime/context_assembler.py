@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 
 class ContextAssembler:
     COMPILED_MEMORY_CHARS = 4000
@@ -45,6 +47,20 @@ class ContextAssembler:
             out += part[:budget]
             budget -= len(part)
         return out
+
+    @staticmethod
+    def _observed_label(data: dict) -> str:
+        """Local “M月D日” for a memory item; "" when no usable timestamp.
+
+        Dates are how the LLM tells a stale snapshot from a live fact — the
+        temporal source instructs it to re-anchor relative time against them.
+        """
+        raw = str(data.get("observed_at") or data.get("updated_at") or "").strip()
+        try:
+            local = datetime.fromisoformat(raw).astimezone()
+        except (ValueError, TypeError):
+            return ""
+        return f"{local.month}月{local.day}日"
 
     @staticmethod
     def _preferences_from_memories(memories) -> tuple[list[str], list[str]]:
@@ -116,6 +132,16 @@ class ContextAssembler:
             lines.append("- learned likes: " + "; ".join(liked))
         if disliked:
             lines.append("- learned dislikes: " + "; ".join(disliked))
+        # Evolvable persona layer: how to interact with THIS user, distilled
+        # by the reflection pass. Bounded so it stays guidance, not a script.
+        style_items = [
+            str((memory.get("data") or {}).get("content", "")).strip()
+            for memory in (memories or [])
+            if memory.get("type") == "relationship_style"
+        ]
+        style_items = [item for item in style_items if item][:2]
+        if style_items:
+            lines.append("- interaction style: " + "; ".join(style_items))
         lines.append(
             "- Use this state subtly. Never recite scores or call it system state."
         )
@@ -157,7 +183,9 @@ class ContextAssembler:
                 fact = " ".join(
                     str(data.get("content") or data.get("fact", "")).split()
                 )
-                text = f"[Fact] {fact}".strip()
+                observed = ContextAssembler._observed_label(data)
+                head = f"[Fact · 记录于{observed}]" if observed else "[Fact]"
+                text = f"{head} {fact}".strip()
             elif kind == "log":
                 role = data.get("role", "")
                 label = "User" if role == "user" else "Assistant"
@@ -178,9 +206,21 @@ class ContextAssembler:
                     "episode": "Shared experience",
                     "relationship": "Relationship memory",
                     "open_loop": "Unfinished topic",
+                    "insight": "Insight",
+                    "relationship_style": "Interaction style",
                     "fact": "Fact",
                 }.get(kind, "Memory")
-                text = f"[{label}] {str(data.get('content', ''))[:500]}"
+                observed = ContextAssembler._observed_label(data)
+                # recent_state/episode are time-of-observation snapshots: the
+                # date is load-bearing. preference/fact get the 记录于 form;
+                # open_loop is pending, so no date.
+                if kind in ("recent_state", "episode") and observed:
+                    head = f"[{label} · {observed}]"
+                elif kind in ("preference",) and observed:
+                    head = f"[{label} · 记录于{observed}]"
+                else:
+                    head = f"[{label}]"
+                text = f"{head} {str(data.get('content', ''))[:500]}"
             else:
                 user, assistant = data.get("user", ""), data.get("assistant", "")
                 text = f"User said: {user}\nYou said: {assistant}" if user and assistant else ""

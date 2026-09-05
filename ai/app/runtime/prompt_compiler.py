@@ -16,6 +16,7 @@ from app.runtime.presentation_capabilities import Live2DPresentationRegistry, ge
 from app.runtime.prompt_config import PromptConfigStore
 from app.runtime.prompt_overrides import PromptOverrideStore
 from app.runtime.visual_attachments import VisualAttachmentStore
+from app.utils.temporal import time_anchor
 
 
 @dataclass(frozen=True)
@@ -128,6 +129,7 @@ class PromptCompiler:
             f"LANGUAGE LOCK: Your native language is {language}. Even if the user writes in another language, you MUST reply in {language} ONLY. "
             f"{native_override.get(prompt_lang, f'You must output {language} only.')} This rule is NON-NEGOTIABLE — do not mirror the user's language.",
         )
+        append_system("temporal", time_anchor())
 
         if character is not None:
             persona = getattr(character, "persona", None)
@@ -192,6 +194,21 @@ class PromptCompiler:
                 "ambiguous, cropped, or too small. Do not claim to have seen content that is not visible. "
                 "If the image cannot be inspected, say so plainly and do not fabricate an answer.",
             )
+        def _image_blocks() -> list[dict[str, Any]]:
+            blocks: list[dict[str, Any]] = []
+            for attachment in visual_attachments:
+                attachment_id = str(
+                    attachment.get("id") or attachment.get("attachment_id") or ""
+                )
+                blocks.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": self._visual_attachment_store.load_data_url(attachment_id),
+                        "detail": "auto",
+                    },
+                })
+            return blocks
+
         if user_text and ctx.input_origin == "initiative":
             messages.append({"role": "system", "content": f"Trusted initiative event (not a user message):\n{user_text}\nStructured event: {ctx.initiative}"})
             sources.append("initiative")
@@ -201,9 +218,20 @@ class PromptCompiler:
             # an unfinished reasoning/tool continuation and rejects it with 400.
             # This message is prompt-only: DecisionStep persists user history
             # exclusively when input_origin == "user".
+            # visual_grounding above promises attached evidence, so initiative
+            # turns carrying a screen frame get the same image blocks as
+            # user turns — grounding text without the image is a hallucination
+            # invitation.
+            boundary: Any = "Respond naturally to the trusted initiative event above."
+            initiative_image_blocks = _image_blocks()
+            if initiative_image_blocks:
+                boundary = [
+                    {"type": "text", "text": boundary},
+                    *initiative_image_blocks,
+                ]
             messages.append({
                 "role": "user",
-                "content": "Respond naturally to the trusted initiative event above.",
+                "content": boundary,
             })
             sources.append("initiative_turn_boundary")
         elif visual_attachments:
@@ -212,17 +240,7 @@ class PromptCompiler:
                 "type": "text",
                 "text": user_text or "Please inspect the attached image and respond naturally.",
             })
-            for attachment in visual_attachments:
-                attachment_id = str(
-                    attachment.get("id") or attachment.get("attachment_id") or ""
-                )
-                content.append({
-                    "type": "image_url",
-                    "image_url": {
-                        "url": self._visual_attachment_store.load_data_url(attachment_id),
-                        "detail": "auto",
-                    },
-                })
+            content.extend(_image_blocks())
             messages.append({"role": "user", "content": content})
             sources.append("user_visual_input")
         elif user_text:
@@ -242,7 +260,7 @@ class PromptCompiler:
             "5. motionPlan is optional. Use 1-3 restrained semantic body-language beats for emphasis, emotional shifts, greeting, agreement, disagreement, reflection, reassurance, or playfulness. Omit it for genuinely short neutral speech. Allowed primitives: nod, tilt_left, tilt_right, lean_forward, lean_back, sway, look_left, look_right, breathe, shrug. durationMs 300-8000; step durationMs 120-2500; intensity 0-1.\n"
             "6. Never output Param*, Cubism IDs, keyframes, animation files, expression files, motion names, or implementation details.\n"
             f"7. Every final segment MUST set an \"emotion\" from: {emotions}. Judge what the moment MEANS to the character, then pick:\n"
-            "   - Default is neutral. Ordinary statements, answers, narrations, and mild small talk stay neutral — never copy the previous expression or choose by a habitual catchphrase; most replies should be neutral or carry at most one non-neutral segment.\n"
+            "   - Default is neutral. Ordinary statements, answers, narrations, and mild small talk stay neutral — never copy the previous expression or choose by a habitual catchphrase. Emotion follows the moment: if the content genuinely feels happy, say happy; feel free to be expressive — this is a lively character, not a flat one.\n"
             "   - happy is for ordinary joy from a clear positive event or a joke landing; joyful for unmistakable high joy, celebration, or delighted excitement (do NOT downgrade real celebration to happy — joyful is the special-eye celebration face); playful only when actively teasing or joking right now (it has its own distinctive eye look — use it when you truly tease, not as a synonym for happy); shy only for explicit embarrassment or romantic bashfulness (including bashfulness after being praised).\n"
             "   - Content that is a real explanation, tutorial, or technical walkthrough adds \"formal\" to contextTags and lowers energy to 0.3-0.4; heavy, somber, or reflective moments add \"somber\" with energy 0.2-0.3 and do NOT raise intensity — quiet weight, not dramatics. contextTags are machine-readable: only lowercase English tags from {whisper, excited, reassuring, close-up, interaction, formal, somber} are recognized — anything else (including Chinese words) is ignored, so omit the field entirely when none apply.\n"
             "   - A negated emotion word is NOT that emotion: if the reply comforts, appeases, or reassures (\"别生气/不要难过/don't be mad\"), the character's own emotion is calm or caring, not angry or sad. Label the character's actual state, never quoted or mentioned words.\n"

@@ -59,9 +59,9 @@ class CharacterRuntime:
         self._runtime_idle = True
         self._user_input_active = False
         self._screen_vision_enabled = True
-        self._voice_camera_enabled = True
+        # Camera attachment decisions live entirely in the frontend (it owns
+        # capture + upload), so only the screen sources have backend flags.
         self._voice_screen_enabled = True
-        self._text_camera_enabled = False
         self._text_screen_enabled = False
         self._active_turn: CharacterTurn | None = None
         self._last_prompt_snapshot: dict[str, Any] | None = None
@@ -427,15 +427,46 @@ class CharacterRuntime:
         memory_provider = self.providers.get("memory")
         store = getattr(memory_provider, "_store", None)
         char_id = getattr(char, "id", "") if char is not None else ""
+
+        # Recent conversation is gathered BEFORE topic selection: the selector
+        # needs it for semantic freshness (suppress just-discussed topics), and
+        # the initiative prompt reuses the same summary afterwards.
+        recent_summary = ""
+        recent_texts: list[str] = []
+        if self.conversation is not None:
+            history = self.conversation.get_history(limit=4)
+            turns = []
+            for msg in history:
+                role = msg.get("role", "")
+                content = str(msg.get("content", ""))
+                if role and content and role != "system":
+                    label = "User" if role == "user" else "You"
+                    turns.append(f"{label}: {content[:200]}")
+                    recent_texts.append(content)
+            if turns:
+                recent_summary = "\n".join(turns[-4:])
+
         memory_topic = None
         if store is not None:
             from app.runtime.initiative_memory import InitiativeMemorySelector
             if self._initiative_memory_selector is None:
                 self._initiative_memory_selector = InitiativeMemorySelector(store)
-            memory_topic = self._initiative_memory_selector.select(char_id)
+            memory_topic = self._initiative_memory_selector.select(
+                char_id, recent_texts=recent_texts or None
+            )
         if memory_topic:
             candidate = dict(candidate)
-            candidate["topic"] = memory_topic["topic"]
+            topic_text = str(memory_topic["topic"])
+            observed = str(memory_topic.get("observed_at") or "").strip()
+            if observed:
+                try:
+                    from datetime import datetime as _dt
+
+                    local = _dt.fromisoformat(observed).astimezone()
+                    topic_text += f"（记录于{local.month}月{local.day}日）"
+                except (ValueError, TypeError):
+                    pass
+            candidate["topic"] = topic_text
             candidate["memory_reason"] = memory_topic["reason"]
             candidate["memory_id"] = memory_topic["memory_id"]
 
@@ -451,27 +482,19 @@ class CharacterRuntime:
                 if configured_language:
                     char_lang = configured_language
 
-        # Step 3b: get recent conversation summary for context
-        recent_summary = ""
-        if self.conversation is not None:
-            history = self.conversation.get_history(limit=4)
-            turns = []
-            for msg in history:
-                role = msg.get("role", "")
-                content = msg.get("content", "")
-                if role and content and role != "system":
-                    label = "User" if role == "user" else "You"
-                    turns.append(f"{label}: {content[:200]}")
-            if turns:
-                recent_summary = "\n".join(turns[-4:])
+        # recent_summary was gathered before topic selection (semantic
+        # freshness) and is reused here for the initiative prompt.
 
         # Step 4: build structured initiative prompt from intent
+        from app.utils.temporal import current_time_context
+
         prompt = build_initiative_prompt(
             candidate["type"], candidate["topic"],
             activity=ctx.get("activity", ""),
             app_name=ctx.get("context", ""),
             language=char_lang,
             recent_conversation=recent_summary,
+            current_time=current_time_context(),
         )
 
         initiative = {
