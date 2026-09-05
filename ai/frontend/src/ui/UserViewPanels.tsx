@@ -14,6 +14,9 @@ type MemoryItem = {
   updatedAt: string
   lastUsedAt: string
   formationReason?: string
+  status?: 'active' | 'stale' | 'expired'
+  observedAt?: string
+  expiresAt?: string
 }
 
 type MemoryView = {
@@ -134,8 +137,9 @@ export function CharacterSelfPanel({ requestCommand }: { requestCommand: Request
 export function MemoryPanel({ requestCommand }: { requestCommand: RequestCommand }) {
   const [view, setView] = useState<MemoryView>(EMPTY_MEMORY)
   const [section, setSection] = useState<'library' | 'compiled'>('library')
-  const [compiled, setCompiled] = useState<{ characterId: string; characterName: string; memoryMd: string } | null>(null)
+  const [compiled, setCompiled] = useState<{ characterId: string; characterName: string; memoryMd: string; compiledAt?: number } | null>(null)
   const [compiledFailed, setCompiledFailed] = useState(false)
+  const [regenerating, setRegenerating] = useState(false)
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<MemoryItem | null>(null)
   const [draft, setDraft] = useState('')
@@ -158,6 +162,15 @@ export function MemoryPanel({ requestCommand }: { requestCommand: RequestCommand
   const switchSection = (next: 'library' | 'compiled') => {
     setSection(next)
     if (next === 'compiled') void loadCompiled()
+  }
+
+  const regenerate = () => {
+    setRegenerating(true)
+    return requestCommand('regenerate_compiled_memory', {})
+      .then(() => new Promise(resolve => setTimeout(resolve, 1200)))
+      .then(() => loadCompiled())
+      .catch(() => {})
+      .finally(() => setRegenerating(false))
   }
 
   useEffect(() => {
@@ -208,9 +221,14 @@ export function MemoryPanel({ requestCommand }: { requestCommand: RequestCommand
           {view.items.map(item => (
             <div key={item.ref}>
               <button type="button" onClick={() => choose(item)}>
-                <span>{item.pinned ? '置顶 · ' : ''}{categoryLabel(item.category)}</span>
+                <span>
+                  {item.pinned ? '置顶 · ' : ''}
+                  {item.status === 'expired' ? '已过期 · ' : ''}
+                  {item.status === 'stale' ? '久未提及 · ' : ''}
+                  {categoryLabel(item.category)}
+                </span>
                 <strong>{item.summary}</strong>
-                <small>{formatDate(item.updatedAt)}</small>
+                <small>{formatDate(item.observedAt || item.updatedAt)}</small>
               </button>
               {selected?.ref === item.ref && (
                 <section className="memory-editor">
@@ -221,6 +239,7 @@ export function MemoryPanel({ requestCommand }: { requestCommand: RequestCommand
                   </div>
                   <textarea value={draft} onChange={event => setDraft(event.target.value)} />
                   <dl className="memory-context">
+                    <div><dt>观察到</dt><dd>{formatDate(selected.observedAt || selected.formedAt)}</dd></div>
                     <div><dt>形成于</dt><dd>{formatDate(selected.formedAt)}</dd></div>
                     <div><dt>最近使用</dt><dd>{formatDate(selected.lastUsedAt)}</dd></div>
                     <div><dt>形成原因</dt><dd>{selected.formationReason || '从相关对话中形成'}</dd></div>
@@ -257,6 +276,17 @@ export function MemoryPanel({ requestCommand }: { requestCommand: RequestCommand
                 <div className="memory-compiled-meta">
                   <strong>{compiled.characterName}</strong>
                   <span className="muted">（{compiled.characterId}）· 进 LLM 提示词的编译记忆 · 只读</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '4px 0 8px' }}>
+                  <span className="muted">
+                    {compiled.compiledAt ? `编译于 ${formatDate(compiled.compiledAt)}` : ''}
+                  </span>
+                  <button
+                    type="button"
+                    className="drawer-text-action"
+                    disabled={regenerating}
+                    onClick={() => void regenerate()}
+                  >{regenerating ? '重编译中…' : '重新编译'}</button>
                 </div>
                 {compiled.memoryMd ? (
                   <div className="memory-compiled-sections">

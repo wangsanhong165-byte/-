@@ -114,6 +114,7 @@ export function describePromptMessage(message: PromptMessageLike): PromptMessage
     pinned: { kind: 'memory', title: '固定记忆', badge: '记忆', defaultOpen: false },
     memory_summary: { kind: 'memory', title: '记忆摘要', badge: '记忆', defaultOpen: false },
     relevant_memory: { kind: 'memory', title: '相关记忆', badge: '记忆', defaultOpen: false },
+    temporal: { kind: 'state', title: '时间感知', badge: '时间', defaultOpen: false },
     emotion: { kind: 'state', title: '当前情绪', badge: '状态', defaultOpen: false },
     character_state: { kind: 'state', title: '角色状态', badge: '状态', defaultOpen: false },
     output_protocol: { kind: 'protocol', title: '输出协议', badge: '协议', defaultOpen: false },
@@ -154,6 +155,9 @@ export function describePromptMessage(message: PromptMessageLike): PromptMessage
   }
   if (content.startsWith('Relevant past context:')) {
     return { kind: 'memory', title: '相关记忆', badge: '记忆', summary: summarizePromptContent(content), defaultOpen: false }
+  }
+  if (content.startsWith('[当前时间]')) {
+    return { kind: 'state', title: '时间感知', badge: '时间', summary: summarizePromptContent(content), defaultOpen: false }
   }
   if (content.startsWith('Current emotion:')) {
     return { kind: 'state', title: '当前情绪', badge: '状态', summary: summarizePromptContent(content), defaultOpen: false }
