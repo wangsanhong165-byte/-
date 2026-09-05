@@ -774,8 +774,9 @@ class RuntimeManager:
         """
         from app.memory.prototypes import PrototypeClassifier
 
+        # parents[2] = 项目根（management.py 位于 ai/app/runtime/）。
         config_path = (
-            Path(__file__).resolve().parents[1] / "config"
+            Path(__file__).resolve().parents[2] / "config"
             / "conversation_residue_prototypes.json"
         )
         if not config_path.exists():
@@ -783,7 +784,7 @@ class RuntimeManager:
         # 向量缓存放 data/memory（与情绪原型一致）——不污染 config/ 目录。
         classifier = PrototypeClassifier(
             config_path,
-            cache_dir=Path(__file__).resolve().parents[1] / "data" / "memory",
+            cache_dir=Path(__file__).resolve().parents[2] / "data" / "memory",
         )
         joined = " ".join(str(text or "") for text in (recent_texts or []) if text)
         if not joined.strip():
