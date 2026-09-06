@@ -11,51 +11,58 @@ html[data-theme='dark'] {
   background: var(--bg);
   font-synthesis: none;
 
-  --bg: #1a2030;
-  --surface: #232b3d;
-  --surface-2: #2d374b;
-  --surface-hover: #37435a;
-  --surface-3: #414f69;
-  --line: #30394b;
-  --line-strong: #46536b;
-  --text: #eef0f7;
-  --muted: #aab2c2;
-  --faint: #7f899c;
+  /* Claude-style dark: neutral charcoal layers (no blue cast, no yellow
+     cast — warmth comes from the terracotta accent, not the background),
+     near-white text, and vivid functional colors borrowed from the Claude
+     Code terminal theme. */
+  --bg: #1e1e1e;
+  --surface: #262626;
+  --surface-2: #303030;
+  --surface-hover: #3a3a3a;
+  --surface-3: #454545;
+  --line: #3a3a3a;
+  --line-strong: #525252;
+  --text: #faf9f5;
+  --muted: #b5b3ae;
+  --faint: #8d8b86;
   --accent: #d97757;
   --on-accent: #ffffff;
-  --good: #7dc9a0;
-  --warn: #e0b06c;
-  --danger: #df858b;
-  --info: #83d5dc;
-  --scrollbar: #3a3c46;
-  --scrollbar-hover: #4a4d57;
-  --shadow-1: 0 1px 3px rgba(7, 10, 18, 0.24);
-  --shadow-2: 0 10px 32px rgba(7, 10, 18, 0.32);
+  --good: #4eba65;
+  --warn: #f2c14e;
+  --danger: #ff6b80;
+  --info: #93a5ff;
+  --scrollbar: #3d3d3d;
+  --scrollbar-hover: #545454;
+  --shadow-1: 0 1px 3px rgba(12, 11, 10, 0.32);
+  --shadow-2: 0 10px 32px rgba(12, 11, 10, 0.40);
 }
 
 html[data-theme='light'] {
   color-scheme: light;
 
-  --bg: #eceff5;
-  --surface: #f6f8fb;
+  /* Warm paper neutrals (Claude-style light): ivory panels on an oat stage,
+     warm gray lines and text. Keep the accent semantic: the terracotta
+     default lives in the accent presets, not here. */
+  --bg: #f0eee6;
+  --surface: #faf9f5;
   --surface-2: #ffffff;
-  --surface-hover: #dfe5ef;
-  --surface-3: #d0d8e5;
-  --line: #d7deea;
-  --line-strong: #bcc7d9;
-  --text: #232a38;
-  --muted: #5b6579;
-  --faint: #8a93a6;
+  --surface-hover: #ece9df;
+  --surface-3: #e0ddd2;
+  --line: #e3e0d5;
+  --line-strong: #c9c5b6;
+  --text: #1f1e1c;
+  --muted: #5f5c53;
+  --faint: #8f8c81;
   --accent: #c15f3f;
   --on-accent: #ffffff;
   --good: #217a52;
   --warn: #8a6410;
   --danger: #bd4a55;
   --info: #1e7a86;
-  --scrollbar: #c2cad8;
-  --scrollbar-hover: #a9b4c7;
-  --shadow-1: 0 1px 3px rgba(23, 32, 54, 0.10);
-  --shadow-2: 0 10px 32px rgba(23, 32, 54, 0.14);
+  --scrollbar: #d8d4c6;
+  --scrollbar-hover: #c4c0b1;
+  --shadow-1: 0 1px 3px rgba(64, 58, 45, 0.10);
+  --shadow-2: 0 10px 32px rgba(64, 58, 45, 0.14);
 }
 
 :root {
@@ -739,7 +746,7 @@ html[data-wallpaper='on'] .conversation-dock .chat-message {
 
 .conversation-dock .chat-message p {
   margin: 0;
-  color: rgba(238, 240, 247, 0.94);
+  color: var(--text);
   font-size: 13px;
   line-height: 1.6;
 }
@@ -840,8 +847,8 @@ html[data-wallpaper='on'] .conversation-dock .chat-message {
   margin: auto;
   padding: 9px 14px;
   border-radius: var(--r-md);
-  background: rgba(35, 43, 61, 0.94);
-  color: #eeedf1;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  color: var(--text);
   box-shadow: var(--shadow-2);
   font-size: 14px;
   line-height: 1.6;
@@ -862,7 +869,7 @@ html[data-wallpaper='on'] .conversation-dock .chat-message {
   gap: 8px;
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
-  background: rgba(35, 43, 61, 0.86);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
   backdrop-filter: blur(12px);
   color: var(--muted);
   font-size: 11px;
@@ -1115,7 +1122,7 @@ html:has(.pet-conversation-surface) #root {
 .chat-message {
   width: min(720px, 92%);
   padding: 7px 2px 10px;
-  border-bottom: 1px solid rgba(48, 57, 75, 0.55);
+  border-bottom: 1px solid var(--line);
 }
 
 .chat-message.is-user {
@@ -2761,7 +2768,7 @@ html:has(.pet-conversation-surface) #root {
 /* Developer workspace */
 .developer-overview {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
   gap: 1px;
   margin: 0 0 12px;
   border: 1px solid var(--line);
@@ -3013,6 +3020,7 @@ html:has(.pet-conversation-surface) #root {
 .trace-timeline li {
   color: var(--text);
   font-size: 10px;
+  overflow-wrap: anywhere;
 }
 
 .trace-timeline li small {
@@ -3027,8 +3035,10 @@ html:has(.pet-conversation-surface) #root {
 
 .dev-key-values > div {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
-  gap: 10px;
+  align-items: baseline;
+  gap: 4px 10px;
 }
 
 .dev-key-values dt,
@@ -3041,6 +3051,65 @@ html:has(.pet-conversation-surface) #root {
 .dev-key-values dd {
   color: var(--text);
   text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.visual-route-hint {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.visual-recent {
+  display: grid;
+  gap: 3px;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  font-size: 10px;
+}
+
+.visual-recent strong {
+  color: var(--text);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.visual-recent small {
+  color: var(--faint);
+}
+
+.visual-recent.is-error {
+  border-color: var(--danger);
+}
+
+.visual-recent.is-error strong {
+  color: var(--danger);
+}
+
+.turn-filters {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 8px;
+}
+
+.turn-filters button {
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-full);
+  background: transparent;
+  color: var(--muted);
+  font-size: 9px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.turn-filters button.is-active {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .developer-retention {

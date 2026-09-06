@@ -48,6 +48,7 @@ export function DeveloperWorkspace({
   const connected = useSelector(selectConnection) === 'connected'
   const [errors, setErrors] = useState<Array<{ code: string; message: string }>>([])
   const [services, setServices] = useState<any[]>([])
+  const [phaseFilter, setPhaseFilter] = useState<'all' | 'completed' | 'failed'>('all')
 
   const recordRequestError = (error: unknown) => {
     const message = error instanceof Error ? error.message : String(error)
@@ -117,8 +118,22 @@ export function DeveloperWorkspace({
               <div><span className="developer-kicker">ACTIVITY</span><h3>CharacterTurn</h3></div>
               <small>{turns.length} 条</small>
             </div>
+            <div className="turn-filters">
+              {(['all', 'completed', 'failed'] as const).map(filter => (
+                <button
+                  key={filter}
+                  type="button"
+                  className={phaseFilter === filter ? 'is-active' : ''}
+                  onClick={() => setPhaseFilter(filter)}
+                >
+                  {{ all: '全部', completed: '成功', failed: '失败' }[filter]}
+                </button>
+              ))}
+            </div>
             {turns.length === 0 && <p className="empty-copy">完成一次对话后会生成只读记录。</p>}
-            {turns.map(turn => (
+            {turns
+              .filter(turn => phaseFilter === 'all' || turn.phase === phaseFilter)
+              .map(turn => (
               <button
                 type="button"
                 key={turn.turnId}
@@ -127,7 +142,7 @@ export function DeveloperWorkspace({
                   .then(data => setDetail((data as any).turn ?? null))
                   .catch(recordRequestError)}
               >
-                <span>{turn.phase} · {turn.origin}</span>
+                <span>{formatPhase(turn.phase)} · {formatOrigin(turn.origin)}</span>
                 <strong>{turn.summary || '语音输入'}</strong>
                 <small>{new Date(turn.createdAt).toLocaleString('zh-CN')}</small>
               </button>
@@ -260,39 +275,118 @@ function VisualRoute({ diagnostics }: { diagnostics: any }) {
   const recent = diagnostics?.visual
   if (!provider && !recent) return null
   const enabled = provider?.visionEnabled === true
+  const policy = provider?.visualPolicy
   return (
     <section className="dev-section visual-route">
       <div className="service-health-heading">
         <div><span className="developer-kicker">VISION ROUTE</span><h3>视觉模型实际状态</h3></div>
         <span className={`service-health-status is-${enabled ? 'healthy' : 'pending'}`}>
-          <i aria-hidden="true" />{enabled ? '设置已启用' : '设置未启用'}
+          <i aria-hidden="true" />{enabled ? '视觉已启用' : '视觉已关闭'}
         </span>
       </div>
-      <p>{provider?.engine || '—'} · {provider?.model || '—'}</p>
+      <p>{provider ? `${provider.engine || '?'} · ${provider.model || '—'}` : '—'}</p>
       <small>{provider?.base_url || '未返回 provider 地址'}</small>
-      <VisualFacts value={{
-        visionEnabled: enabled,
-        visualPolicy: provider?.visualPolicy,
-        recent: recent ? `${recent.imageCount ?? 0} 张 · ${recent.providerSuccess === false ? '失败' : '最近成功/已记录'}` : '尚无视觉回合',
-      }} />
+      {!enabled && <small className="visual-route-hint">总开关已关闭：图片不会发送给模型</small>}
+      {policy && (
+        <dl className="dev-key-values">
+          <div><dt>最多图片</dt><dd>{policy.maxImages ?? '—'} 张</dd></div>
+          <div><dt>单张上限</dt><dd>{formatMegabytes(Number(policy.maxImageBytes))}</dd></div>
+          <div><dt>像素上限</dt><dd>{formatMegapixels(Number(policy.maxImagePixels))}</dd></div>
+          <div><dt>最长边</dt><dd>{policy.maxImageEdge ?? '—'} px</dd></div>
+          <div><dt>支持格式</dt><dd>{formatMimeTypes(policy.supportedMimeTypes)}</dd></div>
+        </dl>
+      )}
+      <div className={`visual-recent${recent?.providerSuccess === false ? ' is-error' : ''}`}>
+        {recent ? (
+          <>
+            <strong>最近视觉回合 · {recent.imageCount ?? 0} 张 · {recent.providerSuccess === false ? '失败' : '成功'}</strong>
+            {recent.visualError && <small>错误码：{String(recent.visualError)}</small>}
+            {recent.createdAt && <small>{new Date(recent.createdAt).toLocaleString('zh-CN')}</small>}
+          </>
+        ) : (
+          <small>尚无视觉回合</small>
+        )}
+      </div>
     </section>
   )
 }
 
+function formatMegabytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '—'
+  const mb = bytes / (1024 * 1024)
+  return `${Number.isInteger(mb) ? mb : mb.toFixed(1)} MB`
+}
+
+function formatMegapixels(pixels: number): string {
+  if (!Number.isFinite(pixels) || pixels <= 0) return '—'
+  const mp = pixels / 1_000_000
+  return `${Number.isInteger(mp) ? mp : mp.toFixed(1)} MP`
+}
+
+function formatMimeTypes(mimeTypes: unknown): string {
+  if (!Array.isArray(mimeTypes) || mimeTypes.length === 0) return '—'
+  return mimeTypes.map((item: string) => String(item).replace('image/', '').toUpperCase()).join(' / ')
+}
+
+const VISUAL_FACT_LABELS: Record<string, string> = {
+  hasVisionInput: '视觉输入',
+  protocol: '协议',
+  imageCount: '图片数',
+  imageBytes: '图片大小',
+  mimeTypes: '格式',
+  dimensions: '尺寸',
+  providerSuccess: '模型处理',
+  visualError: '错误码',
+  finishReason: '结束原因',
+  turnId: '回合',
+  createdAt: '时间',
+  compression: '压缩',
+}
+
+function formatVisualValue(key: string, value: unknown): string {
+  switch (key) {
+    case 'hasVisionInput':
+      return value ? '是' : '否'
+    case 'imageCount':
+      return `${Number(value) || 0} 张`
+    case 'imageBytes':
+      return formatMegabytes(Number(value))
+    case 'mimeTypes':
+      return formatMimeTypes(value)
+    case 'dimensions':
+      return Array.isArray(value) && value[0]
+        ? `${value[0].width}×${value[0].height}`
+        : '—'
+    case 'providerSuccess':
+      return value === false ? '失败' : '成功'
+    case 'turnId':
+      return String(value ?? '—').slice(0, 12)
+    case 'createdAt':
+      return value ? new Date(String(value)).toLocaleString('zh-CN') : '—'
+    default:
+      if (value == null) return '—'
+      if (typeof value === 'object') return JSON.stringify(value)
+      return String(value)
+  }
+}
+
 function VisualFacts({ value }: { value: Record<string, unknown> }) {
+  const entries = Object.entries(value ?? {})
   return (
     <dl className="dev-key-values">
-      {Object.entries(value ?? {}).map(([key, item]) => (
-        <div key={key}><dt>{key}</dt><dd>{formatVisualValue(item)}</dd></div>
+      {entries.map(([key, item]) => (
+        <div key={key}><dt>{VISUAL_FACT_LABELS[key] ?? key}</dt><dd>{formatVisualValue(key, item)}</dd></div>
       ))}
     </dl>
   )
 }
 
-function formatVisualValue(value: unknown): string {
-  if (value == null) return '—'
-  if (typeof value === 'object') return JSON.stringify(value)
-  return String(value)
+function formatPhase(phase: string) {
+  return { completed: '已完成', failed: '失败', running: '进行中' }[phase] ?? phase
+}
+
+function formatOrigin(origin: string) {
+  return { user: '用户', initiative: '主动', voice: '语音' }[origin] ?? origin
 }
 
 function getServiceStatusTone(status: string) {

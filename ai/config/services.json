@@ -20,7 +20,7 @@
     "display_name": "语音模型", "category": "voice", "provider": "GPT-SoVITS", "startup_priority": 100,
     "host": "127.0.0.1", "port": 19205, "fallback_ports": [19305, 19405], "dynamic_port": true, "health": "/ready", "timeout": 180,
     "readiness": true, "profiles": ["backend", "electron", "full"], "failure_policy": "isolate",
-    "env": {"BROWSER": "none", "PATH": "{python_dir};{PATH}"},
+    "env": {"BROWSER": "none", "PATH": "{python_dir};{PATH}", "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True", "NLTK_DATA": "{root}/models/tts/nltk_data"},
     "cwd": "models/tts/GPT-SoVITS-v2pro-20250604-nvidia50",
     "command": {
       "executable": "{python}",
@@ -37,8 +37,9 @@
   },
   "asr": {
     "display_name": "语音识别", "category": "voice", "startup_priority": 120,
-    "host": "127.0.0.1", "port": 19201, "fallback_ports": [19301, 19401], "dynamic_port": true, "health": "/health", "timeout": 60,
+    "host": "127.0.0.1", "port": 19201, "fallback_ports": [19301, 19401], "dynamic_port": true, "health": "/health", "timeout": 120,
     "readiness": true, "depends_on": ["tts"], "profiles": ["backend", "electron", "full"], "failure_policy": "isolate",
+    "env": {"ASR_MODEL_DIR": "{root}/models/asr/Qwen3-ASR-0.6B"},
     "command": {"module": "app.modules.asr.api", "args": ["--host", "{host}", "--port", "{port}"]}
   },
   "llm": {

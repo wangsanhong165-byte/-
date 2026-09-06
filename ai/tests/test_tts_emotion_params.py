@@ -35,7 +35,9 @@ class TestApplyEmotionParams(unittest.TestCase):
     def test_defaults_per_emotion(self):
         kwargs: dict = {}
         _apply_emotion_params(kwargs, None, "angry")
-        self.assertEqual(kwargs["temperature"], 0.9)
+        # temperature is intentionally NOT set: low sampling temperatures
+        # collapse GSVI into prompt-replay / single-syllable "啊" output.
+        self.assertNotIn("temperature", kwargs)
         self.assertEqual(kwargs["speed_factor"], 1.05)
 
     def test_neutral_sets_nothing(self):
@@ -58,7 +60,7 @@ class TestApplyEmotionParams(unittest.TestCase):
         kwargs: dict = {"speed_factor": 1.2}
         _apply_emotion_params(kwargs, None, "sad")
         self.assertEqual(kwargs["speed_factor"], 1.2)
-        self.assertEqual(kwargs["temperature"], 0.3)
+        self.assertNotIn("temperature", kwargs)
 
 
 class TestTTSStepPassesEmotionParams(unittest.IsolatedAsyncioTestCase):
@@ -69,7 +71,7 @@ class TestTTSStepPassesEmotionParams(unittest.IsolatedAsyncioTestCase):
         await TTSStep(tts).run(ctx)
         self.assertEqual(len(tts.calls), 1)
         options = tts.calls[0][1]
-        self.assertEqual(options["temperature"], 0.9)
+        self.assertNotIn("temperature", options)
         self.assertEqual(options["speed_factor"], 1.05)
 
     async def test_segmented_clips_each_carry_emotion_params(self):
@@ -83,7 +85,7 @@ class TestTTSStepPassesEmotionParams(unittest.IsolatedAsyncioTestCase):
         await TTSStep(tts).run(ctx)
         self.assertEqual(len(tts.calls), 2)
         for _, options in tts.calls:
-            self.assertEqual(options["temperature"], 0.3)
+            self.assertNotIn("temperature", options)
             self.assertEqual(options["speed_factor"], 0.92)
 
     async def test_segmented_clips_get_per_segment_emotion(self):
@@ -97,8 +99,9 @@ class TestTTSStepPassesEmotionParams(unittest.IsolatedAsyncioTestCase):
         await TTSStep(tts).run(ctx)
         self.assertEqual(len(tts.calls), 2)
         # Dominant is pout, but the happy closing line must not inherit it.
-        self.assertEqual(tts.calls[0][1]["temperature"], 0.75)
-        self.assertEqual(tts.calls[1][1]["temperature"], 0.7)
+        self.assertNotIn("temperature", tts.calls[0][1])
+        self.assertNotIn("temperature", tts.calls[1][1])
+        self.assertEqual(tts.calls[0][1]["speed_factor"], 1.03)
         self.assertEqual(tts.calls[1][1]["speed_factor"], 1.0)
 
     async def test_all_empty_clips_fall_back_then_surface_failure(self):

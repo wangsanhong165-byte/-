@@ -18,6 +18,7 @@ import {
 import type { AppSettings } from '../core/store'
 import { electronWindowBridge, type ElectronPerformanceDiagnostics, type WallpaperResourceResult } from '../session/electron-window-bridge'
 import { eventBus, type EventMap } from '../core/event-bus'
+import { fetchVisualPolicy, type VisualPolicy } from '../runtime/visual'
 import {
   normalizeLive2DPerformanceSettings,
   readModelPerformanceDefaults,
@@ -773,6 +774,18 @@ function VisionTab({ envConfig, settings, onSettingChange, llmProviders }: {
   const activeProviderName = llmProviders.activeProvider?.name || llmProviders.active || '未选择供应商'
   const activeModel = llmProviders.activeProvider?.model || '未填写模型'
   const visionEnabled = ['1', 'true', 'yes', 'on'].includes((env.llm?.LLM_ENABLE_VISION ?? '').trim().toLowerCase())
+  // Backend-truth visual state: the toggle above mirrors local env state, but
+  // whether the active model can actually accept images only shows up in the
+  // latest real request's outcome.
+  const [policy, setPolicy] = useState<VisualPolicy | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    fetchVisualPolicy()
+      .then(p => { if (!cancelled) setPolicy(p) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+  const lastVisionError = policy?.lastVisionError || null
 
   return (
     <div style={styles.tabContent}>
@@ -810,6 +823,12 @@ function VisionTab({ envConfig, settings, onSettingChange, llmProviders }: {
         <div style={styles.engineSummary}>
           <span style={styles.engineSummaryLabel}>当前视觉路由</span>
           <span style={styles.engineSummaryDesc}>{activeProviderName} · {activeModel}</span>
+          {policy?.visionEnabled === false && (
+            <span style={styles.engineSummaryDesc}>总开关已关闭：图片不会发送给模型</span>
+          )}
+          {lastVisionError && (
+            <span style={styles.engineSummaryDesc}>上次视觉请求失败：{lastVisionError}（当前模型可能不支持图片输入）</span>
+          )}
         </div>
       </div>
 
