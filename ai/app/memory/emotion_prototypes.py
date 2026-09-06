@@ -35,11 +35,16 @@ def classify_emotion(
     text: str, *, min_cosine: float = 0.60, margin: float = 0.05,
     min_length: int = 6,
 ) -> Optional[tuple[str, float]]:
-    """Semantic emotion vote: (emotion, cosine) or None when unconfident.
+    """Semantic emotion vote: (label, score) or None when unconfident.
 
-    Strong-line defaults (Qwen3-0.6B calibrated 2026-09-05): meta/placeholder
-    texts peak ≤0.518, genuine emotional expressions 0.616+. Short texts
-    (<6 chars) match short prototypes meaninglessly and are rejected.
+    Dual-channel gating inside PrototypeClassifier.classify: with the rerank
+    channel active (default) the vote is P(yes) gated at 0.15/+0.10
+    (calibrated 2026-09-06, see scripts/calibrate_reranker_gates.py); with
+    the channel off the legacy cosine line applies — strong-line defaults
+    (Qwen3-0.6B calibrated 2026-09-05): meta/placeholder texts peak ≤0.518,
+    genuine emotional expressions 0.616+. Short texts (<6 chars) match short
+    prototypes meaninglessly and are rejected. min_cosine/margin only bind
+    the cosine fallback, never the rerank branch.
     """
     if len(str(text or "").strip()) < min_length:
         return None

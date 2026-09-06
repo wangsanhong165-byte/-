@@ -24,6 +24,10 @@ def pytest_configure(config) -> None:
     os.environ["LLM_PROVIDERS_PATH"] = str(
         runtime_temp / "config" / "llm_providers.json"
     )
+    # The rerank channel is a real GPU model — unit tests must stay
+    # deterministic and model-free; rerank logic is covered by
+    # tests/test_prototype_rerank.py with injected fakes.
+    os.environ.setdefault("RERANKER_ENABLED", "0")
 
 
 def pytest_unconfigure(config) -> None:

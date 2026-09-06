@@ -888,6 +888,22 @@ class MemoryStore:
             item["reasons"] = reasons or ["importance"]
             ranked.append(item)
         ranked.sort(key=lambda row: row["score"], reverse=True)
+        # Cross-encoder precision pass — wired but DORMANT by default:
+        # measured 2026-09-06 on tests/fixtures/memory_eval.json (14 expect_any
+        # cases) as 13/14 with and without — no measurable gain over the
+        # lexical+vector fusion. Flip RERANKER_RETRIEVAL=1 to activate; the
+        # pass is fail-open and annotated with rerank_score.
+        if os.environ.get("RERANKER_RETRIEVAL", "0") == "1":
+            try:
+                from app.memory.reranker import rerank_ranking
+
+                ranked = rerank_ranking(
+                    query, ranked,
+                    text_of=lambda row: str(
+                        row.get("content") or row.get("fact") or ""),
+                )
+            except Exception:
+                pass
         results = ranked[:limit]
         now = datetime.now(timezone.utc).isoformat()
         # Surface usage: bump access_count + last_retrieved_at on structured

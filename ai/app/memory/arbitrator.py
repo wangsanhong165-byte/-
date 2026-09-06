@@ -123,6 +123,36 @@ def _candidate_pairs(
             candidates.values(),
             key=lambda m: -float(m.get("importance", 0.5) or 0.5),
         )
+        # Cross-encoder relevance pass (offline, fail-open): importance alone
+        # decides which old memories the LLM proposer even sees — a high-
+        # importance but unrelated row can crowd out the actual conflict.
+        # Rerank the head by true (new fact, old memory) relevance; the tail
+        # keeps importance order.
+        try:
+            from app.memory.reranker import get_reranker
+
+            reranker = get_reranker()
+        except Exception:
+            reranker = None
+        if reranker is not None and ordered:
+            head = ordered[:_ARBITRATION_MAX_CANDIDATES * 3]
+            try:
+                scores = reranker.score_pairs(
+                    [(str(row["content"]), str(old["content"])) for old in head],
+                    instruction=(
+                        "Given a newly extracted memory about the user, judge "
+                        "whether the Document describes the same aspect of the "
+                        "user's life that the new memory might contradict, "
+                        "update or replace"),
+                )
+            except Exception:
+                scores = None
+            if scores and len(scores) == len(head):
+                for old, score in zip(head, scores):
+                    old["rerank_score"] = round(float(score), 4)
+                order = sorted(range(len(head)), key=lambda i: scores[i],
+                               reverse=True)
+                ordered = [head[i] for i in order] + ordered[len(head):]
         pairs.append((row, ordered[:_ARBITRATION_MAX_CANDIDATES]))
     return pairs
 

@@ -240,19 +240,49 @@ def reflect(
     existing_vectors = {
         row["id"]: _decode_vector(row.get("embedding")) for row in existing
     }
+    existing_text = {
+        row["id"]: str(row.get("content") or "") for row in existing
+    }
     for item in insights:
         text = str(item["text"]).strip()
         is_duplicate = False
         if embedder is not None:
             vector = embedder.embed_document(text)
             if vector:
-                for old_vec in existing_vectors.values():
+                dup_id: int | None = None
+                for old_id, old_vec in existing_vectors.items():
                     if not old_vec:
                         continue
                     raw_cosine = sum(a * b for a, b in zip(vector, old_vec))
                     if raw_cosine >= _INSIGHT_DUP_COSINE:
-                        is_duplicate = True
+                        dup_id = old_id
                         break
+                if dup_id is not None:
+                    # Cross-encoder verification (fail-open): cosine near the
+                    # dup line catches paraphrases but also genuinely new
+                    # insights that share framing; the pairwise judge decides.
+                    # Channel off → historical cosine-only behavior.
+                    is_duplicate = True
+                    try:
+                        from app.memory.reranker import get_reranker
+
+                        reranker = get_reranker()
+                    except Exception:
+                        reranker = None
+                    old_text = existing_text.get(dup_id, "")
+                    if reranker is not None and old_text:
+                        try:
+                            scores = reranker.score_pairs(
+                                [(text, old_text)],
+                                instruction=(
+                                    "Judge whether the two Documents state the "
+                                    "same insight about the user, i.e. one adds "
+                                    "no information over the other"),
+                            )
+                        except Exception:
+                            scores = None
+                        if scores:
+                            is_duplicate = scores[0] >= 0.5
         if is_duplicate:
             stats["duplicates"] += 1
             continue

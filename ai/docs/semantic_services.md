@@ -22,7 +22,11 @@
 - 请求：`requestCommand('classify_residue', { recent_texts: ['最近几轮对话原文', ...] })`
 - 响应：`{"matched": true, "label": "playful_residue", "score": 0.71, "idle_profile": {energy, expression_hint, gesture_tendency}}`
   或 `{"matched": false}`（低于置信线 / 语料缺失 / 无最近对话）
-- 消费建议（IdleBehaviorScheduler 薄适配器，待表演层 WIP 落地后接线）：
+- score 量纲随通道而变：rerank 通道开启时是 P(yes)（0-1，越大越匹配），
+  关闭时退回余弦——消费方只应消费 label/idle_profile 的**排序**，不要对
+  score 绝对值建阈值（门限在分类器内部已按通道校准）。
+- 消费建议（IdleBehaviorController.ts / IdleActionScheduler.ts 薄适配器，
+  待表演层 WIP 落地后接线）：
   1. 进入待机时调用一次（非热路径，~100-300ms 无感）；
   2. `matched=true` 时按 `idle_profile` 调整待机姿态基调/活动倾向/表情底色；
   3. `matched=false` 或超时（建议 >500ms 放弃等待）完全回落现有行为；

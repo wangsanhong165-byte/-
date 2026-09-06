@@ -318,6 +318,10 @@ BACKGROUNDS_DIR = Path(
 # ── App ─────────────────────────────────────────────────────────────────
 app = FastAPI()
 
+# Strong reference for the background cleanup task — asyncio only weakly
+# references running tasks, and an unreferenced loop can be GC'd mid-flight.
+_visual_attachment_cleanup_task: asyncio.Task | None = None
+
 
 @app.post("/api/tool-confirmations/{request_id}")
 async def resolve_tool_confirmation(request_id: str, payload: dict):
@@ -415,8 +419,16 @@ async def get_visual_policy():
         get_camera_policy,
     )
     from app.runtime.visual_context import screen_chat_max_age_seconds
+    from app.runtime.turn_recorder import latest_visual_outcome
 
     camera_policy = get_camera_policy()
+    # Surface the real visual state next to the route name: the master toggle
+    # (hot env read) and the outcome of the latest actual vision request, so
+    # the UI can warn when the active model cannot accept images.
+    vision_enabled = os.environ.get(
+        "LLM_ENABLE_VISION", ""
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    recent_visual = latest_visual_outcome() or {}
     return {
         **get_visual_limits(),
         "supportedMimeTypes": sorted(SUPPORTED_MIME_TYPES),
@@ -424,6 +436,8 @@ async def get_visual_policy():
         "cameraSampleIntervalMs": camera_policy["sampleIntervalMs"],
         "cameraMaxFrames": camera_policy["maxFrames"],
         "screenChatMaxAgeSeconds": screen_chat_max_age_seconds(),
+        "visionEnabled": vision_enabled,
+        "lastVisionError": recent_visual.get("visualError") or None,
     }
 
 @app.on_event("startup")
@@ -434,6 +448,33 @@ async def _startup():
         VisualAttachmentStore().cleanup()
     except Exception:
         logger.exception("Visual attachment cleanup failed")
+
+    async def _visual_attachment_cleanup_loop() -> None:
+        # Expired attachments are otherwise only removed lazily on resolve or
+        # at the next startup; sweep periodically to bound disk usage.
+        while True:
+            await asyncio.sleep(600)
+            try:
+                await asyncio.to_thread(VisualAttachmentStore().cleanup)
+            except Exception:
+                logger.exception("Periodic visual attachment cleanup failed")
+
+    # Hold the task reference: asyncio keeps only weak references to running
+    # tasks, so an unreferenced background loop can be garbage-collected
+    # mid-flight and silently stop sweeping expired attachments.
+    global _visual_attachment_cleanup_task
+    _visual_attachment_cleanup_task = asyncio.create_task(
+        _visual_attachment_cleanup_loop())
+
+    # Reranker prewarm (fail-safe): load the cross-encoder ~20s after boot on
+    # a side thread so the first prototype vote / retrieval rerank never pays
+    # the 9-15s model load inside a turn. RERANKER_PREWARM=0 disables.
+    try:
+        from app.memory.reranker import prewarm
+
+        prewarm(background=True, delay_seconds=20.0)
+    except Exception:
+        logger.exception("Reranker prewarm scheduling failed")
 
 
 @app.get("/health")
