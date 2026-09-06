@@ -290,6 +290,8 @@ class PrototypeClassifier:
         reranked = self._rerank_top_labels(text, ranked, _rerank_config()[0])
         if reranked:
             head = sorted(reranked.items(), key=lambda kv: kv[1], reverse=True)
+            logger.info("residue rank [rerank] text=%r -> %s (%.3f)",
+                        text[:40], head[0][0], head[0][1])
             head_labels = {label for label, _ in head}
             tail = [(label, score) for label, score in ranked
                     if label not in head_labels]

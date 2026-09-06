@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -174,6 +175,10 @@ class LocalReranker:
         self._prefix_ids: list[int] = []
         self._suffix_ids: list[int] = []
         self._load_seconds: float = 0.0
+        # Prewarm (+20s) and the first real scoring can race into
+        # _ensure_loaded — without this lock both threads load the model and
+        # the loser's ~1.2GB VRAM is wasted (observed live 2026-09-06).
+        self._load_lock = threading.Lock()
 
     def available(self) -> bool:
         if self._model is not None:
@@ -198,6 +203,14 @@ class LocalReranker:
             return True
         if self._failed or not self.available():
             return False
+        with self._load_lock:
+            # Double-check: the prewarm thread and the first real scoring can
+            # both arrive here — the loser must not reload the model.
+            if self._model is not None:
+                return True
+            return self._load_model()
+
+    def _load_model(self) -> bool:
         started = time.time()
         try:
             import torch
