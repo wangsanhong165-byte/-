@@ -305,6 +305,15 @@ _ch.setFormatter(logging.Formatter("[Bridge] %(asctime)s.%(msecs)03d %(levelname
 logger.handlers.clear()
 logger.addHandler(_ch)
 
+# memory.* loggers (embedder/reranker/prototypes) propagate to root, whose
+# default WARNING level swallows their INFO breadcrumbs — prototype votes and
+# prewarm were invisible in production logs. Route them into the same bridge
+# stream explicitly; propagate=False prevents double emission of ERRORs.
+_memory_logger = logging.getLogger("memory")
+_memory_logger.setLevel(logging.INFO)
+_memory_logger.addHandler(_ch)
+_memory_logger.propagate = False
+
 # ── Paths ───────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 FRONTEND_DIR = BASE_DIR / "frontend" / "dist"
