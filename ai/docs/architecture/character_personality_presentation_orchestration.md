@@ -1,7 +1,7 @@
 # 角色人格、提示词、状态与 Live2D 表现编排架构基线
 
 > **状态：** 当前架构基线
-> **基线日期：** 2026-08-15
+> **基线日期：** 2026-08-15（**2026-09-06 修订**：LLM 输出协议瘦身——naturalVAD 改为本地按情绪派生、motionPlan 不再是 LLM 输出项；新增双情绪 `leak` 与待机残留染色，见 §7.4.1；表演层三柱见 performance-recipes-sop.md）
 > **实现提交：** `d801d89 feat: unify character personality and presentation orchestration`
 > **实现分支：** `codex/character-card-editing-20260815`
 > **改造前存档：** `codex/archive-persona-baseline-20260815` → `bda1bfe`
@@ -99,7 +99,7 @@
 保留并落实：
 
 - 继续使用单一 `ParameterMixer → Live2DModelAdapter → Cubism` 写入链；
-- LLM 只能输出 emotion、behavior、attention、energy、naturalVAD 和安全 motionPlan；
+- LLM 只能输出 emotion、behavior、attention、energy、leak 和 contextTags（naturalVAD 由本地按 emotion 派生，motionPlan 由编排层生成——均不再是 LLM 输出项）；
 - 模型参数差异继续集中在 `AvatarCapabilityProfile` 和逻辑参数映射中；
 - 原生动作、程序化动作、唇同步、表情和视线仍由既有控制模块执行。
 
@@ -498,13 +498,27 @@ LLM 返回结构化 JSON，但角色说出的文字必须满足：
 
 - `final_reply` 和 segment `text` 只包含真正说出口的话；
 - 不叙述“我眨眨眼”“我凑近一点”“我笑眯眯地看着你”；
-- 可见动作只能通过 `emotion`、`behavior`、`attention`、`naturalVAD` 和 `motionPlan` 表达；
+- 可见动作只能通过 `emotion`、`behavior`、`attention` 表达（长段的双情绪由
+  `leak` 字段驱动泄露弧，见 §7.4.1）；
 - 如果现有语义字段无法表达某动作，不得声称动作已经发生；
 - 不输出 `[happy]` 一类可见标签；
 - 普通信息默认 neutral，不把 shy 当万能表情；
 - emotion 必须来自当前模型能力快照允许的集合；
-- motionPlan 只允许安全语义原语，不允许模型参数和资源文件名；
+- 动作节拍由编排层按行为/情绪生成，LLM 不直接指定 motionPlan，更不允许
+  模型参数和资源文件名进入协议；
 - 必须有非空自然回复。
+
+#### 7.4.1 双情绪泄露与待机残留染色（2026-09-05/06 增补）
+
+**双情绪泄露**：长段（≥1800ms）可携带 `leak` 字段（口是心非下的真实情绪，
+response_interpreter 校验后写入 PerformancePlan）。前端 LeakArcScheduler 在
+段长 55% 处让真实情绪以 0.45× 强度滑出、90% 处表层以 0.8× 回归；短段无弧。
+turn.failed/cancelled 必须取消未触发的弧（否则打断后闪过期表情）。
+
+**待机残留染色**：进入待机时前端触发 `classify_residue`（空载荷，后端从
+turn_recorder 自取最近 6 回合，经 Reranker 精排的原型分类），返回的
+idle_profile 折叠进待机能量缩放与动作池情绪底色——上一段对话的“气氛”
+在待机里延续。失败/超时完全回落现有行为。
 
 ### 7.5 兼容层边界
 
@@ -714,7 +728,7 @@ sequenceDiagram
     Runtime->>Compiler: compile(CharacterTurn, CharacterSelf)
     Compiler-->>Runtime: messages + source_ids + budget
     Runtime->>LLM: generate(messages)
-    LLM-->>Runtime: spoken text + emotion + behavior + motionPlan
+    LLM-->>Runtime: spoken text + emotion + behavior + leak
     Runtime->>Bridge: assistant/intent/audio V3 events
     Bridge->>Ingress: source=llm, owner=turn:id
     Ingress-->>Bridge: accepted channels

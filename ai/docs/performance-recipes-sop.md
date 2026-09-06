@@ -12,7 +12,9 @@
 只有一个表:`frontend/src/character/performance/performance-recipes.ts`。
 **posture 分两套**(shirone 的 expressionMap 把一族情绪折叠到同一张脸——
 joyful/cheerful/laughing→星星眼,love/shy/embarrassed→心心眼,
-angry/pout→生气表情,calm/neutral→重置——身体语言是族内唯一的区分维度):
+calm/neutral→重置——身体语言是族内唯一的区分维度。**例外:pout 自
+2026-09-05 起有独立脸**(Param212 生气眉+Param216 鼓嘴、无脸黑 Param39,
+见 expression.ts 的 pout preset;IDLE_TINTS 亦有其独立条目):
 
 ```ts
 POSTURE_SETS = {
@@ -125,8 +127,9 @@ npx tsc --noEmit         # 类型
     if ($LASTEXITCODE -ne 0) { $fail += $f } }
   "total=$($list.Count) fail=$($fail.Count)"; $fail
   ```
-- 场景库阈值重新校准的工具:`node --experimental-strip-types scripts/scenario-metrics.mjs`
-  (打印各场景的正常峰值,阈值应保持在"正常包线 ~2 倍、可感知闪现 ~1/7"附近)
+- 场景库阈值重新校准的工具:`node --experimental-strip-types ../scripts/scenario-metrics.mjs`
+  (脚本在仓库根 scripts/ 下;打印各场景的正常峰值,阈值应保持在"正常包线 ~2 倍、
+  可感知闪现 ~1/7"附近)
 
 ## 5. 场景库怎么扩展
 
@@ -147,9 +150,10 @@ npx tsc --noEmit         # 类型
 每个样本都在变(±10-15°),偶发 30-40° 刻意大倾。
 
 落地参数(改前先读):
-- 头微动:每 2.2-4.5s 一个新头位(±3.2° ×2.6 增益,弹簧 0.55Hz、阻尼 0.72 带
-  ~10% 过冲回稳)——头高频;头位重选**只在重音门控触发**(语音能量上升
-  >0.03,或静默超 1.6s 的宽限重选),不是定时器
+- 头微动:每 1.5-2.9s 一个新头位(head.x 档位 4.2 ×2.6 增益 ≈ ±11° 峰,弹簧
+  0.48-0.58Hz、阻尼 0.85 近临界——0.72 的 ~10% 过冲被实测为"甩头",已弃),
+  重选**只在重音门控触发**(语音能量上升 >0.04,或静默超 1.6s 的宽限重选),
+  不是定时器;重定位跳变限幅(≤ range×1.1),落点由弹簧滑入
 - 躯干:能量驱动(swayScale 随语音能量 0.62-1.0 浮动),幅度小、不匀速游走
 - 待机动作:6.5-13s 一动 + 稀有 big-tilt(16°,权重 0.3)
 - 表情状态保持数秒(导演 emotionHoldMs=900,neutral 豁免)
@@ -166,11 +170,13 @@ npx tsc --noEmit         # 类型
    主峰 150-380ms;一个 beat 的 commitment ≈ 8-10 帧 ≈ 130-170ms 的行业时值)
 2. **神态分离(眼睛先行)**:react 的 eye.y 70ms 到位、head.y 150ms 才到峰;
    greet 的 wave 步 380ms 对齐头位到位时刻(因果链,不再同时发生)
-3. **MotionAction 原语峰值点 .3 → .22**(LLM 补拍 beats 同样快速起手;
-   连带 motion-action.test.ts 峰值断言 300ms → 220ms)
-4. **说话层弹簧 0.42→0.55Hz、阻尼 0.85→0.72**(头位变更 ~0.9s 到位并带
-   ~10% 过冲回稳——"commit"而非"漂移");重音门控阈值 0.05→0.03(真音节
-   起振即触发)
+3. **MotionAction 原语时值**——**2026-09-05 起被三动力学原型取代**:snappy
+   (轻头/眼拍:攻击 .10、峰 .40、12% 过冲)、weighted(躯干质量移动:预备
+   .07 反向 8%、.5 峰慢入、长落定;副轴缺帧=0 自由滞后)、fluid(眼神滑行,
+   eyes lead);原 .22/220ms 峰值断言已改为 .5 峰 @500ms(motion-action.test.ts)
+4. **说话层弹簧/阻尼**——2026-09-04 曾调 0.42→0.55Hz/0.85→0.72,**2026-09-05
+   retiering 再调为 0.48-0.58Hz/阻尼 0.85**(0.72 的过冲被实测为甩头);
+   重音门控阈值 0.05→0.04
 5. **左右镜像交替**:逻辑动作每次播放 x/z 取反、y 保留(MotionArbiter
    mirrorToggle);情绪姿态每次换情绪翻转(AmbientPerformanceEngine
    postureMirror)——锁在 motion-arbiter.test.ts 镜像交替符号锁
@@ -180,6 +186,14 @@ npx tsc --noEmit         # 类型
 
 新增回归锁:镜像交替符号锁(motion-arbiter.test.ts)、重音门控差分锁
 (speech-performance-controller.test.ts)、情感否定守卫锁(tests/test_emotion_step.py)。
+
+### 2026-09-05 双情绪泄露弧(LeakArcScheduler)
+
+长段(≥1800ms)的"口是心非"表演:表层脸保持过中点,**55% 处真实情绪泄露**
+(0.45× 段强度,下限 0.3),**90% 处表层以 0.8× 回归**收尾。来源链:LLM 输出
+`leak` 字段 → response_interpreter 提取 → live2d_step/emitter 透传 → 前端
+`runtime:character.intent` → LeakArcScheduler 定时弧。**turn.failed/cancelled
+必须取消未触发的弧**(否则打断后闪过期表情脸——审查抓出过)。短段无弧。
 
 ## 7. 防镜像漂移(硬规则)
 

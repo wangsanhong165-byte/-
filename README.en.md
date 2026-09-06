@@ -83,7 +83,7 @@ Speech playback, emotion, user interaction, and idle behavior can share the same
 
 ### 3. Persistent memory that can evolve
 
-The memory subsystem is more than a chat transcript. It includes history storage, extraction, retrieval, compilation, review, and lifecycle management, using SQLite and FTS5 for local search.
+The memory subsystem is more than a chat transcript. It includes history storage, extraction, retrieval, compilation, review, and lifecycle management, using SQLite and FTS5 for local search, plus temporal semantics (time anchors / expiry) and a local small-model vector channel (Qwen3-Embedding-0.6B for embedding recall, Qwen3-Reranker-0.6B for cross-encoder reranking), along with conflict arbitration and weekly reflection.
 
 Retrieved memories can participate in later context assembly, allowing the character to build continuity around the user, preferences, and relationship instead of only remembering the previous message. The active policy is defined by `ai/app/memory/` and the current configuration.
 
@@ -106,7 +106,7 @@ The repository currently contains these Live2D model resources:
 - `youxiaomiao`
 - `shirone`
 
-The character configurations include `alice` and `monika`, and the voice configuration includes `monika`. Models, voices, and third-party assets may have separate licenses; verify permissions before redistributing them.
+The character configurations include `alice`, `jingyu`, and `monika`; the voice directory contains three voice packs (`alims`, `amiya`, `monika`). Models, voices, and third-party assets may have separate licenses; verify permissions before redistributing them.
 
 ### 6. A diagnosable local service lifecycle
 

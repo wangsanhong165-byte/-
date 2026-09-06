@@ -1,7 +1,8 @@
 # Domain Model Stabilization Report
 
 > **Status**: Ratified — all domain models are stable
-> **Date**: 2026-06-29
+> **Date**: 2026-06-29（**2026-09-06 复核修订**：segments 键名、Context 载体、
+> 情绪表、运行时类名已随 V3 迁移与协议瘦身更新；详见各节修订注）
 > **Constitution ref**: §5
 
 ---
@@ -15,7 +16,8 @@
 **Stabilization history**:
 - Phase 5.5 eliminated the double-encoded JSON protocol
 - `reply` is always plain text (extracted `final_reply` or raw content)
-- `segments` are per-sentence dicts with `text`, `tone`, `gesture` keys
+- `segments` are per-sentence dicts with `text`, `emotion`, `behavior` keys
+  （~~`text`, `tone`, `gesture`~~ —— tone/gesture 已在 V3 迁移中改名）
 - `tool_calls` is a `list[ToolCall]` — structured objects, not raw dicts
 - `messages` is the full conversation history (used by DecisionStep's tool-calling loop)
 - `error` is provider-level error string (empty on success)
@@ -53,15 +55,18 @@
 - `EventType.TOOL_FINISHED` — tool execution complete
 - `EventType.SESSION_RESUMED` — session recovery
 
-**Consumers**: `CompanionRuntime.dispatch()`, `RuntimeWebSocketHandler`, Pipeline Steps
+**Consumers**: `CharacterRuntime.dispatch()`, `RuntimeWebSocketHandler`, Pipeline Steps
 
 ---
 
-## 4. `Context` — STABLE
+## 4. `CharacterTurn` — STABLE
 
-**File**: `app/runtime/context.py`
+**File**: `app/runtime/character_turn.py`
 **Type**: `@dataclass`
-**Fields**: `event`, `state`, `user_text`, `reply_text`, `segments`, `emotion`, `emotion_intensity`, `audio`, `error`, `status_message`, `status_callback`
+**Fields**: `event`, `state`, `user_text`, `reply_text`, `segments`, `emotion`, `emotion_intensity`, `audio`, `error`, `status_message`, `status_callback`（2026-09-05 增补：双情绪 `leak` 字段随 PerformancePlan 透传）
+
+**修订注（2026-09-06）**：流水线载体现为 `CharacterTurn`（旧文档写的
+`app/runtime/context.py` 已不存在；字段集合与原 `Context` 一致）。
 
 **Stabilization history**:
 - Canonical pipeline data carrier — every Step reads/writes this
@@ -72,7 +77,7 @@
 - `status_message`: human-readable progress string set during pipeline execution
 - `status_callback`: optional async callable for streaming status updates (e.g., tool call progress)
 
-**Consumers**: All 8 Pipeline Steps, `RuntimeWebSocketHandler`, `CompanionRuntime.dispatch()`
+**Consumers**: All 8 Pipeline Steps, `RuntimeWebSocketHandler`, `CharacterRuntime.dispatch()`
 
 ---
 
@@ -80,14 +85,14 @@
 
 **File**: `app/domain/character/character.py`
 **Type**: class (aggregate root)
-**Fields**: `id`, `persona`, `emotion`, `relationship`, `mood`, `goals`, `preferences`, `raw_card`
+**Fields**: `id`, `persona`, `emotion`, `relationship`, `mood`, `goals`, `preferences`, `raw_card`（另有 recent_focus / recent_changes / last_interaction / last_interaction_at / interaction_count 等运行时状态字段）
 
 **Sub-models**:
 
 | Model | File | Purpose |
 |-------|------|---------|
 | `Persona` | `app/domain/character/persona.py` | Character card accessors (name, setting, tone_words, sprites, TTS refs) |
-| `EmotionState` | `app/domain/character/emotion.py` | 31+ valid emotions (10 core + 21 Monika-specific) with intensity tracking |
+| `EmotionState` | `app/domain/character/emotion.py` | 49 valid emotions (10 core + 31 character-specific + 8 dual-emotion/状态补词) with intensity tracking |
 | `RelationshipTracker` | `app/domain/character/relationship.py` | Affinity tracking |
 | `MoodTrend` | `app/domain/character/mood.py` | Mood trend analysis |
 | `GoalTracker` | `app/domain/character/goal.py` | Character goals |
@@ -111,7 +116,7 @@
 | `turn_count` | Total turns counter |
 | `last_turn` | Most recent Turn or None |
 
-**Consumers**: `CompanionRuntime` (injects into context), `DefaultPlanner`/`PromptStrategy` (reads history), `DecisionStep` (adds turns)
+**Consumers**: `CharacterRuntime` (injects into context), `DefaultPlanner`/`PromptStrategy` (reads history), `DecisionStep` (adds turns)
 
 ---
 
@@ -120,12 +125,13 @@
 **File**: `app/domain/character/emotion.py`
 **Type**: class
 
-**Valid emotions** (31+, expanded from 10 core):
+**Valid emotions** (49; 2026-09-05 增补 calm/love/cry/pout/dizzy/sleepy/crying/blushing——pout 有独立 Live2D 表情):
 `neutral`, `happy`, `sad`, `angry`, `surprised`, `worried`, `shy`, `gentle`, `serious`, `jealous`,
 `playful`, `explaining`, `smile`, `cheerful`, `cold`, `stern`, `emphasizing`, `happy_closed`,
 `laughing`, `awkward_smile`, `awkward`, `nervous`, `shocked`, `sigh`, `giving_up`, `warm_smile`,
 `friendly`, `curious`, `cold_stare`, `meek`, `soft_smile`, `blank`, `thinking`, `lightly_surprised`,
-`confused`, `blissful`, `joyful`, `awkward_grin`, `embarrassed`, `startled`, `panicked`
+`confused`, `blissful`, `joyful`, `awkward_grin`, `embarrassed`, `startled`, `panicked`,
+`calm`, `love`, `cry`, `pout`, `dizzy`, `sleepy`, `crying`, `blushing`
 
 | Method | Purpose |
 |--------|---------|
@@ -164,7 +170,7 @@
 | `LLMResponse` | `app/interfaces/llm.py` | dataclass | ✅ Stable | DecisionStep, bridge |
 | `ToolCall` | `app/interfaces/llm.py` | dataclass | ✅ Stable | DecisionStep |
 | `Event` | `app/runtime/event.py` | dataclass | ✅ Stable | Runtime.dispatch, bridge |
-| `Context` | `app/runtime/context.py` | dataclass | ✅ Stable | All Steps, bridge |
+| `Context` | `app/runtime/character_turn.py` | dataclass | ✅ Stable | All Steps, bridge |
 | `Character` | `app/domain/character/character.py` | aggregate | ✅ Stable | Steps, Planner |
 | `Conversation` | `app/domain/conversation/conversation.py` | class | ✅ Stable | Runtime, Steps, Planner |
 | `EmotionState` | `app/domain/character/emotion.py` | class | ✅ Stable | CharacterStep, EmotionStep |

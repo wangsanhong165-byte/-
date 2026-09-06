@@ -10,6 +10,8 @@
 > - §P0"表情过渡 360→220ms"已回退 360ms——vividness-report §2 判定原值已匹配视频带（300-600ms）。
 > - 保留项：motionProbability 改革、speaking 期视线节律（strengthCurrent 平滑版）、fractions 抖动、idle 间隔 4.5-9s、眨眼联动、formal/somber 调制、contextTags 受控词表（b33d580）。
 > - 新增（计划外）：活动切换 handoff 窗口——approachPose 回落速率 3.8→1.7/s 持续 1.2s，修复"发送→思考态瞬间回正"（提交 d82ddc3，基线见 live2d-tuning-plan.md）。
+>
+> **📋 落地状态总账（2026-09-06 复核）**：已落地——motionProbability 改革（speak→1，其余 min(0.9, 0.55+intensity×0.35)）、speaking 视线节律（strengthScale 0.35）、fractions 抖动 ±0.07 与长句补拍、眨眼联动（blinkRate modifier 已有消费方）、符号眼提示词、formal/somber 调制、思考视线（activity-entries.enterThinking）、quiet-floor。撤回——振幅 +30%、表情 220ms。被取代——idle 间隔已从 4.5-9s 再调为 6.5-13s（2026-09-05 重设计，头活跃度转移至 speech micro 层与 attention episodes）。计划外新增——待机长睡（150/240s）、残留染色端到端、双情绪泄露弧。细节见 performance-recipes-sop.md。
 
 ---
 

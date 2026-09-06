@@ -100,7 +100,7 @@ export class SpeechPerformanceController {
     // only picked when the voice energy is rising (a prosodic beat), with a
     // grace re-pick if silence stretches. Random head motion uncorrelated
     // with speech reads as baffling twitching; accent-locked motion reads as
-    // the head punctuating the sentence. The 0.03 threshold sits just above
+    // the head punctuating the sentence. The 0.04 threshold sits just above
     // lip-sync noise on a held vowel so ordinary drift alone cannot re-pose
     // the head, but a genuine onset (any syllable attack) fires instantly.
     const levelRise = Math.max(0, level - this.previousAudioLevel)

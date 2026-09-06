@@ -1,6 +1,8 @@
 # Live2D 生动度微调 — 实施计划（Phase A/B/C）
 
-> **状态：已全部实施并合入（2026-08-28，commit d0d0f79 / 9dda27c / 32dfbb4 + 验收脚本 ecb78ee + 人工反馈三连修 9ae40f8）。本文数值即当前代码行为，作为调参基线保留。** 验收脚本见 [acceptance-motion-curve.ps1](acceptance-motion-curve.ps1)。
+> **状态：已全部实施并合入（2026-08-28，commit d0d0f79 / 9dda27c / 32dfbb4 + 验收脚本 ecb78ee + 人工反馈三连修 9ae40f8）。**
+> **⚠️ 勘误（2026-09-06）：本文数值是 2026-08-28 基线快照，不再是当前代码行为。** 2026-09-04 灵巧度调参包与 2026-09-05 retiering/三柱重设计已覆盖其大部（详见
+> [performance-recipes-sop.md](performance-recipes-sop.md) §6）：A1 bodyY 改竖直优先非对称区间 `[-0.15, 1.5]`、A2 动作集重设计（gentle-lean 删除→look-around，本地池 10+桥接 2=12）、A3 换弹簧-阻尼微漂（0.48-0.58Hz/阻尼 0.85）+ head.x 4.2 档位、A4 微正弦现值 0.7/0.55/0.6/0.3/0.18 ×microMotionGain、C1 speaking 态 energyGain 有 0.75 下限且新增深躯干轴 body.y2/z2。调参请以 SOP 与代码为准，本文仅作历史基线保留。验收脚本见 [acceptance-motion-curve.ps1](acceptance-motion-curve.ps1)。
 >
 > 分支：`feature/live2d-vividness-tuning`（基于 main @adbc86a）
 > 依据：`.tmp_video/vividness-verification-report.md`（v3 方案）+ MinikoMew 视频观察笔记

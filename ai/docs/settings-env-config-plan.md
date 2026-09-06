@@ -1,14 +1,14 @@
 # Settings 暴露 .env 根本配置 — 方案（已完成，2026-08 实施）
 
-> **状态：已实施**。`app/config_manager/env_store.py`（写回机制）+ `GET/POST /api/config/env`（bridge/server.py:547,554）+ Settings 面板 General tab 接线均已在代码中。本文保留为设计记录。
+> **状态：已实施**。`app/config_manager/env_store.py`（写回机制）+ `GET/POST /api/config/env`（bridge/server.py 的 `/api/config/env` 路由）+ Settings 面板 General tab 接线均已在代码中。本文保留为设计记录（行号会随代码漂移，按路由名检索）。
 
 > 目标:Settings 面板暴露 `config/.env` 的根本配置(LLM API key/base_url/model 等),无需手动编辑文件。
 
 ## 现状
 
-- `config/.env` 持有根本配置:`LLM_ENGINE` / `LLM_BASE_URL` / `LLM_MODEL` / `DEEPSEEK_API_KEY` / `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `LLM_TEMPERATURE` / `LLM_REASONING_EFFORT` / `LLM_TIMEOUT_SECONDS`,以及 ASR/TTS/GSVI 相关
+- `config/.env` 持有根本配置:`LLM_ENGINE` / `LLM_BASE_URL` / `LLM_MODEL` / `DEEPSEEK_API_KEY` / `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `LLM_TEMPERATURE` / `LLM_REASONING_EFFORT` / `LLM_TIMEOUT_SECONDS`,以及 ASR/TTS/GSVI 相关。**2026-09-06 增补**：记忆侧本地小模型变量同住此域——`MEMORY_EMBEDDINGS` 与 `RERANKER_*`（ENABLED / DEVICE / PREWARM / TOPK / MIN_SCORE / MARGIN / RETRIEVAL / RETRIEVAL_K，生效于 app/memory/reranker.py、store.py、prototypes.py）
 - `config_manager/llm.py` 有 LLMConfig schema(engine/deepseek/openai/ollama + base_url/model/api_key/temperature/reasoning_effort/timeout),但**只读**(经 os.environ)
-- 前端 `/api/settings`(bridge/server.py:475,481)存的是**运行时 UI 设置**(data/settings.json),不含 .env 根本配置
+- 前端 `/api/settings`（bridge/server.py 的 `/api/settings` 路由）存的是**运行时 UI 设置**(data/settings.json),不含 .env 根本配置
 - **无写回 .env 的机制**
 
 ## 方案
