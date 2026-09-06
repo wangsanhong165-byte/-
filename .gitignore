@@ -42,4 +42,4 @@ ai/data/memory/memories_backup_*.json
 # Test/session scratch
 .pytest_tmp/
 .zcode/
-config/runtime.local.json.bak-*
+runtime.local.json.bak-*
