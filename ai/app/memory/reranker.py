@@ -69,7 +69,12 @@ def prewarm(background: bool = True, delay_seconds: float = 20.0) -> None:
     if background:
         import threading
 
-        threading.Timer(delay_seconds, _load, name="reranker-prewarm").start()
+        # Timer has no name kwarg (unlike Thread) — passing one raises
+        # TypeError and silently kills the prewarm schedule.
+        timer = threading.Timer(delay_seconds, _load)
+        timer.daemon = True
+        timer.name = "reranker-prewarm"
+        timer.start()
     else:
         _load()
 
@@ -302,7 +307,7 @@ class LocalReranker:
                     [logits[:, self._false_id], logits[:, self._true_id]], dim=1)
                 log_probs = torch.nn.functional.log_softmax(stacked, dim=1)
                 scores.extend(log_probs[:, 1].exp().tolist())
-            if device.startswith("cuda"):
+            if str(device).startswith("cuda"):
                 # The caching allocator keeps PEAK activation blocks reserved
                 # (~2.7GB measured) for the life of this long-lived process —
                 # on the 8GB card that alone pushes the desktop into VRAM
