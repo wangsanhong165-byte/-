@@ -55,7 +55,10 @@ class ScreenWatcher:
 
     @property
     def enabled(self) -> bool:
-        return os.environ.get("SCREEN_ENABLED", "0") == "1"
+        # Hard privacy kill-switch, read per call. Default ON so the settings
+        # UI's 启用屏幕感知 toggle is the operative control; SCREEN_ENABLED=0
+        # (or false/no) disables the watcher regardless of any setting.
+        return os.environ.get("SCREEN_ENABLED", "1") not in {"0", "false", "no"}
 
     def start(self) -> None:
         if self._running or not self.enabled:

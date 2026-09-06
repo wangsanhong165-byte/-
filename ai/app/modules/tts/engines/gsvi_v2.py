@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import requests
+import yaml
 
 from app.config_manager.service_config import service_config
 from app.modules.tts.base import BaseTTS
@@ -49,6 +50,42 @@ _GSVI_DIR = _AI_DIR / "models" / "tts" / "GPT-SoVITS-v2pro-20250604-nvidia50"
 # ---- weight cache (class-level, shared across instances) ----
 _last_gpt_weights: str = ""
 _last_sovits_weights: str = ""
+_startup_weights_cache: dict[str, str] | None = None
+
+
+def _normalize_weight_path(path: str) -> str:
+    """Canonical form for same-file comparison on Windows (case/slash agnostic)."""
+    import os.path
+
+    return os.path.normcase(os.path.normpath(path))
+
+
+def _gsvi_startup_weights() -> dict[str, str]:
+    """Weights GSVI already loaded from its tts_infer.yaml at process start.
+
+    GSVI loads the voice pack named in the `custom` section as it boots; the
+    TTS service pushing the same files back via set_*_weights makes the engine
+    reload them for nothing — doubling startup time and spiking commit memory
+    (the pressure that starved ASR's preload). Seeding the client cache with
+    these paths lets identical voice packs skip the push. Returns
+    {"gpt": path, "sovits": path} with "" for unknown entries.
+    """
+    global _startup_weights_cache
+    if _startup_weights_cache is None:
+        weights = {"gpt": "", "sovits": ""}
+        try:
+            config_path = _GSVI_DIR / "GPT_SoVITS" / "configs" / "tts_infer.yaml"
+            if config_path.exists():
+                with open(config_path, encoding="utf-8") as handle:
+                    custom = (yaml.safe_load(handle) or {}).get("custom") or {}
+                if custom.get("t2s_weights_path"):
+                    weights["gpt"] = _normalize_weight_path(str(custom["t2s_weights_path"]))
+                if custom.get("vits_weights_path"):
+                    weights["sovits"] = _normalize_weight_path(str(custom["vits_weights_path"]))
+        except Exception as exc:
+            print(f"[GSVI-v2pro] could not read GSVI startup weights ({exc}); pushing on demand")
+        _startup_weights_cache = weights
+    return _startup_weights_cache
 
 
 def _infer_text_lang(text: str) -> str:
@@ -74,6 +111,16 @@ def _map_lang(raw: str, mapping: dict[str, str]) -> str:
 def _set_model_weights(base: str, gpt_path: str, sovits_path: str) -> None:
     """Set model weights, cached: skips if same weights already loaded."""
     global _last_gpt_weights, _last_sovits_weights
+
+    # First push of this TTS process: the engine may already run exactly these
+    # weights from its own startup config — skip the reload entirely.
+    startup = _gsvi_startup_weights()
+    if gpt_path and not _last_gpt_weights and _normalize_weight_path(gpt_path) == startup.get("gpt"):
+        _last_gpt_weights = gpt_path
+        print(f"[GSVI-v2pro] weights already loaded at GSVI startup, skipping set_gpt_weights: {gpt_path}")
+    if sovits_path and not _last_sovits_weights and _normalize_weight_path(sovits_path) == startup.get("sovits"):
+        _last_sovits_weights = sovits_path
+        print(f"[GSVI-v2pro] weights already loaded at GSVI startup, skipping set_sovits_weights: {sovits_path}")
 
     if gpt_path and gpt_path != _last_gpt_weights:
         try:

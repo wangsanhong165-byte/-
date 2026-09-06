@@ -11,8 +11,13 @@ def test_asr_startup_loads_the_model_not_only_the_adapter():
     engine = (ROOT / "app/modules/asr/engines/qwen.py").read_text(encoding="utf-8")
 
     assert "def preload(" in engine
-    assert "_engine.preload()" in api
-    assert '_engine_ready = True' in api
+    # 2026-09-05: startup preload runs through the backoff retry wrapper so a
+    # transient commit-memory failure cannot leave the voice stack isolated.
+    assert "_preload_with_retries(" in api
+    assert "engine.preload()" in api
+    # The ready flag is derived from the loader result, not hardcoded True —
+    # a failed preload must leave /health reporting not-ready.
+    assert "_engine_ready = _engine is not None" in api
 
 
 def test_asr_model_load_uses_the_low_memory_safetensors_path():

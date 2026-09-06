@@ -9,7 +9,16 @@ import sys
 import io
 import json
 
-_SCREEN_ENABLED = os.environ.get("SCREEN_ENABLED", "1") not in {"0", "false", "no"}
+def _screen_enabled() -> bool:
+    """Read per call so toggling SCREEN_ENABLED applies without a restart."""
+    return os.environ.get("SCREEN_ENABLED", "1") not in {"0", "false", "no"}
+
+
+def _vision_master_enabled() -> bool:
+    """The screen_capture tool is a visual entry path: with the vision master
+    toggle off it must not capture (the captured frame could never be sent,
+    and the injection would just fail the turn)."""
+    return os.environ.get("LLM_ENABLE_VISION", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def screen_capture(region: str = "full") -> str:
@@ -18,8 +27,13 @@ def screen_capture(region: str = "full") -> str:
     Args:
         region: "full" for entire screen or "active" for active window.
     """
-    if not _SCREEN_ENABLED:
+    if not _screen_enabled():
         return '{"error": "screen capture disabled (set SCREEN_ENABLED=1)"}'
+    if not _vision_master_enabled():
+        return json.dumps({
+            "type": "screenshot_error",
+            "error": "vision input disabled in settings (LLM_ENABLE_VISION)",
+        })
     try:
         from PIL import ImageGrab
 

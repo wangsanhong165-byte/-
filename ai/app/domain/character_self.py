@@ -74,7 +74,7 @@ class CharacterSelf:
             emotion = "neutral"
         if hasattr(self.character, "emotion") and hasattr(self.character, "mood"):
             self.character.emotion.current = emotion
-            self.character.emotion._intensity = max(0.0, min(1.0, float(intensity)))
+            self.character.emotion.set_intensity(intensity)
             self.character.mood.shift_from_emotion(emotion)
             self.sync_from_character()
             return
@@ -89,8 +89,10 @@ class CharacterSelf:
         }
         previous = dict(state.get("mood", {}))
         trend = MoodTrend(str(previous.get("current", "neutral")))
-        trend._valence = float(previous.get("valence", 0.0))
-        trend._history = list(previous.get("history", []))[-20:]
+        trend.restore(
+            valence=float(previous.get("valence", 0.0)),
+            history=list(previous.get("history", []))[-20:],
+        )
         trend.shift_from_emotion(emotion)
         state["mood"] = trend.to_dict()
         self.commit(CharacterSelfChange(state=state))

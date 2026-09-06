@@ -95,13 +95,15 @@ class Character:
         self.goals._completed = [make_goal(raw) for raw in goals.get("completed", [])]
 
         mood = state.get("mood", {})
-        self.mood._current = str(mood.get("current", "neutral"))
-        self.mood._valence = float(mood.get("valence", 0))
-        self.mood._history = list(mood.get("history", []))[-20:]
+        self.mood.restore(
+            valence=float(mood.get("valence", 0)),
+            history=list(mood.get("history", []))[-20:],
+            current=str(mood.get("current", "")) or None,
+        )
 
         emotion = state.get("emotion", {})
         self.emotion.current = str(emotion.get("current", "neutral"))
-        self.emotion._intensity = float(emotion.get("intensity", 0.5))
+        self.emotion.set_intensity(float(emotion.get("intensity", 0.5)))
 
         self._recent_focus = [str(item) for item in state.get("recent_focus", []) if str(item).strip()][:6]
         self._recent_changes = [str(item) for item in state.get("recent_changes", []) if str(item).strip()][:6]

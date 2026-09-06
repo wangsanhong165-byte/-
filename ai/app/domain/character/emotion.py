@@ -31,6 +31,13 @@ class EmotionState:
     def intensity(self) -> float:
         return self._intensity
 
+    def set_intensity(self, value: float) -> None:
+        """Clamped public setter — the single sanctioned write path for the
+        intensity that to_dict() exposes. Callers poking _intensity directly
+        (commit_emotion, EmotionStep) bypass the clamp and break silently on
+        any rename."""
+        self._intensity = max(0.0, min(1.0, float(value)))
+
     def to_dict(self) -> dict:
         return {
             "current": self.current,

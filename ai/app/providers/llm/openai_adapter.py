@@ -21,6 +21,7 @@ from app.models.http_adapters import OpenAILLMAdapter
 # stay far below it and are unaffected.
 _DEFAULT_MAX_TOKENS = 8192
 _STRUCTURED_OUTPUT_KEYS = frozenset({"segments", "final_reply", "tool_calls"})
+_VISION_DISABLED_NOTE = "[image not sent: vision input is disabled in settings]"
 _PROTOCOL_OBJECT_START = re.compile(
     r'\{\s*"(?:segments|final_reply|tool_calls)"\s*:',
     re.IGNORECASE,
@@ -116,9 +117,31 @@ class OpenAILLMProvider(LLMInterface):
         # Resolve the ACTIVE provider profile and pass its values explicitly so
         # the adapter never guesses across providers (each provider carries its
         # own api_key/base_url/model atomically).
+        #
+        # Explicit ctor overrides pin the route (legacy/tests); without them the
+        # provider re-resolves the ACTIVE profile each turn (_refresh_active_route)
+        # so settings-side key/model switches apply without a restart.
+        self._pinned_route = bool(api_key or base_url or model)
+        self._apply_provider_config(
+            self._resolve_active_config(),
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+        )
+
+    @staticmethod
+    def _resolve_active_config() -> dict[str, Any]:
         from app.config_manager.llm_providers import resolve_active_llm_config
 
-        cfg = resolve_active_llm_config()
+        return resolve_active_llm_config()
+
+    def _apply_provider_config(
+        self,
+        cfg: dict[str, Any],
+        api_key: str | None = None,
+        base_url: str | None = None,
+        model: str | None = None,
+    ) -> None:
         temperature = cfg.get("temperature")
         self._temperature = float(temperature) if temperature is not None else 0.3
         self._reasoning_effort = cfg.get("reasoning_effort")
@@ -132,6 +155,20 @@ class OpenAILLMProvider(LLMInterface):
             engine=cfg.get("engine"),
             timeout=cfg.get("timeout"),
         )
+        self._resolved_cfg = cfg
+
+    def _refresh_active_route(self) -> None:
+        """Rebuild the adapter when the ACTIVE provider profile changed since
+        the last turn (the settings UI saves through the shared in-process
+        store), so key/model switches apply without a restart. In-flight calls
+        keep their old adapter reference; explicitly pinned routes stay
+        immutable, and an unchanged config keeps the current adapter."""
+        if getattr(self, "_pinned_route", True):
+            return
+        cfg = self._resolve_active_config()
+        if cfg == getattr(self, "_resolved_cfg", None):
+            return
+        self._apply_provider_config(cfg)
 
     @property
     def model(self) -> str:
@@ -149,6 +186,34 @@ class OpenAILLMProvider(LLMInterface):
             "visualPolicy": self._adapter.visual_policy,
         }
 
+    @staticmethod
+    def _strip_images_when_disabled(messages: list, vision_enabled: bool) -> list:
+        """Drop image blocks when the vision master toggle is off so the turn
+        degrades to text-only instead of failing — the settings copy promises
+        images are "not sent", never that the turn errors. Covers all three
+        visual entry paths (user attachments, initiative frames, the
+        screen_capture tool result) at one choke point; the adapter-side
+        validate_visual_request stays as the backstop."""
+        if vision_enabled:
+            return messages
+        clean: list = []
+        for message in messages:
+            content = message.get("content") if isinstance(message, dict) else None
+            if not isinstance(content, list) or not any(
+                isinstance(block, dict) and block.get("type") == "image_url"
+                for block in content
+            ):
+                clean.append(message)
+                continue
+            kept = [
+                block for block in content
+                if not (isinstance(block, dict) and block.get("type") == "image_url")
+            ]
+            if not kept:
+                kept = [{"type": "text", "text": _VISION_DISABLED_NOTE}]
+            clean.append({**message, "content": kept})
+        return clean
+
     async def generate(
         self,
         messages: list,
@@ -162,9 +227,13 @@ class OpenAILLMProvider(LLMInterface):
 
         The output budget is an explicit, relaxed ceiling by default (override
         with LLM_MAX_TOKENS) so reasoning models have room to finish the reply
-        after their hidden chain. LLM_REASONING_EFFORT optionally trims that
-        chain ("low") when truncation still happens.
+          after their hidden chain. LLM_REASONING_EFFORT optionally trims that
+          chain ("low") when truncation still happens.
         """
+        self._refresh_active_route()
+        messages = self._strip_images_when_disabled(
+            list(messages), bool(getattr(self._adapter, "vision_enabled", True))
+        )
         max_tokens = kwargs.get("max_tokens")
         if max_tokens is None:
             # Per-provider value wins; fall back to env (also handles providers
@@ -283,6 +352,10 @@ class OpenAILLMProvider(LLMInterface):
         **kwargs,
     ) -> AsyncIterator[str]:
         """Stream tokens from the LLM via the sync adapter's generator."""
+        self._refresh_active_route()
+        messages = self._strip_images_when_disabled(
+            list(messages), bool(getattr(self._adapter, "vision_enabled", True))
+        )
         gen = self._adapter.generate_stream(
             messages,
             temperature=kwargs.get("temperature", 0.3),

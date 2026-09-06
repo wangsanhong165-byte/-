@@ -343,6 +343,7 @@ def test_screen_capture_returns_ephemeral_reference_without_base64(tmp_path, mon
 
     monkeypatch.setenv("SOULLINK_VISUAL_ATTACHMENT_DIR", str(tmp_path))
     monkeypatch.setattr(ImageGrab, "grab", lambda *args, **kwargs: Image.new("RGB", (8, 6), (1, 2, 3)))
+    monkeypatch.setenv("LLM_ENABLE_VISION", "1")  # the tool is gated by the vision master toggle
     from app.legacy.tools.builtins.screen import screen_capture
 
     payload = json.loads(screen_capture())

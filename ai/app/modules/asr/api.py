@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import os
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -31,19 +32,48 @@ _engine_ready = False
 _engine_error = ""
 
 
+# Transient commit-memory pressure (Windows os error 1455, "page file too
+# small") rejects large allocations while sibling services are still loading.
+# Retry on a backoff so a temporary spike cannot leave ASR isolated until the
+# next app restart. Delays + three load attempts stay inside the 120s
+# readiness window configured in services.json.
+_PRELOAD_RETRY_DELAYS: tuple[float, ...] = (5.0, 20.0, 45.0)
+
+
+def _preload_with_retries(create_engine, delays, sleep=time.sleep):
+    """Create and preload the engine, retrying transient failures.
+
+    4 attempts (initial + one per backoff delay): the model load can
+    transiently fail on Windows commit-memory pressure right after boot
+    while the other services are still claiming their allocations.
+    Returns (engine, error); error is empty on success.
+    """
+    error = ""
+    for attempt, delay in enumerate((0.0, *delays), start=1):
+        if delay:
+            print(f"[ASR] Retrying engine preload in {delay:.0f}s (attempt {attempt})")
+            sleep(delay)
+        try:
+            print(f"[ASR] Preloading {DEFAULT_ASR_ENGINE} engine (attempt {attempt})...")
+            engine = create_engine()
+            engine.preload()
+            print("[ASR] Engine ready")
+            return engine, ""
+        except Exception as exc:
+            error = f"attempt {attempt}: {exc}"
+            print(f"[ASR] Engine preload failed ({error})")
+    return None, error
+
+
 @app.on_event("startup")
 async def _preload_engine():
     """Preload the ASR model at startup so it's ready for the first request."""
     global _engine, _engine_ready, _engine_error
-    try:
-        print(f"[ASR] Preloading {DEFAULT_ASR_ENGINE} engine...")
-        _engine = ASRFactory.create(config=get_asr_config())
-        _engine.preload()
-        _engine_ready = True
-        print("[ASR] Engine ready")
-    except Exception as exc:
-        _engine_error = str(exc)
-        print(f"[ASR] Engine preload failed: {exc}")
+    _engine, _engine_error = _preload_with_retries(
+        lambda: ASRFactory.create(config=get_asr_config()),
+        _PRELOAD_RETRY_DELAYS,
+    )
+    _engine_ready = _engine is not None
 
 
 # ================================================================

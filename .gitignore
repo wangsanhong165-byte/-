@@ -36,3 +36,9 @@ ai/recordings/
 
 
 recordings/
+ai/data/memory/*.vectors.json
+ai/data/memory/memories_backup_*.json
+
+# Test/session scratch
+.pytest_tmp/
+.zcode/
