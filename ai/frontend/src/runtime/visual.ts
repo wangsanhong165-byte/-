@@ -17,6 +17,10 @@ export type VisualPolicy = {
   cameraSampleIntervalMs?: number
   cameraMaxFrames?: number
   screenChatMaxAgeSeconds?: number
+  /** Hot state of the 启用视觉输入 master toggle (backend env). */
+  visionEnabled?: boolean
+  /** visualError code of the latest actual vision-bearing turn, if it failed. */
+  lastVisionError?: string | null
 }
 
 export const DEFAULT_VISUAL_POLICY: VisualPolicy = {

@@ -6,6 +6,9 @@ import type { MotionPlan } from './MotionAction'
 export interface CharacterIntent {
   turnId?: string
   emotion?: string
+  /** 2026-09-05 dual-emotion: the true feeling leaking under the surface
+   *  emotion (口是心非). Same vocabulary; omit when feelings are sincere. */
+  leak?: string
   behavior?: string
   intensity?: number
   activity?: string
@@ -40,6 +43,8 @@ export interface CharacterBehaviorConfig {
 export interface CharacterPresentationPlan {
   expression: string
   expressionIntensity: number
+  /** True feeling showing through mid-segment (口是心非), when present. */
+  leakExpression?: string
   motion?: string
   motionIntensity: number
   suppressIdle: boolean

@@ -8,6 +8,8 @@ export interface RuntimeCharacterIntent {
   turnId: string
   emotion: string
   behavior: string
+  /** 2026-09-05 dual-emotion: true feeling leaking under the surface emotion. */
+  leak?: string
   attention: string
   energy: number
   intensity: number
@@ -112,6 +114,7 @@ export interface EventMap {
   'audio:volume': { volume: number }
   'audio:start': { turnId: string; sequence: number; durationMs: number }
   'audio:end': { turnId: string }
+  'audio:turn-stale': { turnId: string }
   'audio:diagnostic.request': { requestId: string }
   'audio:diagnostic.result': {
     requestId: string

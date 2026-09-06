@@ -264,3 +264,62 @@ test('preemption preserves the currently faded-in strength instead of jumping to
 
   assert.ok(Math.abs(before.value * (before.weight ?? 1) - released.value * (released.weight ?? 1)) < 0.0001)
 })
+
+// --- Mirror alternation -------------------------------------------------------
+// Directional presets must alternate left/right across plays (the "always
+// leans right" fix). The sign of yaw/roll axes flips while pitch is kept.
+
+test('logical plays alternate a left/right mirror: yaw/roll flip, pitch kept', () => {
+  const directional: MotionPreset = {
+    name: 'directional',
+    duration: 400,
+    keyframes: [
+      { time: 0, parameter: 'head.x', value: 0 },
+      { time: 200, parameter: 'head.x', value: 5 },
+      { time: 400, parameter: 'head.x', value: 0 },
+      { time: 0, parameter: 'head.z', value: 0 },
+      { time: 200, parameter: 'head.z', value: 3 },
+      { time: 400, parameter: 'head.z', value: 0 },
+      { time: 0, parameter: 'head.y', value: 0 },
+      { time: 200, parameter: 'head.y', value: -2 },
+      { time: 400, parameter: 'head.y', value: 0 },
+    ],
+  }
+  let now = 0
+  const arbiter = new MotionArbiter(() => now)
+  arbiter.setPresets({ directional })
+
+  const peak = (): { x: number; z: number; y: number } => {
+    now += 200
+    const contributions = arbiter.update(0)
+    const find = (parameter: string) =>
+      contributions.find(item => item.logicalParameter === parameter)?.value ?? 0
+    return { x: find('head.x'), z: find('head.z'), y: find('head.y') }
+  }
+
+  // Three consecutive plays (distinct owners so each gets its own slot):
+  // play #1 unmirrored, #2 mirrored, #3 unmirrored again. Between plays the
+  // clock advances past duration+recovery so the previous motion is gone
+  // before the next request (otherwise update() cancels the expired entry
+  // mid-frame and the "contribution" read is from an already-dead play).
+  arbiter.request({ name: 'directional', owner: 'a', source: 'ai', priority: 50 })
+  const first = peak()
+  now += 1000 // past 400ms duration + 600ms recovery ceiling
+  arbiter.update(0)
+
+  arbiter.request({ name: 'directional', owner: 'b', source: 'ai', priority: 50 })
+  const second = peak()
+  now += 1000
+  arbiter.update(0)
+
+  arbiter.request({ name: 'directional', owner: 'c', source: 'ai', priority: 50 })
+  const third = peak()
+
+  assert.ok(first.x > 0 && second.x < 0 && third.x > 0,
+    `yaw must alternate: ${first.x} / ${second.x} / ${third.x}`)
+  assert.ok(first.z > 0 && second.z < 0 && third.z > 0,
+    `roll must alternate: ${first.z} / ${second.z} / ${third.z}`)
+  // Pitch (head.y) is the same gesture both ways — it must NOT flip.
+  assert.ok(Math.abs(first.y - second.y) < 0.0001,
+    `pitch must be kept, not mirrored: ${first.y} vs ${second.y}`)
+})

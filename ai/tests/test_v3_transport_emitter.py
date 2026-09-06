@@ -191,5 +191,6 @@ def test_character_intent_emission_never_fails_on_a_partially_invalid_segment_pl
     intent = next(event for event in events if event.event_type == "character.intent")
 
     assert len(intent.payload.segments) == 1
-    assert intent.payload.segments[0].motion_plan.steps[0].primitive == "nod"
-    assert len(intent.payload.segments[0].motion_plan.steps) == 1
+    # 2026-09-05 slimming: segment motion plans (even sanitized-safe ones) are
+    # dropped — the local director owns beat scheduling.
+    assert intent.payload.segments[0].motion_plan is None

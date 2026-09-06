@@ -174,6 +174,7 @@ class MotionPlanPayload(PayloadModel):
 class CharacterIntentSegmentPayload(PayloadModel):
     text: str | None = None
     emotion: str | None = None
+    leak: str | None = None
     behavior: str | None = None
     intensity: float | None = Field(default=None, ge=0, le=1)
     attention: Literal["user", "screen", "away", "neutral"] | None = None
@@ -186,6 +187,7 @@ class CharacterIntentSegmentPayload(PayloadModel):
 
 class CharacterIntentPayload(PayloadModel):
     emotion: str
+    leak: str | None = None
     behavior: str
     intensity: float = Field(default=0.5, ge=0, le=1)
     attention: Literal["user", "screen", "away", "neutral"] = "user"

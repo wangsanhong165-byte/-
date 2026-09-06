@@ -70,6 +70,11 @@ export class PerformanceCoordinator {
     this.ambient.setLegacy(enabled)
   }
 
+  /** Forward the idle-phrase bridge to the ambient engine. */
+  setPhraseRequest(request: ((presetName: string) => boolean) | null): void {
+    this.ambient.setPhraseRequest(request)
+  }
+
   reset(): void {
     this.ambient.reset()
     this.autonomous.reset()
@@ -114,6 +119,14 @@ export class PerformanceCoordinator {
         )
       : supportedTracking
 
+    // F1 fix: the sleep gate must read USER-driven attention (mouse,
+    // interaction, explicit attention) — the autonomous gaze layer is her own
+    // life and used to keep resetting the drowsiness clock forever.
+    const userDrivenFocus = {
+      head: Math.max(trackingEngagement, input.explicitAttention.channelWeights?.head ?? input.explicitAttention.weight),
+      gaze: Math.max(trackingEngagement, input.explicitAttention.channelWeights?.gaze ?? input.explicitAttention.weight),
+      body: trackingEngagement,
+    }
     const ambient = this.ambient.update(dt, {
       emotion: input.emotion,
       vad: input.vad,
@@ -126,6 +139,7 @@ export class PerformanceCoordinator {
         gaze: Math.max(trackingEngagement, gazeWeight),
         body: trackingEngagement,
       },
+      userDrivenFocus,
       gain: input.gain,
     })
     return {

@@ -91,6 +91,9 @@ class PerformancePlan:
     natural_vad: dict[str, float] | None = None
     context_tags: list[str] = field(default_factory=list)
     motion_plan: dict[str, Any] | None = None
+    # 2026-09-05 dual-emotion: true feeling leaking under the surface emotion
+    # (口是心非). None when the feeling is sincere.
+    leak: str | None = None
 
 
 @dataclass
@@ -236,6 +239,7 @@ class CharacterTurn:
             "natural_vad": dict(plan.natural_vad) if plan.natural_vad else None,
             "context_tags": list(plan.context_tags),
             "motion_plan": plan.motion_plan,
+            "leak": plan.leak,
         }
 
     @live2d_intent.setter
@@ -257,6 +261,8 @@ class CharacterTurn:
         plan.motion_plan = CharacterIntent._motion_plan(
             value.get("motion_plan", value.get("motionPlan"))
         )
+        raw_leak = str(value.get("leak", "") or "").lower()
+        plan.leak = raw_leak or None
 
     def transition_to(self, phase: TurnPhase) -> None:
         if self.phase in {TurnPhase.COMPLETED, TurnPhase.FAILED, TurnPhase.CANCELLED}:

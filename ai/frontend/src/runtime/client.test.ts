@@ -19,6 +19,54 @@ function envelope(overrides: Partial<RuntimeEvent> = {}): RuntimeEvent {
   } as RuntimeEvent
 }
 
+type SentFrame = { eventType: string; turnId: string | null }
+
+class FakeSocket {
+  static OPEN = 1
+  readyState = FakeSocket.OPEN
+  sent: string[] = []
+  onopen: (() => void) | null = null
+  onclose: (() => void) | null = null
+  onmessage: ((event: MessageEvent) => void) | null = null
+
+  constructor(_url: string, sockets: FakeSocket[]) {
+    sockets.push(this)
+  }
+
+  send(raw: string): void {
+    this.sent.push(raw)
+  }
+
+  close(): void {
+    this.readyState = 3
+  }
+}
+
+function installFakeWebSocket(): {
+  sockets: FakeSocket[]
+  framesOf: (client: RuntimeClient) => SentFrame[]
+  restore: () => void
+} {
+  const originalWebSocket = globalThis.WebSocket
+  const sockets: FakeSocket[] = []
+
+  globalThis.WebSocket = class extends FakeSocket {
+    constructor(url: string) {
+      super(url, sockets)
+    }
+  } as unknown as typeof WebSocket
+  return {
+    sockets,
+    framesOf(client) {
+      const ws = (client as unknown as { ws: FakeSocket | null }).ws
+      return (ws?.sent ?? []).map(raw => JSON.parse(raw) as SentFrame)
+    },
+    restore() {
+      globalThis.WebSocket = originalWebSocket
+    },
+  }
+}
+
 test('runtime websocket follows the origin that served the desktop UI', () => {
   assert.equal(
     runtimeWebSocketUrl({ protocol: 'http:', host: '127.0.0.1:19306' }),
@@ -144,4 +192,109 @@ test('client keeps a capped recovery timer after the fast reconnect budget is ex
   assert.notEqual(internal.reconnectTimer, null)
   assert.deepEqual(errors, ['MAX_RECONNECT'])
   client.disconnect()
+})
+
+test('stale_turn rejection clears the live audio binding, suspends capture and notifies', () => {
+  const fake = installFakeWebSocket()
+  try {
+    const staleTurns: string[] = []
+    const client = new RuntimeClient('ws://test', {
+      onEvent: () => {},
+      onAudioTurnStale: turnId => staleTurns.push(turnId),
+    })
+    try {
+      client.connect()
+      fake.sockets[0]?.onopen?.()
+      // After onopen the client owns a fresh sessionId; envelopes must carry it
+      // or handleIncoming bounces them as session_mismatch.
+      const sessionId = (client as unknown as { sessionId: string }).sessionId
+
+      client.sendAudioSamples(new Float32Array(8), 16000)
+      const started = fake.framesOf(client).at(-2)!
+      assert.equal(started.eventType, 'user.audio.started')
+      const oldId = started.turnId as string
+
+      // The runtime must accept one normal event first so the sequence tracker
+      // has a baseline before protocol.error arrives with sequence 2.
+      client.handleIncoming(envelope({ sessionId }))
+      client.handleIncoming(
+        envelope({
+          eventId: 'evt-stale-1',
+          eventType: 'protocol.error',
+          sessionId,
+          turnId: oldId,
+          sequence: 2,
+          payload: {
+            code: 'stale_turn',
+            message: `Event belongs to inactive turn ${oldId}`,
+          },
+        }),
+      )
+
+      assert.deepEqual(staleTurns, [oldId])
+
+      const framesAfterStale = fake.framesOf(client).length
+      client.sendAudioSamples(new Float32Array(8), 16000)
+      client.sendAudioSamples(new Float32Array(8), 16000)
+      assert.equal(fake.framesOf(client).length, framesAfterStale)
+
+      client.sendAudioEnd()
+      const framesAfterEnd = fake.framesOf(client).length
+      client.sendAudioSamples(new Float32Array(8), 16000)
+      const frames = fake.framesOf(client)
+      assert.equal(frames.length, framesAfterEnd + 2)
+      assert.equal(frames.at(-2)!.eventType, 'user.audio.started')
+      assert.notEqual(frames.at(-2)!.turnId, oldId)
+    } finally {
+      client.disconnect()
+    }
+  } finally {
+    fake.restore()
+  }
+})
+
+test('stale_turn for an unrelated turn leaves the live audio session untouched', () => {
+  const fake = installFakeWebSocket()
+  try {
+    const staleTurns: string[] = []
+    const client = new RuntimeClient('ws://test', {
+      onEvent: () => {},
+      onAudioTurnStale: turnId => staleTurns.push(turnId),
+    })
+    try {
+      client.connect()
+      fake.sockets[0]?.onopen?.()
+      const sessionId = (client as unknown as { sessionId: string }).sessionId
+
+      client.sendAudioSamples(new Float32Array(8), 16000)
+      const started = fake.framesOf(client).at(-2)!
+      const oldId = started.turnId as string
+
+      client.handleIncoming(envelope({ sessionId }))
+      client.handleIncoming(
+        envelope({
+          eventId: 'evt-stale-other',
+          eventType: 'protocol.error',
+          sessionId,
+          turnId: 'turn_unrelated-0000',
+          sequence: 2,
+          payload: {
+            code: 'stale_turn',
+            message: 'Event belongs to inactive turn turn_unrelated-0000',
+          },
+        }),
+      )
+
+      assert.deepEqual(staleTurns, [])
+
+      client.sendAudioSamples(new Float32Array(8), 16000)
+      const last = fake.framesOf(client).at(-1)!
+      assert.equal(last.eventType, 'user.audio.chunk')
+      assert.equal(last.turnId, oldId)
+    } finally {
+      client.disconnect()
+    }
+  } finally {
+    fake.restore()
+  }
 })

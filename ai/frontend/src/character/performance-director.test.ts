@@ -363,3 +363,45 @@ test('segments without emotion inherit the previous segment mood (prevExpression
   now += 1_000
   assert.equal(d2.update()[0]?.emotion, 'calm')
 })
+
+test('emotion switches younger than emotionHoldMs keep the previous mood (beats still fire)', () => {
+  let now = 1_000
+  const director = new PerformanceDirector(() => now, { emotionHoldMs: 900 })
+  director.stage({ ...base, emotion: 'pout' }, [
+    { text: 'a', emotion: 'pout', behavior: 'speak', durationMs: 600 },
+    { text: 'b', emotion: 'happy', behavior: 'speak', durationMs: 600 },
+    { text: 'c', emotion: 'happy', behavior: 'speak', durationMs: 800 },
+    { text: 'd', emotion: 'neutral', behavior: 'speak', durationMs: 200 },
+  ])
+
+  director.onAudioStart('turn-1', 600, 0)
+  assert.equal(director.update()[0]?.emotion, 'pout')
+
+  now += 600 // 600ms into the hold — happy is deferred, not lost
+  const held = director.update()[0]
+  assert.equal(held?.emotion, 'pout', 'a 0.6s-old mood must not flip the face yet')
+  assert.ok(held?.motionPlan, 'held cue still carries its co-speech beats')
+
+  now += 600 // 1.2s since the pout switch — happy applies now (deferred switch lands)
+  assert.equal(director.update()[0]?.emotion, 'happy')
+
+  now += 800 // only 0.8s since the happy switch, and the mood is NEUTRAL
+  assert.equal(
+    director.update()[0]?.emotion, 'neutral',
+    'neutral switches are never held — a held angry face during a quiet tail reads stuck',
+  )
+})
+
+test('a new turn opens with its own mood even under emotion hold', () => {
+  let now = 0
+  const director = new PerformanceDirector(() => now, { emotionHoldMs: 5_000 })
+  director.stage({ ...base, emotion: 'angry' })
+  director.onAudioUnavailable('turn-1')
+  now = 300
+  assert.equal(director.update()[0]?.emotion, 'angry')
+
+  director.stage({ ...base, turnId: 'turn-2', emotion: 'happy' })
+  director.onAudioUnavailable('turn-2')
+  now = 900
+  assert.equal(director.update()[0]?.emotion, 'happy', 'turn boundary resets the hold')
+})

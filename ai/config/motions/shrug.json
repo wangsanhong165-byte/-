@@ -3,20 +3,80 @@
   "duration": 900,
   "recoveryMs": 340,
   "keyframes": [
-    {"time": 0, "parameter": "body.y", "value": 0},
-    {"time": 110, "parameter": "body.y", "value": -0.5},
-    {"time": 310, "parameter": "body.y", "value": 4.8},
-    {"time": 560, "parameter": "body.y", "value": 4.4},
-    {"time": 900, "parameter": "body.y", "value": 0},
-    {"time": 0, "parameter": "head.z", "value": 0},
-    {"time": 140, "parameter": "head.z", "value": -1.0},
-    {"time": 330, "parameter": "head.z", "value": 3.1},
-    {"time": 580, "parameter": "head.z", "value": 2.6},
-    {"time": 900, "parameter": "head.z", "value": 0},
-    {"time": 0, "parameter": "head.y", "value": 0},
-    {"time": 150, "parameter": "head.y", "value": 1.0},
-    {"time": 350, "parameter": "head.y", "value": -2.3},
-    {"time": 620, "parameter": "head.y", "value": -1.5},
-    {"time": 900, "parameter": "head.y", "value": 0}
+    {
+      "time": 0,
+      "parameter": "body.y",
+      "value": 0
+    },
+    {
+      "time": 70,
+      "parameter": "body.y",
+      "value": -0.5
+    },
+    {
+      "time": 290,
+      "parameter": "body.y",
+      "value": 4.8
+    },
+    {
+      "time": 480,
+      "parameter": "body.y",
+      "value": 4.4
+    },
+    {
+      "time": 900,
+      "parameter": "body.y",
+      "value": 0
+    },
+    {
+      "time": 0,
+      "parameter": "head.z",
+      "value": 0
+    },
+    {
+      "time": 90,
+      "parameter": "head.z",
+      "value": -1
+    },
+    {
+      "time": 230,
+      "parameter": "head.z",
+      "value": 3.4
+    },
+    {
+      "time": 500,
+      "parameter": "head.z",
+      "value": 2.6
+    },
+    {
+      "time": 900,
+      "parameter": "head.z",
+      "value": 0
+    },
+    {
+      "time": 0,
+      "parameter": "head.y",
+      "value": 0
+    },
+    {
+      "time": 100,
+      "parameter": "head.y",
+      "value": 1
+    },
+    {
+      "time": 240,
+      "parameter": "head.y",
+      "value": -2.3
+    },
+    {
+      "time": 540,
+      "parameter": "head.y",
+      "value": -1.5
+    },
+    {
+      "time": 900,
+      "parameter": "head.y",
+      "value": 0
+    }
   ]
 }

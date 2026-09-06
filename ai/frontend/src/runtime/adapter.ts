@@ -238,6 +238,7 @@ export class RuntimeEventAdapter {
         eventBus.emit('runtime:character.intent', {
           turnId: event.turnId!,
           emotion: event.payload.emotion,
+          leak: event.payload.leak ?? undefined,
           behavior: event.payload.behavior,
           attention: event.payload.attention,
           energy: event.payload.energy,
@@ -333,6 +334,7 @@ export class RuntimeAdapter {
         eventBus.emit('connection:change', { connected })
       },
       onProtocolError: error => eventBus.emit('runtime:error', error),
+      onAudioTurnStale: turnId => eventBus.emit('audio:turn-stale', { turnId }),
     })
     this.broker = new CommandBroker(message =>
       this.client.sendCommand(message.action, message.params, message.requestId))

@@ -60,7 +60,10 @@ def test_response_interpreter_rejects_renderer_details():
     assert "ParamAngleX" not in interpreted.segments[0]
 
 
-def test_response_interpreter_preserves_only_safe_motion_plan():
+def test_response_interpreter_drops_llm_motion_plans():
+    # 2026-09-05 slimming: choreography timing is local business. An LLM
+    # motionPlan must never reach the turn's performance layer — the local
+    # director owns beat scheduling.
     turn = CharacterTurn(input=TurnInput(text="hello"))
     response = LLMResponse(
         reply="Hi",
@@ -81,7 +84,7 @@ def test_response_interpreter_preserves_only_safe_motion_plan():
 
     performance = ResponseInterpreter().interpret(response, turn).performance
 
-    assert performance.motion_plan["steps"][0]["primitive"] == "nod"
+    assert performance.motion_plan is None
 
 
 def test_response_interpreter_selects_dominant_segment_and_keeps_intensity_separate():

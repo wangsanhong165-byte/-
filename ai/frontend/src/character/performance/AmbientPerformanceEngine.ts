@@ -3,12 +3,14 @@ import type {
   CharacterPerformancePersonality,
 } from '../AvatarCapabilityProfile.ts'
 import { IdleBehaviorController, type IdleBehaviorSnapshot } from '../IdleBehaviorController.ts'
+import { getResidueProfile, refreshResidueTint } from './ResidueIdleTint.ts'
 import { facsFromVAD, logicalFaceFromFACS } from './FACSState.ts'
 import { resolveMotionStyle, type MotionStyleOptions, type ResolvedMotionStyle } from './MotionStyle.ts'
 import { SpeechPerformanceController } from './SpeechPerformanceController.ts'
 import type { VADVector } from './VADState.ts'
 import { semanticPostureFromVAD } from './SemanticPosture.ts'
 import { VoiceWaitingMotionController } from './VoiceWaitingMotionController.ts'
+import { emotionPostureAt } from './performance-recipes.ts'
 
 export type AmbientPerformanceChannel = 'head' | 'body' | 'gaze'
 
@@ -21,6 +23,10 @@ export interface AmbientPerformanceInput {
   blockedChannels: ReadonlySet<AmbientPerformanceChannel>
   tracking?: Record<string, number>
   focusWeights?: { head: number; body: number; gaze: number }
+  /** USER-driven attention only (mouse/interaction/explicit) — excludes the
+   *  autonomous gaze layer. Gates long-idle drowsiness: her own glances are
+   *  life, the user's presence is what keeps her awake. */
+  userDrivenFocus?: { head: number; body: number; gaze: number }
   gain?: number
 }
 
@@ -39,30 +45,6 @@ export interface AmbientPerformanceFrame {
  * posture, activity transitions, capability filtering and motion ownership
  * are resolved here so callers submit one coherent pose layer to the mixer.
  */
-/** Sustained per-emotion body language: a held posture, not a gesture.
- *  Ramped in/out slowly, it gives each expression its own readable stance
- *  (pout turns away, shy drops the head, angry leans in) on top of which the
- *  speech rhythm and brief beats play. Amplitudes stay inside the calibrated
- *  Phase-A envelope so the stance reads as mood, not pantomime.
- */
-const EMOTION_BODY_POSES: Readonly<Record<string, Readonly<Record<string, number>>>> = {
-  pout: { 'head.z': -3.0, 'head.y': 1.2, 'body.x': -2.0 },
-  angry: { 'head.y': -2.4, 'body.y': 2.4, 'head.z': -1.2 },
-  shy: { 'head.y': -3.0, 'head.x': -1.6, 'body.x': -1.3 },
-  embarrassed: { 'head.y': -2.6, 'head.x': -1.4, 'body.x': -1.2 },
-  sad: { 'head.y': -2.6, 'body.y': -2.0, 'head.z': 1.6 },
-  crying: { 'head.y': -2.4, 'body.y': -1.8, 'head.z': 1.8 },
-  cry: { 'head.y': -2.4, 'body.y': -1.8, 'head.z': 1.8 },
-  worried: { 'head.y': -1.3, 'head.z': 1.4 },
-  surprised: { 'head.y': 2.0, 'body.y': -1.3 },
-  happy: { 'head.z': 1.3, 'body.x': 0.9, 'head.y': 0.7 },
-  joyful: { 'head.z': 1.7, 'body.x': 1.1, 'head.y': 0.9 },
-  laughing: { 'head.z': 1.9, 'body.y': 1.1 },
-  cheerful: { 'head.z': 1.5, 'body.x': 1.0 },
-  love: { 'head.z': 1.5, 'body.x': 1.3 },
-  sleepy: { 'head.y': -1.7 },
-  smile: { 'head.z': 1.0, 'head.y': 0.5 },
-}
 
 export class AmbientPerformanceEngine {
   private readonly idle = new IdleBehaviorController()
@@ -70,9 +52,16 @@ export class AmbientPerformanceEngine {
   private readonly waiting: VoiceWaitingMotionController
   private style: ResolvedMotionStyle
   private activity = 'idle'
+  /** Residue idle-entry edge: refresh the backend classify_residue tint once
+   *  per idle episode (throttled inside ResidueIdleTint). */
+  private residueWasIdle = false
   private clockSeconds = 0
   private lastSwitchAt = -10
   private emotionPose: Record<string, number> = {}
+  private lastPostureEmotion: string | undefined
+  private postureMirror = true
+  /** Emotion activation clock (seconds): drives phased posture scripts. */
+  private postureSince = 0
   private current: Record<string, number> = {}
   private eyeClose = 0
   private enhanced = true
@@ -107,6 +96,12 @@ export class AmbientPerformanceEngine {
     this.speech.setSpeaking(activity === 'speaking')
   }
 
+  /** Install the idle-phrase bridge: preset phrases (ear_flick, tail_sweep)
+   *  play through the MotionArbiter instead of local keyframes. */
+  setPhraseRequest(request: ((presetName: string) => boolean) | null): void {
+    this.idle.setPhraseRequest(request)
+  }
+
   setLegacy(enabled: boolean): void {
     this.enhanced = !enabled
     this.idle.setLegacy(enabled)
@@ -117,7 +112,13 @@ export class AmbientPerformanceEngine {
     this.emotionPose = {}
     this.clockSeconds = 0
     this.lastSwitchAt = -10
+    // Posture state must reset too: a stale lastPostureEmotion made a
+    // same-emotion segment after reset resume its script MID-PHASE, and a
+    // stale mirror flipped the stance sign across resets.
+    this.lastPostureEmotion = undefined
+    this.postureMirror = true
     this.eyeClose = 0
+    this.postureSince = 0
     this.tailRootValue = 0
     this.tailRootVelocity = 0
     this.bodyEnvelope = 0
@@ -135,8 +136,12 @@ export class AmbientPerformanceEngine {
     const gain = Math.max(0, Math.min(2.5, input.gain ?? 1))
     const idleAllowed = input.enabled
       && this.activity === 'idle'
+    if (idleAllowed && !this.residueWasIdle) void refreshResidueTint()
+    this.residueWasIdle = idleAllowed
     this.idle.setVAD(input.vad)
-    this.idle.update(delta, idleAllowed, input.focusWeights)
+    this.idle.setEmotion(input.emotion ?? 'neutral')
+    this.idle.setResidueTint(getResidueProfile())
+    this.idle.update(delta, idleAllowed, input.focusWeights, input.userDrivenFocus)
     const idle = this.idle.getSnapshot()
     const speech = this.speech.update(delta, input.audioLevel)
     const waiting = this.waiting.update(
@@ -157,13 +162,48 @@ export class AmbientPerformanceEngine {
     let target: Record<string, number> = {}
     if (input.enabled) {
       if (this.activity === 'idle') target = logicalIdlePose(idle, gain * energyGain)
-      else if (this.activity === 'speaking') target = logicalSpeechPose(speech, gain * energyGain)
+      else if (this.activity === 'speaking') {
+        const pose = logicalSpeechPose(speech, gain * energyGain)
+        // Script/stance cooperation: while an emotion posture script holds a
+        // head opinion (this.emotionPose is the previous frame's live state),
+        // the ambient lateral stance yields half its range so the script's
+        // phase structure (dodge → look-back → hold) stays readable instead
+        // of being drowned by stance drift of the same magnitude.
+        if (Object.keys(this.emotionPose).some(key => key.startsWith('head.'))) {
+          pose['head.x'] *= 0.55
+          pose['head.z'] *= 0.55
+        }
+        target = pose
+      }
       else if (this.activity === 'listening' || this.activity === 'thinking') target = waiting
     }
     if (input.enabled && this.enhanced) target = addLogical(target, vadPosture(input.vad, gain))
-    // Sustained emotion posture: ramp toward the segment's stance slowly so it
-    // reads as mood settling in, and melt back on emotion change.
-    const poseTarget = EMOTION_BODY_POSES[input.emotion ?? ''] ?? null
+    // Sustained emotion posture: ramp toward the segment's stance so it reads
+    // as mood settling in, and melt back on emotion change. Emotions with a
+    // phased script (POSTURE_SCRIPTS) get their stance SAMPLED along the
+    // timeline (approach beat → settle → living hold) instead of one frozen
+    // pose. Each new emotion alternates a left/right mirror so pout-leaning
+    // characters don't permanently turn one way.
+    if (input.emotion !== this.lastPostureEmotion) {
+      this.lastPostureEmotion = input.emotion
+      this.postureMirror = !this.postureMirror
+      this.postureSince = 0
+    }
+    this.postureSince += delta
+    const rawPosture = emotionPostureAt(
+      input.emotion,
+      this.style.preset,
+      this.postureSince * 1000,
+    )
+    // Mirror flips LATERAL axes only (yaw/roll/turn): pitch (head.y, body.y),
+    // ear pinning and tail lift are semantically vertical/emphasis channels —
+    // flipping them would turn "ears pin in anger" into "ears flare up".
+    const poseTarget = rawPosture && this.postureMirror
+      ? Object.fromEntries(Object.entries(rawPosture).map(([parameter, value]) => [
+          parameter,
+          lateralAxis(parameter) ? -value : value,
+        ]))
+      : rawPosture
     const poseKeys = new Set([...Object.keys(this.emotionPose), ...Object.keys(poseTarget ?? {})])
     const poseRate = poseTarget ? 2.4 : 3.0
     for (const key of poseKeys) {
@@ -192,7 +232,19 @@ export class AmbientPerformanceEngine {
       : {}
     const resolvedPose = addLogical(this.current, tracking)
     const tail = this.updateSecondaryTail(delta, resolvedPose, input.audioLevel, gain, input.enabled)
-    if (input.enabled && !input.blockedChannels.has('body')) Object.assign(resolvedPose, tail)
+    if (input.enabled && !input.blockedChannels.has('body')) {
+      // Coordination with emotion-posture tail channels: the posture script
+      // expresses INTENT (tail curls when shy, lashes when angry) — the
+      // inertial chain owns the tail only where the script has no opinion,
+      // otherwise the two writers fight frame by frame.
+      const emotionalTailKeys = new Set(
+        Object.keys(this.emotionPose).filter(key => key.startsWith('tail.')),
+      )
+      for (const [key, value] of Object.entries(tail)) {
+        if (emotionalTailKeys.has(key)) continue
+        resolvedPose[key] = value
+      }
+    }
 
     const eyeCloseTarget = idleAllowed && !input.blockedChannels.has('gaze')
       ? idle.eyeClose * gain
@@ -324,8 +376,15 @@ function logicalIdlePose(snapshot: IdleBehaviorSnapshot, gain: number): Record<s
     // Whole-body linkage: torso follows head rotation so the character moves
     // as a connected figure, not a floating head on a static body.
     'body.x': (snapshot.bodyX + snapshot.headX * 0.32) * gain,
-    'body.y': (snapshot.bodyY + snapshot.headY * 0.18) * gain,
+    // F2: clamp the head-pitch coupling so headY sway overshoot cannot leak
+    // a forward body pitch into idle (the 120s no-forward-lean lock).
+    'body.y': (snapshot.bodyY + clamp(snapshot.headY * 0.18, -0.3, 0.3)) * gain,
     'body.z': (-snapshot.bodyX * 0.18 + snapshot.headZ * 0.24 + snapshot.headX * 0.12) * gain,
+    // Deep torso output axes (shirone ParamBodyAngleY2/Z2): secondary layers
+    // that add depth to the same lean. A fraction of the primary axes so the
+    // rig's two torso stages bend together instead of only the first.
+    'body.y2': (snapshot.bodyY + snapshot.headY * 0.18) * 0.6 * gain,
+    'body.z2': (-snapshot.bodyX * 0.18 + snapshot.headZ * 0.24 + snapshot.headX * 0.12) * 0.6 * gain,
   }
 }
 
@@ -342,6 +401,9 @@ function logicalSpeechPose(
     'body.x': (sample.bodyX + sample.headX * 0.30) * gain,
     'body.y': (sample.bodyY + sample.headY * 0.15) * gain,
     'body.z': (sample.bodyZ + sample.headZ * 0.18) * gain,
+    // Deep torso output axes follow the primary lean at 60% (depth layers).
+    'body.y2': (sample.bodyY + sample.headY * 0.15) * 0.6 * gain,
+    'body.z2': (sample.bodyZ + sample.headZ * 0.18) * 0.6 * gain,
   }
 }
 
@@ -386,11 +448,24 @@ function filterChannels(
 ): Record<string, number> {
   return Object.fromEntries(Object.entries(values).filter(([key]) => {
     if (key.startsWith('head.')) return !blocked.has('head')
-    if (key.startsWith('body.')) return !blocked.has('body')
-    if (key.startsWith('tail.')) return !blocked.has('body')
+    if (key.startsWith('body.') || key.startsWith('tail.')) return !blocked.has('body')
+    if (key.startsWith('ear.')) return !blocked.has('head')
     if (key.startsWith('eye.')) return !blocked.has('gaze')
     return true
   }))
+}
+
+/** Lateral (left/right) axes flip under posture mirroring; vertical and
+ *  emphasis axes (pitch, ear pin, tail lift) keep their sign. */
+function lateralAxis(parameter: string): boolean {
+  if (parameter.startsWith('ear.')) {
+    // ear.<side>.<axis>: the forward/back pin is an emphasis axis — only the
+    // side pairing swaps meaning under a mirror. shirone's authored channels
+    // are all forward pins, so no ear axis flips.
+    return false
+  }
+  if (parameter.startsWith('tail.')) return false
+  return parameter.endsWith('.x') || parameter.endsWith('.z')
 }
 
 function clamp(value: number, min: number, max: number): number {

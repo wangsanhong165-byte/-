@@ -39,17 +39,24 @@ const HARDCODED_PRESETS: Record<string, ExpressionPreset> = {
 
   happy: {
     params: [
-      { id: P.BROW_L_Y, value: 0.5 },
-      { id: P.BROW_R_Y, value: 0.5 },
-      { id: P.EYE_L_OPEN, value: 0.8, blend: 'overwrite' },
-      { id: P.EYE_R_OPEN, value: 0.8, blend: 'overwrite' },
-      { id: P.EYE_L_SMILE, value: 0.5 },
-      { id: P.EYE_R_SMILE, value: 0.5 },
-      { id: P.MOUTH_OPEN_Y, value: 0.2 },
-      // Cheek is not a portable semantic parameter. On some models it is a
-      // gentle blush; on this model it drives two oversized circular overlays.
-      // Keep model-specific blush in the native expression map instead of
-      // making the generic happy fallback write it.
+      // 2026-09-05 live-probe retune, user-reviewed on shirone: the old
+      // recipe (blush 0.45 + eyes 0.72 + left-only cradle) read as shy —
+      // blush is a SHY signal, and ParamEyeRSmile does not exist in the
+      // shirone rig so the cradle was one-sided. Bright happy = wide eyes
+      // (overwrite 1.0 is intensity-proof: baseline is already 1.0), lifted
+      // brows, strong mouth smile. Param38 softens both eyes symmetrically
+      // on shirone and is a silent no-op on models without it. Additive
+      // values carry headroom: they scale down with per-segment intensity
+      // (often 0.4-0.6) via expressionTargetForBlend.
+      { id: P.BROW_L_Y, value: 0.6 },
+      { id: P.BROW_R_Y, value: 0.6 },
+      { id: P.EYE_L_OPEN, value: 1.0, blend: 'overwrite' },
+      { id: P.EYE_R_OPEN, value: 1.0, blend: 'overwrite' },
+      { id: P.EYE_L_SMILE, value: 0.35 },
+      { id: P.EYE_R_SMILE, value: 0.35 },
+      { id: 'Param38', value: 0.4 },
+      { id: P.MOUTH_FORM, value: 1.0, blend: 'overwrite' },
+      { id: P.MOUTH_OPEN_Y, value: 0.5 },
     ],
   },
 
@@ -106,6 +113,25 @@ const HARDCODED_PRESETS: Record<string, ExpressionPreset> = {
     ],
   },
 
+  // pout (闹别扭) gets its OWN face so it never reads as real anger:
+  // shirone's 生气表情 (Param39 脸黑 + Param212 生气眉 + Param216 鼓嘴) is
+  // shared by angry/pout in emotion_map — a sulky pout with the full angry
+  // face reads as "always angry". This preset is the pout-only combo:
+  // light angry brows + pouty mouth, NO face darkening. Model-specific
+  // numeric params are silent no-ops on models that lack them (fallback
+  // keeps standard brow/mouth entries above).
+  pout: {
+    params: [
+      { id: P.BROW_L_Y, value: -0.3 },
+      { id: P.BROW_R_Y, value: -0.3 },
+      { id: P.EYE_L_OPEN, value: 0.85, blend: 'overwrite' },
+      { id: P.EYE_R_OPEN, value: 0.85, blend: 'overwrite' },
+      { id: P.MOUTH_OPEN_Y, value: 0.1 },
+      { id: 'Param212', value: 0.45 },
+      { id: 'Param216', value: 1.0 },
+    ],
+  },
+
   surprised: {
     params: [
       { id: P.BROW_L_Y, value: 0.8 },
@@ -124,6 +150,10 @@ const HARDCODED_PRESETS: Record<string, ExpressionPreset> = {
       { id: P.EYE_R_OPEN, value: 0.6, blend: 'overwrite' },
       { id: P.MOUTH_OPEN_Y, value: 0.05 },
       { id: P.CHEEK, value: 0.6 },
+      // shirone has no ParamCheek — her blush lives on Param37 (2026-09-05
+      // moc-verified). Without this the shirone shy face never blushed while
+      // the old happy preset wore the blush instead.
+      { id: 'Param37', value: 0.7 },
     ],
   },
 
@@ -160,6 +190,9 @@ const HARDCODED_PRESETS: Record<string, ExpressionPreset> = {
       { id: P.BROW_R_Y, value: 0.3 },
       { id: P.EYE_L_SMILE, value: 0.7 },
       { id: P.EYE_R_SMILE, value: 0.7 },
+      // shirone lacks ParamEyeRSmile — Param38 restores a symmetric cradle
+      // there (silent no-op on models that have both smile params).
+      { id: 'Param38', value: 0.5 },
       { id: P.EYE_L_OPEN, value: 0.7, blend: 'overwrite' },
       { id: P.EYE_R_OPEN, value: 0.7, blend: 'overwrite' },
       { id: P.MOUTH_OPEN_Y, value: 0.15 },

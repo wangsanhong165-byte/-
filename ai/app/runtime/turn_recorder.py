@@ -348,3 +348,29 @@ def get_turn_recorder() -> TurnRecorder:
     if _default_recorder is None:
         _default_recorder = TurnRecorder()
     return _default_recorder
+
+
+def latest_visual_outcome() -> dict | None:
+    """Most recent vision-bearing turn's sanitized diagnostics, or None.
+
+    Consumed by diagnostics/policy endpoints to surface the last real visual
+    request result (e.g. a model that cannot accept images) next to the
+    configured route.
+    """
+    try:
+        recorder = get_turn_recorder()
+        for summary in recorder.list_turns(limit=20):
+            detail = recorder.get_turn(summary["turnId"]) or {}
+            visual = detail.get("visual") or detail.get("input", {}).get("visual")
+            if isinstance(visual, dict) and visual.get("hasVisionInput"):
+                outcome = {
+                    key: value
+                    for key, value in visual.items()
+                    if key not in {"attachmentIds", "attachmentHashes"}
+                }
+                outcome["turnId"] = summary["turnId"]
+                outcome["createdAt"] = summary["createdAt"]
+                return outcome
+    except Exception:
+        return None
+    return None

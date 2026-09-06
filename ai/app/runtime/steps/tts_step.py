@@ -15,22 +15,30 @@ logger = logging.getLogger("tts_step")
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 # Emotion → v2Pro delivery-shaping defaults. GPT-SoVITS api_v2 has no emotion
-# field; temperature (sampling spread) and speed_factor (pace) are the levers
-# that make the same voice read calm vs agitated. A voice pack may override
-# these per character via voice.json["emotion_params"].
+# field; speed_factor (pace) is the lever that makes the same voice read calm
+# vs agitated. A voice pack may override these per character via
+# voice.json["emotion_params"].
+#
+# temperature is deliberately NOT set here. The 2026-09-04 tuning gave
+# sad/cry temperatures of 0.25-0.3, which collapses GPT-SoVITS sampling: the
+# model replays the reference prompt's semantic tokens (the voice pack's
+# sample sentence plays mid-reply) and then degrades into a single "啊"
+# syllable. GSVI's own default (temperature=1, top_k=15) is the author-tuned
+# value — emotional pacing belongs to speed_factor and the performance layer.
+# A voice pack may still set temperature explicitly via emotion_params.
 _DEFAULT_EMOTION_PARAMS: dict[str, dict[str, float]] = {
-    "angry": {"temperature": 0.9, "speed_factor": 1.05},
-    "pout": {"temperature": 0.75, "speed_factor": 1.03},
-    "joyful": {"temperature": 0.75, "speed_factor": 1.03},
-    "happy": {"temperature": 0.7, "speed_factor": 1.0},
-    "playful": {"temperature": 0.7, "speed_factor": 1.04},
-    "surprised": {"temperature": 0.8, "speed_factor": 1.05},
-    "sad": {"temperature": 0.3, "speed_factor": 0.92},
-    "cry": {"temperature": 0.25, "speed_factor": 0.9},
-    "worried": {"temperature": 0.4, "speed_factor": 0.95},
-    "shy": {"temperature": 0.45, "speed_factor": 0.97},
-    "embarrassed": {"temperature": 0.5, "speed_factor": 0.98},
-    "calm": {"temperature": 0.35, "speed_factor": 0.97},
+    "angry": {"speed_factor": 1.05},
+    "pout": {"speed_factor": 1.03},
+    "joyful": {"speed_factor": 1.03},
+    "happy": {"speed_factor": 1.0},
+    "playful": {"speed_factor": 1.04},
+    "surprised": {"speed_factor": 1.05},
+    "sad": {"speed_factor": 0.92},
+    "cry": {"speed_factor": 0.9},
+    "worried": {"speed_factor": 0.95},
+    "shy": {"speed_factor": 0.97},
+    "embarrassed": {"speed_factor": 0.98},
+    "calm": {"speed_factor": 0.97},
     "neutral": {},
 }
 

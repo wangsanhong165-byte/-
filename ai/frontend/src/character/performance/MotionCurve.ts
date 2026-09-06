@@ -8,7 +8,11 @@ export interface ScalarKeyframe {
  *
  * Two-point tracks ease in and out. Tracks with same-direction interior
  * keyframes carry velocity through the knot instead of stopping there, while
- * reversals keep a zero tangent so they cannot overshoot their authored range.
+ * reversals keep moving: their tangent is a bounded Catmull-Rom momentum, so a
+ * turning point follows through with a small overshoot-and-settle instead of
+ * decelerating to a dead hover. The bound (2x the gentler neighbor slope)
+ * keeps that overshoot a feel upgrade, not a slingshot past the authored
+ * range — and per-frame continuity stays inside the scenario flash budget.
  */
 export function sampleMotionCurve(
   unsorted: readonly ScalarKeyframe[],
@@ -57,12 +61,21 @@ function tangentAt(frames: readonly ScalarKeyframe[], index: number): number {
   const nextDuration = Math.max(0.000001, frames[index + 1].time - frames[index].time)
   const previousSlope = (frames[index].value - frames[index - 1].value) / previousDuration
   const nextSlope = (frames[index + 1].value - frames[index].value) / nextDuration
-  if (previousSlope === 0 || nextSlope === 0 || Math.sign(previousSlope) !== Math.sign(nextSlope)) return 0
-
-  const leftWeight = 2 * nextDuration + previousDuration
-  const rightWeight = nextDuration + 2 * previousDuration
-  return (leftWeight + rightWeight)
-    / (leftWeight / previousSlope + rightWeight / nextSlope)
+  if (previousSlope === 0 || nextSlope === 0) return 0
+  if (Math.sign(previousSlope) === Math.sign(nextSlope)) {
+    // Same direction: carry velocity through the knot (harmonic mean).
+    const leftWeight = 2 * nextDuration + previousDuration
+    const rightWeight = nextDuration + 2 * previousDuration
+    return (leftWeight + rightWeight)
+      / (leftWeight / previousSlope + rightWeight / nextSlope)
+  }
+  // Reversal: momentum keeps flowing through the turn (Catmull-Rom over the
+  // neighbor samples), bounded to 2x the gentler neighbor slope so the
+  // follow-through dip stays a settle, never a slingshot past both extremes.
+  const span = Math.max(0.000001, frames[index + 1].time - frames[index - 1].time)
+  const momentum = (frames[index + 1].value - frames[index - 1].value) / span
+  const bound = 2 * Math.min(Math.abs(previousSlope), Math.abs(nextSlope))
+  return clamp(momentum, -bound, bound)
 }
 
 function clamp(value: number, min: number, max: number): number {

@@ -239,7 +239,7 @@
       "cry": "悲伤表情",
       "worried": "worried",
       "angry": "生气表情",
-      "pout": "生气表情",
+      "pout": "pout",
       "surprised": "圈圈眼",
       "confused": "圈圈眼"
     },
@@ -256,44 +256,6 @@
       "tilt",
       "shrug"
     ],
-    "behavior_map": {
-      "greet": {
-        "motion": "sway",
-        "motionIntensityScale": 0.92
-      },
-      "agree": {
-        "motion": "nod"
-      },
-      "disagree": {
-        "motion": "tilt"
-      },
-      "think": {
-        "motion": "tilt",
-        "suppressIdle": true
-      },
-      "laugh": {
-        "motion": "sway",
-        "expression": "playful",
-        "motionIntensityScale": 1.08
-      },
-      "comfort": {
-        "motion": "tilt",
-        "motionIntensityScale": 0.72
-      },
-      "wave": {
-        "motion": "sway"
-      },
-      "nod": {
-        "motion": "nod"
-      },
-      "tilt": {
-        "motion": "tilt"
-      },
-      "shrug": {
-        "motion": "tilt",
-        "motionIntensityScale": 0.78
-      }
-    },
     "personality": {
       "expressionIntensityScale": 1.12
     },

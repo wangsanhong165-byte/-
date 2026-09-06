@@ -1,5 +1,5 @@
 import type { AvatarCapabilityProfile } from './AvatarCapabilityProfile.ts'
-import { supportsExpression, supportsMotion } from './AvatarCapabilityProfile.ts'
+import { semanticMotionOf, supportsExpression, supportsMotion } from './AvatarCapabilityProfile.ts'
 import { DEFAULT_BEHAVIORS, type CharacterIntent, type CharacterBehaviorConfig, type CharacterPresentationPlan } from './CharacterBehaviorResolver.ts'
 
 export interface PerformanceModifiers {
@@ -27,9 +27,25 @@ export class CharacterPerformancePolicy {
     // policy must not keep a shadow subset — it silently lost the intensity
     // scales for laugh/comfort/shrug etc. that only existed in the resolver.
     const mapping = config.behaviorMap?.[behavior] ?? DEFAULT_BEHAVIORS[behavior] ?? {}
+    // semanticMotionMap is THE model-specific motion table (2026-09-05
+    // consolidation: live2d_models.json behavior_map retired for models using
+    // it). Its object form carries the per-behavior modifiers the config
+    // table used to hold.
+    const semanticEntry = profile?.semanticMotionMap?.[behavior]
+    const semanticMotion = semanticMotionOf(semanticEntry)
+    const semanticIntensityScale = typeof semanticEntry === 'object' ? semanticEntry.intensityScale : undefined
+    const semanticSuppressIdle = typeof semanticEntry === 'object' ? semanticEntry.suppressIdle === true : false
+    const semanticExpression = typeof semanticEntry === 'object' ? semanticEntry.expression : undefined
+    // 2026-09-05 dual-emotion: the true feeling under the surface emotion
+    // (口是心非). Only surfaces when it differs from the shown emotion and
+    // the model can render its face; sincere segments have none.
+    const rawLeak = typeof intent.leak === 'string' ? intent.leak.toLowerCase() : ''
+    const leakExpression = rawLeak && rawLeak !== emotion && supportsExpression(profile, rawLeak)
+      ? rawLeak
+      : undefined
     const personality = config.personality ?? {}
-    const requestedExpression = emotion === 'neutral' && mapping.expression
-      ? mapping.expression
+    const requestedExpression = emotion === 'neutral' && (semanticExpression ?? mapping.expression)
+      ? (semanticExpression ?? mapping.expression)!
       : (base.expression ?? emotion)
     const expression = (
       Object.prototype.hasOwnProperty.call(config.emotionMap ?? {}, requestedExpression)
@@ -45,19 +61,19 @@ export class CharacterPerformancePolicy {
     // becomes visually silent.
     let contextualMotion: string | undefined
     for (const tag of contextTags) {
-      const candidate = profile?.semanticMotionMap?.[tag]
+      const candidate = semanticMotionOf(profile?.semanticMotionMap?.[tag])
       if (candidate) {
         contextualMotion = candidate
         break
       }
     }
-    const requestedMotion = profile?.semanticMotionMap?.[behavior]
+    const requestedMotion = semanticMotion
       ?? mapping.motion
       ?? base.motion
-      ?? profile?.semanticMotionMap?.[emotion]
+      ?? semanticMotionOf(profile?.semanticMotionMap?.[emotion])
       ?? contextualMotion
     const executableMotion = requestedMotion
-      ? profile?.semanticMotionMap?.[requestedMotion] ?? requestedMotion
+      ? semanticMotionOf(profile?.semanticMotionMap?.[requestedMotion]) ?? requestedMotion
       : undefined
     const motion = executableMotion && supportsMotion(profile, executableMotion)
       ? executableMotion
@@ -69,7 +85,7 @@ export class CharacterPerformancePolicy {
       : contextTags.has('reassuring') ? 0.78 : 1
     const energy = Math.max(0.12, Math.min(1,
       (intent.energy ?? 0.5) * (personality.motionIntensityScale ?? 1)
-      * (mapping.motionIntensityScale ?? 1) * tagEnergyScale,
+      * (semanticIntensityScale ?? mapping.motionIntensityScale ?? 1) * tagEnergyScale,
     ))
     const transitionMs = contextTags.has('whisper') || contextTags.has('reassuring')
       ? 520 : emotion === 'surprised' || contextTags.has('excited') ? 140 : 360
@@ -91,10 +107,11 @@ export class CharacterPerformancePolicy {
       requestedExpression,
       expressionFallbackReason,
       expression,
+      leakExpression,
       expressionIntensity: Math.min(1, intensity * (personality.expressionIntensityScale ?? 1) * (mapping.expressionIntensityScale ?? 1)),
       motion,
       motionIntensity: energy,
-      suppressIdle: base.suppressIdle || mapping.suppressIdle === true || intent.activity === 'speaking',
+      suppressIdle: base.suppressIdle || semanticSuppressIdle || mapping.suppressIdle === true || intent.activity === 'speaking',
       transitionMs,
       holdMs: intent.activity === 'speaking' ? 0 : 3000,
       modifiers: {

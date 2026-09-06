@@ -72,6 +72,7 @@ const EVENT_RULES: Record<EventType, PayloadRule> = {
       contextTags: 'array',
       motionPlan: 'object',
       segments: 'array',
+      leak: 'string',
     },
   },
   'character.expression': {

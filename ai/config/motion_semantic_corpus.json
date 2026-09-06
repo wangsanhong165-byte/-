@@ -1,0 +1,367 @@
+{
+  "description": "表演语义语料——第 3 层（经验层）的数据资产。每条 entry：情境描述句（供 qwen3-emb 检索匹配）+ 表演参数（脸参数配方/动作预设/姿态/能量）。生产流程：现场编排循环（用户出题→编排→用户过目）验收后写入。消费策略：语料先行——条目厚度与检索命中率实测达标后才接运行时（semantic_classify 已就绪），当前仅作为数据资产与回归基准。verified=true 表示该配方在真模型上现场验收过；false 表示按已验证配方外推设计、待现场验收。",
+  "entries": {
+    "shy_compliment": {
+      "sentences": [
+        "你真可爱",
+        "你怎么这么可爱啊",
+        "夸你一句就脸红",
+        "你这样子太招人喜欢了",
+        "被你萌到了",
+        "像你这么可爱的真是少见"
+      ],
+      "performance": {
+        "emotion": "shy",
+        "energy": 0.4,
+        "face": {
+          "Param37": 0.5,
+          "Param38": 0.5,
+          "ParamBrowLY": 0.6,
+          "ParamBrowRY": 0.6,
+          "ParamMouthForm": 1.0,
+          "ParamMouthOpenY": 0.3,
+          "Param239": 5,
+          "Param250": 5
+        },
+        "posture": {
+          "head.x": -8,
+          "head.z": -6,
+          "head.y": -4.5,
+          "body.x": -2.2
+        },
+        "motion": { "preset": "sway", "intensityScale": 0.85 },
+        "arc": "惊讶闪现(眉起嘴微张)→羞怯躲闪(脸红+低头偏头)→回眸软笑+小点头→温柔落定",
+        "verified": true
+      }
+    },
+    "tsundere_deny": {
+      "sentences": [
+        "哼，才不想你呢",
+        "谁、谁要谢谢你啊",
+        "才不是因为担心你",
+        "别自作多情了",
+        "哼，本小姐才没有开心",
+        "只是顺路而已，别想多了"
+      ],
+      "performance": {
+        "emotion": "pout",
+        "leak": "shy",
+        "energy": 0.5,
+        "face": {
+          "Param216": 1.0,
+          "Param212": 0.45,
+          "Param37": 0.45,
+          "Param239": -5,
+          "Param250": -5,
+          "ParamMouthForm": -0.55
+        },
+        "posture": {
+          "head.x": -10,
+          "head.z": 5,
+          "head.y": 4.5,
+          "body.x": 3,
+          "eye.x": 0.55
+        },
+        "motion": { "preset": "tilt", "intensityScale": 0.9 },
+        "arc": "哼(下巴抬+撇头+鼓嘴+耳压)→保持+身体重心撤→出卖(视线偷回+脸红渐起)→破功(小摇头+转回+笑意决堤+耳回竖)→害羞落定",
+        "verified": true
+      }
+    },
+    "excited_showcase": {
+      "sentences": [
+        "哇这个也太好看了吧！！",
+        "你看你看我拿到了什么",
+        "真的假的？！太棒了吧",
+        "我等这一天等了好久",
+        "这个消息太让人激动了",
+        "闪闪发光的，超级喜欢"
+      ],
+      "performance": {
+        "emotion": "joyful",
+        "energy": 0.85,
+        "face": {
+          "Param38": 0.3,
+          "ParamBrowLY": 0.7,
+          "ParamBrowRY": 0.7,
+          "ParamMouthOpenY": 0.55,
+          "ParamMouthForm": 0.9,
+          "Param239": 8,
+          "Param250": 8
+        },
+        "posture": {
+          "head.x": 2,
+          "head.z": 3,
+          "head.y": -3,
+          "body.x": 2.5
+        },
+        "motion": { "preset": "react", "intensityScale": 1.0 },
+        "arc": "高能量档：身体摇摆幅度上限+头部快节拍+嘴巴开合跟能量，尾巴快摆（物理层自动）",
+        "verified": false
+      }
+    },
+    "angry_betrayed": {
+      "sentences": [
+        "你怎么可以这样对我",
+        "我说过多少次了",
+        "随便你吧，我不管了",
+        "你以为这样就算了吗",
+        "我很生气，现在非常生气",
+        "你再这样我真的要发火了"
+      ],
+      "performance": {
+        "emotion": "angry",
+        "energy": 0.75,
+        "face": {
+          "Param212": 0.7,
+          "ParamBrowLY": -0.4,
+          "ParamBrowRY": -0.4,
+          "ParamMouthOpenY": 0.3,
+          "Param239": -8,
+          "Param250": -8
+        },
+        "posture": {
+          "head.x": -4,
+          "head.y": -2,
+          "head.z": -3,
+          "body.x": -2
+        },
+        "motion": { "preset": "react", "intensityScale": 0.95 },
+        "arc": "生气表情（生气表情 exp3）为主，身体前压+耳后压，头部节拍加重但保持全身协调",
+        "verified": false
+      }
+    },
+    "sad_low": {
+      "sentences": [
+        "今天有点难受",
+        "感觉撑不下去了",
+        "什么都提不起劲",
+        "一个人待着的时候最明显",
+        "算了，说了你也不懂",
+        "最近总是想哭"
+      ],
+      "performance": {
+        "emotion": "sad",
+        "energy": 0.25,
+        "face": {
+          "ParamBrowLY": -0.5,
+          "ParamBrowRY": -0.5,
+          "ParamMouthForm": -0.45,
+          "ParamMouthOpenY": 0.1,
+          "Param38": 0.2
+        },
+        "posture": {
+          "head.y": 4,
+          "head.z": -3,
+          "body.y": -2
+        },
+        "motion": { "preset": "tilt", "intensityScale": 0.6 },
+        "arc": "低能量档：悲伤表情+sigh-sink 侧倾耦合+动作收敛，眼睑半垂，呼吸放缓",
+        "verified": false
+      }
+    },
+    "worried_reassure": {
+      "sentences": [
+        "真的没问题吗",
+        "我有点担心你",
+        "万一失败了怎么办",
+        "你最近状态不太对",
+        "别硬撑着好不好",
+        "总觉得哪里不安心"
+      ],
+      "performance": {
+        "emotion": "worried",
+        "energy": 0.4,
+        "face": {
+          "ParamBrowLY": 0.25,
+          "ParamBrowRY": 0.15,
+          "ParamBrowLForm": -0.4,
+          "ParamBrowRForm": -0.4,
+          "ParamMouthForm": -0.3,
+          "ParamMouthOpenY": 0.08
+        },
+        "posture": {
+          "head.z": 2,
+          "head.x": 3,
+          "body.x": 1
+        },
+        "motion": { "preset": "tilt", "intensityScale": 0.7 },
+        "arc": "担忧微表情+身体微微前倾倾听态，节拍放缓",
+        "verified": false
+      }
+    },
+    "surprised_amazed": {
+      "sentences": [
+        "等等，什么情况",
+        "这也太出乎意料了",
+        "你不是说不要了吗",
+        "啊？！怎么突然",
+        "完全没反应过来",
+        "居然是这样"
+      ],
+      "performance": {
+        "emotion": "surprised",
+        "energy": 0.8,
+        "face": {
+          "ParamBrowLY": 0.8,
+          "ParamBrowRY": 0.8,
+          "ParamEyeLOpen": 1.2,
+          "ParamEyeROpen": 1.2,
+          "ParamMouthOpenY": 0.5
+        },
+        "posture": {
+          "head.y": -4,
+          "head.z": 2,
+          "body.x": -1.5
+        },
+        "motion": { "preset": "react", "intensityScale": 1.0 },
+        "arc": "惊吓节拍（react 预设）+眼睁大+身体后撤一点点，快速恢复",
+        "verified": false
+      }
+    },
+    "pout_sulking": {
+      "sentences": [
+        "哼，不理你了",
+        "都怪你啦",
+        "我要生气了，三秒钟",
+        "你说什么再重复一遍",
+        "明明就是你先的",
+        "坏家伙，都怪你"
+      ],
+      "performance": {
+        "emotion": "pout",
+        "energy": 0.45,
+        "face": {
+          "Param216": 1.0,
+          "Param212": 0.45,
+          "ParamBrowLY": -0.3,
+          "ParamBrowRY": -0.3,
+          "ParamMouthOpenY": 0.1
+        },
+        "posture": {
+          "head.z": -4,
+          "head.x": 5,
+          "body.x": 1.5
+        },
+        "motion": { "preset": "tilt", "intensityScale": 0.8 },
+        "arc": "嘟嘴脸（pout 预设）+撇头+look-back 偷瞄倾向（pout 脚本自带）",
+        "verified": false
+      }
+    },
+    "calm_daily": {
+      "sentences": [
+        "今天也就那样吧",
+        "吃了饭，散了步",
+        "平常的一天",
+        "随便聊聊",
+        "没什么特别的事",
+        "就这样过着呗"
+      ],
+      "performance": {
+        "emotion": "neutral",
+        "energy": 0.45,
+        "face": {},
+        "posture": {
+          "head.x": 1.5,
+          "body.x": 1
+        },
+        "motion": { "preset": "sway", "intensityScale": 0.7 },
+        "arc": "日常档：中性脸+标准微动，无特殊表情参数",
+        "verified": false
+      }
+    },
+    "grateful_moved": {
+      "sentences": [
+        "谢谢你，真的",
+        "有你在太好了",
+        "这份心意我收到了",
+        "不知道该怎么感谢你",
+        "被你温暖到了",
+        "你总是这么懂我"
+      ],
+      "performance": {
+        "emotion": "happy",
+        "leak": "shy",
+        "energy": 0.5,
+        "face": {
+          "Param37": 0.4,
+          "Param38": 0.45,
+          "ParamMouthForm": 0.9,
+          "ParamMouthOpenY": 0.25,
+          "ParamBrowLY": 0.4,
+          "ParamBrowRY": 0.4
+        },
+        "posture": {
+          "head.y": -2,
+          "head.z": 2,
+          "body.x": 1
+        },
+        "motion": { "preset": "nod", "intensityScale": 0.85 },
+        "arc": "感激+一点点羞：暖心微笑+小点头+轻脸红，节拍温柔",
+        "verified": false
+      }
+    },
+    "embarrassed_caught": {
+      "sentences": [
+        "啊，被你看到了",
+        "别提了太丢人了",
+        "我不是故意的啦",
+        "装作没发生行不行",
+        "你什么时候来的",
+        "捂脸，社会性死亡"
+      ],
+      "performance": {
+        "emotion": "shy",
+        "leak": "playful",
+        "energy": 0.55,
+        "face": {
+          "Param37": 0.6,
+          "Param38": 0.55,
+          "ParamMouthForm": 0.5,
+          "ParamMouthOpenY": 0.3,
+          "ParamBrowLY": 0.3,
+          "ParamBrowRY": 0.3
+        },
+        "posture": {
+          "head.y": -5,
+          "head.z": -5,
+          "head.x": -6,
+          "body.x": -1.5
+        },
+        "motion": { "preset": "sway", "intensityScale": 0.8 },
+        "arc": "捂脸态：深低头+偏头+重脸红+嘴型乱（想笑又尴尬），摇尾加速",
+        "verified": false
+      }
+    },
+    "playful_tease": {
+      "sentences": [
+        "就逗逗你怎么了",
+        "看你认真的样子真好笑",
+        "骗到你了嘿嘿",
+        "再来再来，还想玩",
+        "你的表情太精彩了",
+        "嘿嘿，着急了吧"
+      ],
+      "performance": {
+        "emotion": "playful",
+        "energy": 0.7,
+        "face": {
+          "Param38": 0.4,
+          "ParamBrowLY": 0.5,
+          "ParamBrowRY": 0.3,
+          "ParamMouthForm": 0.8,
+          "ParamMouthOpenY": 0.35,
+          "Param239": 7,
+          "Param250": 4
+        },
+        "posture": {
+          "head.z": 5,
+          "head.x": 3,
+          "body.x": 1.8
+        },
+        "motion": { "preset": "ear_flick", "intensityScale": 0.9 },
+        "arc": "逗弄态：不对称眉（挑眉）+耳抖倾向+节拍轻快，身体侧倾晃",
+        "verified": false
+      }
+    }
+  }
+}

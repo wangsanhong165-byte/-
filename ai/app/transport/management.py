@@ -172,12 +172,13 @@ class ManagementHandler:
                 str(params.get("context", "")),
             )
         if action == "classify_residue":
-            recent = params.get("recent_texts", [])
-            if not isinstance(recent, list):
+            recent = params.get("recent_texts")
+            if recent is not None and not isinstance(recent, list):
                 raise ManagementFailure("classify_residue_invalid", "recent_texts must be a list")
+            texts = [str(item) for item in recent] if isinstance(recent, list) else None
             return await asyncio.to_thread(
                 self._manager.classify_residue,
-                [str(item) for item in recent],
+                texts,
             )
         if action == "update_memory_view":
             result = self._manager.update_memory_view(str(params.get("ref", "")), params)

@@ -333,7 +333,6 @@ def test_mixed_structured_envelope_keeps_motion_plan_out_of_spoken_text():
     response = run(provider.generate([{"role": "user", "content": "你好"}]))
 
     assert response.reply == "你好呀。"
-    assert response.segments[0]["motionPlan"]["steps"][0]["primitive"] == "nod"
     assert all(key not in response.reply for key in ("segments", "emotion", "motionPlan"))
 
     tts = RecordingTTS()
@@ -344,8 +343,9 @@ def test_mixed_structured_envelope_keeps_motion_plan_out_of_spoken_text():
     assert ctx.reply_text == "你好呀。"
     assert tts.texts == ["你好呀。"]
     assert ctx.output.performance.behavior == "wave"
-    assert ctx.output.performance.motion_plan is not None
-    assert ctx.output.performance.motion_plan["steps"][0]["primitive"] == "nod"
+    # 2026-09-05 slimming: a motionPlan smuggled inside a recovered protocol
+    # tail is dropped — performance never carries an LLM motion plan.
+    assert ctx.output.performance.motion_plan is None
 
 
 def test_provider_extracts_markdown_fenced_structured_output():
@@ -702,7 +702,9 @@ def test_decision_step_repairs_plain_text_into_structured_performance_once():
     assert ctx.reply_text == "好呀，逗你一下。"
     assert ctx.output.performance.emotion == "playful"
     assert ctx.output.performance.behavior == "speak"
-    assert ctx.output.performance.motion_plan["steps"][0]["primitive"] == "tilt_left"
+    # 2026-09-05 slimming: even a repaired plain-text reply gets no LLM
+    # motion plan — beat scheduling belongs to the local director.
+    assert ctx.output.performance.motion_plan is None
     assert "assistant_reply_semantic_recovered" not in ctx.warnings
 
 

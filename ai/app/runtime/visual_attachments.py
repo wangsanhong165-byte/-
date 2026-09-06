@@ -139,6 +139,24 @@ def validate_visual_attachment_policy(
             raise VisualAttachmentError("Image dimensions exceed the current visual edge limit")
 
 
+def enforce_image_budget(
+    attachments: list[dict],
+    reserved_extra: dict | None = None,
+) -> list[dict]:
+    """Keep attachments plus one reserved frame (e.g. a desktop frame) within
+    the configured maxImages budget by dropping the OLDEST attachments first.
+
+    Without this, a voice turn with camera frames at LLM_CAMERA_MAX_FRAMES plus
+    an auto-attached desktop frame exceeds maxImages and the request fails at
+    the adapter. The desktop frame is always kept; when the budget is 1 only
+    the reserved frame survives.
+    """
+    keep = get_visual_limits()["maxImages"] - (1 if reserved_extra is not None else 0)
+    if len(attachments) <= keep:
+        return attachments
+    return list(attachments[-keep:]) if keep > 0 else []
+
+
 @dataclass(frozen=True)
 class VisualAttachment:
     attachment_id: str

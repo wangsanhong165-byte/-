@@ -145,6 +145,7 @@ class ResponseInterpreter:
             natural_vad=intent.natural_vad,
             context_tags=list(intent.context_tags),
             motion_plan=intent.motion_plan,
+            leak=intent.leak,
         )
         return InterpretedResponse(
             reply_text=response.reply,

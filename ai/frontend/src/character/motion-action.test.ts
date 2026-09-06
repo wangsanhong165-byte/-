@@ -60,11 +60,22 @@ test('overlapping action steps compose into one continuous parameter track', () 
     ],
   })
   const preset = compileMotionAction(action)
-  const peak = sampleMotionKeyframes(preset.keyframes, 300)
+  // 2026-09-05 dynamics classes: lean_forward is a MASS move (weighted) —
+  // anticipation ~8% reverse at 70ms, slow-in to the .5 peak (500ms), head
+  // lags the torso (absent from early frames = 0 until it joins).
+  const peak = sampleMotionKeyframes(preset.keyframes, 500)
+  const anticipation = sampleMotionKeyframes(preset.keyframes, 70)
   const trackKeys = preset.keyframes.map(frame => `${frame.parameter}:${frame.time}`)
 
   assert.equal(peak['body.y'], 6)
   assert.equal(peak['head.y'], 3)
+  assert.ok(Math.abs(anticipation['body.y'] + 0.48) < 1e-9)
+  // lag lock: at the anticipation instant the head has barely left baseline
+  // (<10% of its peak) — torso moves first, head follows.
+  assert.ok(
+    Math.abs(anticipation['head.y']) < peak['head.y'] * 0.1,
+    `head lag broken: ${anticipation['head.y']}`,
+  )
   assert.equal(new Set(trackKeys).size, trackKeys.length)
 })
 

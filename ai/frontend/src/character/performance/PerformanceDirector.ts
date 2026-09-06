@@ -1,9 +1,20 @@
 import type { CharacterIntent } from '../CharacterBehaviorResolver.ts'
-import type { MotionPrimitive } from '../MotionAction.ts'
+import { BEHAVIOR_BEATS, emotionBeats } from './performance-recipes.ts'
 
 export interface PerformanceDirectorOptions {
   audioWaitMs?: number
   repeatWindowMs?: number
+  /**
+   * Minimum age of the currently expressed mood before another emotion may
+   * replace it. Per-segment LLM emotion labels otherwise flip the face every
+   * clip (~1-2s), reading as emotional flicker; held cues keep firing their
+   * beats/attention — only the expressed mood is deferred (never cancelled:
+   * a mood shorter than the window is skipped, longer moods land on a later
+   * cue). Neutral switches always pass. 0 disables (default: unit tests pin
+   * timing semantics); production passes ~900 — deliberately close to the
+   * 500ms expression fade Live2D itself defaults to, NOT multiples of it.
+   */
+  emotionHoldMs?: number
 }
 
 interface StagedPerformance {
@@ -35,11 +46,15 @@ export class PerformanceDirector {
   private readonly now: () => number
   private readonly audioWaitMs: number
   private readonly repeatWindowMs: number
+  private readonly emotionHoldMs: number
   private staged: StagedPerformance | null = null
   private audio: AudioTiming | null = null
   private cues: ScheduledCue[] = []
   private emittedCueCount = 0
   private readonly recentGestures = new Map<string, number>()
+  /** Expressed-mood pacing state (see emotionHoldMs); null until a turn's first cue. */
+  private lastEmotion: string | null = null
+  private lastEmotionChangeAt = -Infinity
 
   constructor(
     now: () => number = () => performance.now(),
@@ -48,6 +63,7 @@ export class PerformanceDirector {
     this.now = now
     this.audioWaitMs = clamp(options.audioWaitMs ?? 240, 80, 800)
     this.repeatWindowMs = clamp(options.repeatWindowMs ?? 6_000, 0, 30_000)
+    this.emotionHoldMs = clamp(options.emotionHoldMs ?? 0, 0, 10_000)
   }
 
   stage(base: CharacterIntent, segments?: Array<Record<string, unknown>>): void {
@@ -60,6 +76,10 @@ export class PerformanceDirector {
     }
     this.cues = []
     this.emittedCueCount = 0
+    // A new turn always opens with its own mood — never inherit the previous
+    // turn's hold lock.
+    this.lastEmotion = null
+    this.lastEmotionChangeAt = -Infinity
     if (this.audio?.turnId === turnId) this.scheduleFromAudio(this.staged, this.audio)
   }
 
@@ -153,6 +173,8 @@ export class PerformanceDirector {
     this.staged = null
     this.cues = []
     this.emittedCueCount = 0
+    this.lastEmotion = null
+    this.lastEmotionChangeAt = -Infinity
   }
 
   reset(): void {
@@ -161,6 +183,8 @@ export class PerformanceDirector {
     this.cues = []
     this.emittedCueCount = 0
     this.recentGestures.clear()
+    this.lastEmotion = null
+    this.lastEmotionChangeAt = -Infinity
   }
 
   update(): CharacterIntent[] {
@@ -173,9 +197,32 @@ export class PerformanceDirector {
       const accepted = this.suppressRepeatedGesture(scheduled.intent, timestamp)
       // A repeated LLM gesture may be removed, but speech must never become
       // visually silent: deterministic local choreography remains available.
-      due.push(withLocalSemanticChoreography(accepted))
+      due.push(withLocalSemanticChoreography(this.holdEmotion(accepted, timestamp)))
     }
     return due
+  }
+
+  /** Mood pacing (see emotionHoldMs). The first mood of a turn always applies;
+   *  a switch younger than the hold window keeps the previous mood — the cue's
+   *  beats/attention still fire. The switch is DEFERRED, not cancelled: a later
+   *  cue carrying it applies normally once the window has passed. Switching to
+   *  `neutral` is never held — the resting face is calming, not whiplash, and
+   *  a held 生气 during a quiet tail read as "stuck angry" in live testing. */
+  private holdEmotion(intent: CharacterIntent, timestamp: number): CharacterIntent {
+    if (this.emotionHoldMs <= 0) return intent
+    const emotion = intent.emotion || 'neutral'
+    if (this.lastEmotion === null) {
+      this.lastEmotion = emotion
+      this.lastEmotionChangeAt = timestamp
+      return intent
+    }
+    if (emotion === this.lastEmotion) return intent
+    if (emotion !== 'neutral' && timestamp - this.lastEmotionChangeAt < this.emotionHoldMs) {
+      return { ...intent, emotion: this.lastEmotion }
+    }
+    this.lastEmotion = emotion
+    this.lastEmotionChangeAt = timestamp
+    return intent
   }
 
   getDebugState(): Record<string, unknown> {
@@ -276,37 +323,7 @@ function withLocalSemanticChoreography(intent: CharacterIntent): CharacterIntent
   if (!intent.behavior || ['idle', 'listen'].includes(intent.behavior)) return intent
   const emotion = (intent.emotion || 'neutral').toLowerCase()
   const behavior = intent.behavior.toLowerCase()
-  const behaviorRecipes: Record<string, MotionPrimitive[]> = {
-    greet: ['lean_forward', 'tilt_right', 'nod'],
-    agree: ['nod', 'lean_forward', 'nod'],
-    disagree: ['tilt_left', 'lean_back', 'tilt_right'],
-    think: ['look_left', 'tilt_right', 'breathe'],
-    laugh: ['lean_forward', 'sway', 'nod'],
-    comfort: ['lean_forward', 'breathe', 'tilt_left'],
-    wave: ['sway', 'lean_forward', 'tilt_right'],
-    nod: ['nod', 'lean_forward', 'nod'],
-    tilt: ['tilt_left', 'lean_forward', 'tilt_right'],
-    shrug: ['shrug', 'lean_back', 'tilt_left'],
-  }
-  const emotionRecipes: Record<string, MotionPrimitive[]> = {
-    neutral: ['lean_forward', 'tilt_left', 'nod'],
-    calm: ['breathe', 'tilt_right', 'lean_forward'],
-    happy: ['lean_forward', 'tilt_right', 'nod'],
-    playful: ['tilt_right', 'sway', 'nod'],
-    love: ['lean_forward', 'tilt_left', 'breathe'],
-    joyful: ['lean_forward', 'sway', 'nod'],
-    cheerful: ['nod', 'sway', 'lean_forward'],
-    surprised: ['lean_back', 'tilt_left', 'breathe'],
-    shy: ['tilt_left', 'lean_back', 'breathe'],
-    embarrassed: ['tilt_right', 'lean_back', 'breathe'],
-    sad: ['breathe', 'lean_back', 'tilt_left'],
-    cry: ['breathe', 'lean_back', 'tilt_left'],
-    worried: ['lean_forward', 'tilt_right', 'breathe'],
-    angry: ['lean_forward', 'nod', 'lean_back'],
-    pout: ['lean_back', 'tilt_right', 'breathe'],
-    confused: ['tilt_left', 'look_right', 'breathe'],
-  }
-  const candidates = behaviorRecipes[behavior] ?? emotionRecipes[emotion] ?? emotionRecipes.neutral
+  const candidates = BEHAVIOR_BEATS[behavior] ?? emotionBeats(emotion) ?? emotionBeats('neutral') ?? []
   const hash = [...(intent.turnId || emotion)]
     .reduce((value, character) => ((value * 31) + character.charCodeAt(0)) >>> 0, 7)
   const ordered = candidates.map((_, index) => candidates[(index + hash) % candidates.length])

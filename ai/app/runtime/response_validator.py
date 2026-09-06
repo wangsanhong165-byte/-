@@ -200,11 +200,20 @@ class ResponseValidator:
         anger_state = ResponseValidator._anger_marker_state(
             lowered, ("生气", "愤怒", "恼火", "angry", "mad"),
         )
+        sad_state = ResponseValidator._anger_marker_state(
+            lowered, ("难过", "伤心", "悲伤", "想哭", "sad", "cry"),
+        )
 
-        if any(token in lowered for token in (
+        if sad_state == "negated" or any(token in lowered for token in (
+            "别哭", "不哭", "没事的", "没关系", "想开", "振作",
+            "don't cry", "cheer up",
+        )):
+            # Comforting a sad word is calm/comfort, not the sad word itself.
+            emotion, behavior, energy, intensity = "calm", "comfort", 0.38, 0.52
+        elif any(token in lowered for token in (
             "哭哭", "哭哭脸", "想哭", "哭了", "流泪", "眼泪", "委屈", "泪汪汪",
             "cry", "tearful",
-        )):
+        )) and sad_state != "negated":
             emotion, energy, intensity = "cry", 0.28, 0.65
         elif any(token in lowered for token in (
             "撅嘴", "嘟嘴", "不满", "闹别扭", "pout",

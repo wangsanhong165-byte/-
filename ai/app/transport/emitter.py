@@ -72,7 +72,7 @@ class TransportEmitter:
         """
         allowed = {
             "text", "emotion", "behavior", "attention", "energy", "intensity",
-            "durationMs", "naturalVAD", "contextTags", "motionPlan",
+            "durationMs", "naturalVAD", "contextTags", "motionPlan", "leak",
         }
         result: list[dict] = []
         for raw in turn.segments:
@@ -192,11 +192,13 @@ class TransportEmitter:
                 "naturalVAD": plan.natural_vad,
                 "contextTags": plan.context_tags,
                 "motionPlan": plan.motion_plan,
+                "leak": plan.leak,
             },
             allowed_emotions=turn.allowed_emotions,
         )
         events.append(self._event(turn, "character.intent", {
             "emotion": safe_plan.emotion,
+            "leak": safe_plan.leak,
             "behavior": safe_plan.behavior,
             "intensity": safe_plan.intensity,
             "attention": safe_plan.attention,

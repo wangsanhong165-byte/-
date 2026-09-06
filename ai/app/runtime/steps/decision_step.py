@@ -198,8 +198,8 @@ class DecisionStep(Step):
                     "Repair it now. Return only the required valid JSON object; "
                     "preserve the intended meaning and do not call tools. "
                     "final_reply and segment text must contain spoken words only; "
-                    "put visible expressions and body actions only in emotion, "
-                    "behavior, naturalVAD, and motionPlan. "
+                    "put visible expressions and body actions only in emotion "
+                    "and behavior. "
                     "Never return empty content."
                 )
             )

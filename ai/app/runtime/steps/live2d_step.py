@@ -33,6 +33,7 @@ class Live2DStep(Step):
                     "naturalVAD": selected.natural_vad,
                     "contextTags": selected.context_tags,
                     "motionPlan": selected.motion_plan,
+                    "leak": selected.leak,
                 },
                 allowed_emotions=ctx.allowed_emotions,
             )
@@ -62,5 +63,6 @@ class Live2DStep(Step):
                 natural_vad=intent.natural_vad,
                 context_tags=intent.context_tags,
                 motion_plan=intent.motion_plan,
+                leak=intent.leak,
             )
         ctx.live2d_intent = {**intent.to_dict(), "behavior": intent.behavior, "speaking": bool(ctx.audio)}

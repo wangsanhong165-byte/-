@@ -20,8 +20,11 @@ const defaultRanges: BodySwayRanges = {
   headX: [-3, 3],
   headY: [-1.8, 1.9],
   headZ: [-3.5, 3.5],
+  // 2026-09-05: ambient bodyY is upright-first — a slow ±1.8 pitch drift in
+  // idle read as the eerie "大前倾" slouch (user report). Only a sliver of
+  // forward pitch is allowed; backward/upright carries the range.
   bodyX: [-4.5, 4.5],
-  bodyY: [-1.8, 1.8],
+  bodyY: [-0.15, 1.5],
 }
 
 export class BodySwayController {

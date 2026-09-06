@@ -17,6 +17,10 @@ export interface AvatarPerformanceCapabilities {
   mouthControl?: boolean
   mouthForm?: boolean
   breathControl?: boolean
+  /** Ear/tail/accessory channels exist on this model. Default true (models
+   *  without the bindings simply discard those logical channels downstream);
+   *  set false to opt a plain model out of accessory idle phrases. */
+  secondaryMotion?: boolean
 }
 
 export interface AvatarParameterBinding {
@@ -59,6 +63,26 @@ export type AvatarNativeMotionChannel =
   | 'secondary'
   | 'full'
 
+/**
+ * One semanticMotionMap entry: a preset alias, or an alias carrying the
+ * per-behavior modifiers that used to live in live2d_models.json's
+ * behavior_map (retired there for models using this map).
+ */
+export type AvatarSemanticMotionEntry =
+  | string
+  | {
+      motion: string
+      intensityScale?: number
+      suppressIdle?: boolean
+      /** Expression override when the segment's emotion is neutral. */
+      expression?: string
+    }
+
+/** Motion alias of a semanticMotionMap entry, regardless of its form. */
+export function semanticMotionOf(entry: AvatarSemanticMotionEntry | undefined): string | undefined {
+  return typeof entry === 'string' ? entry : entry?.motion
+}
+
 export interface AvatarLogicalMotionKeyframe {
   time: number
   parameter: string
@@ -100,8 +124,15 @@ export interface AvatarCapabilityProfile {
   personality?: CharacterPerformancePersonality
   capabilities?: AvatarPerformanceCapabilities
   motionMap?: Record<string, string>
-  /** Semantic intent cues (behavior, emotion, or context tag) mapped to executable motions. */
-  semanticMotionMap?: Record<string, string>
+  /**
+   * Semantic intent cues (behavior, emotion, or context tag) mapped to
+   * executable motions. THE single model-specific motion table: a plain
+   * string aliases the preset name; the object form carries the per-behavior
+   * modifiers that used to live in live2d_models.json's behavior_map
+   * (intensityScale, suppressIdle) — that table is retired for models using
+   * this map (2026-09-05 consolidation).
+   */
+  semanticMotionMap?: Record<string, AvatarSemanticMotionEntry>
   /** Native motion ownership by semantic/native motion name. */
   nativeMotionChannels?: Record<string, AvatarNativeMotionChannel[]>
   /** Model-specific authored timelines expressed only in logical parameters. */

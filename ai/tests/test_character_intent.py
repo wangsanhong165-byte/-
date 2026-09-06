@@ -35,7 +35,7 @@ def test_segment_adapter_does_not_restore_removed_v2_fields():
     assert intent.behavior == ""
 
 
-def test_segment_adapter_preserves_rich_emotion_vad_and_context_tags():
+def test_segment_adapter_derives_vad_from_emotion_and_keeps_context_tags():
     intent = CharacterIntent.from_llm_segment({
         "emotion": "worried",
         "behavior": "comfort",
@@ -43,14 +43,18 @@ def test_segment_adapter_preserves_rich_emotion_vad_and_context_tags():
         "contextTags": ["reassuring", " close-up ", "reassuring", 42],
     })
     assert intent.emotion == "worried"
+    # 2026-09-05 slimming: the LLM no longer emits naturalVAD — the static
+    # affect table derives it from the emotion label, whatever the model sends.
     assert intent.natural_vad == {
-        "valence": -0.65, "arousal": 0.7, "dominance": -0.4,
+        "valence": -0.4, "arousal": 0.3, "dominance": -0.25,
     }
     assert intent.context_tags == ("reassuring", "close-up")
-    assert intent.to_dict()["natural_vad"]["arousal"] == 0.7
+    assert intent.to_dict()["natural_vad"]["arousal"] == 0.3
 
 
-def test_segment_adapter_accepts_only_bounded_motion_primitives():
+def test_segment_adapter_ignores_llm_motion_plans():
+    # 2026-09-05 slimming: choreography timing is local business — whatever
+    # motionPlan the LLM emits is dropped before it can reach performance.
     intent = CharacterIntent.from_llm_segment({
         "emotion": "happy",
         "behavior": "agree",
@@ -73,23 +77,7 @@ def test_segment_adapter_accepts_only_bounded_motion_primitives():
         },
     })
 
-    assert intent.motion_plan == {
-        "durationMs": 1400,
-        "steps": [
-            {
-                "atMs": 0,
-                "durationMs": 700,
-                "primitive": "lean_forward",
-                "intensity": 0.25,
-            },
-            {
-                "atMs": 350,
-                "durationMs": 650,
-                "primitive": "nod",
-                "intensity": 0.6,
-            },
-        ],
-    }
+    assert intent.motion_plan is None
 
 
 def test_segment_adapter_rejects_motion_plans_with_renderer_fields():
@@ -109,7 +97,7 @@ def test_segment_adapter_rejects_motion_plans_with_renderer_fields():
     assert intent.motion_plan is None
 
 
-def test_segment_adapter_enforces_llm_gesture_budget():
+def test_segment_adapter_ignores_oversized_llm_motion_plans():
     intent = CharacterIntent.from_llm_segment({
         "motionPlan": {
             "durationMs": 1800,
@@ -120,11 +108,11 @@ def test_segment_adapter_enforces_llm_gesture_budget():
         },
     })
 
-    assert intent.motion_plan is not None
-    assert len(intent.motion_plan["steps"]) == 3
+    assert intent.motion_plan is None
 
 
-def test_segment_adapter_salvages_valid_steps_and_ignores_harmless_metadata():
+def test_segment_adapter_ignores_llm_motion_plans_even_with_renderer_fields():
+    # Plans smuggling renderer params are dropped outright, never salvaged.
     intent = CharacterIntent.from_llm_segment({
         "motionPlan": {
             "durationMs": 1200,
@@ -148,12 +136,4 @@ def test_segment_adapter_salvages_valid_steps_and_ignores_harmless_metadata():
         },
     })
 
-    assert intent.motion_plan == {
-        "durationMs": 1200,
-        "steps": [{
-            "atMs": 0,
-            "durationMs": 600,
-            "primitive": "nod",
-            "intensity": 0.55,
-        }],
-    }
+    assert intent.motion_plan is None

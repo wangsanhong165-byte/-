@@ -131,6 +131,7 @@ export interface EventPayloadMap {
   'assistant.failed': FailurePayload
     'character.intent': {
       emotion: string
+      leak?: string | null
       behavior: string
       intensity: number
       attention: 'user' | 'screen' | 'away' | 'neutral'

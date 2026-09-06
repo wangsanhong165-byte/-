@@ -23,6 +23,7 @@ export type RuntimeClientHandlers = {
   onEvent: (event: RuntimeEvent) => void
   onConnectionChange?: (connected: boolean) => void
   onProtocolError?: (error: ClientProtocolError) => void
+  onAudioTurnStale?: (turnId: string) => void
 }
 
 export type AvatarOutboundEvent =
@@ -59,6 +60,10 @@ export class RuntimeClient {
   private eventIdOrder: string[] = []
   private currentTurnId: string | null = null
   private currentAudioTurnId: string | null = null
+  // Set when the runtime rejects the live audio turn as stale: further
+  // samples are dropped until sendAudioEnd closes the session, so a rejected
+  // recording cannot loop "new session → stale rejection" against a busy turn.
+  private audioTurnSuspended = false
 
   constructor(url: string, handlers: RuntimeClientHandlers) {
     this.url = url
@@ -87,6 +92,7 @@ export class RuntimeClient {
       this.sessionId = `ses_${crypto.randomUUID()}`
       this.currentTurnId = null
       this.currentAudioTurnId = null
+      this.audioTurnSuspended = false
       this.sendEvent(
         'session.open',
         { capabilities: ['text', 'visual', 'audio', 'character', 'tts'] },
@@ -169,8 +175,29 @@ export class RuntimeClient {
       this.pongPending = false
       return true
     }
+    if (event.eventType === 'protocol.error') {
+      this.onProtocolErrorEnvelope(event)
+    }
     this.handlers.onEvent(event)
     return true
+  }
+
+  /**
+   * The runtime rejects audio events bound to a turn that is no longer active
+   * (e.g. the previous turn was still finishing when the mic was opened). The
+   * rejected session would otherwise keep streaming chunks into the void —
+   * each one bounced back as another stale_turn error. Drop the binding and
+   * suspend capture instead; sendAudioEnd or a reconnect resumes normally.
+   */
+  private onProtocolErrorEnvelope(event: RuntimeEvent): void {
+    const payload = event.payload as EventPayloadMap['protocol.error']
+    if (payload.code !== 'stale_turn') return
+    const turnId = event.turnId ?? ''
+    if (!turnId || turnId !== this.currentAudioTurnId) return
+    this.currentAudioTurnId = null
+    if (this.currentTurnId === turnId) this.currentTurnId = null
+    this.audioTurnSuspended = true
+    this.handlers.onAudioTurnStale?.(turnId)
   }
 
   private classifyParseError(message: string): string {
@@ -247,6 +274,7 @@ export class RuntimeClient {
   }
 
   sendAudioSamples(samples: Float32Array, sampleRate: number): void {
+    if (this.audioTurnSuspended) return
     if (!this.currentAudioTurnId) {
       this.currentAudioTurnId = `turn_${crypto.randomUUID()}`
       this.currentTurnId = this.currentAudioTurnId
@@ -264,6 +292,7 @@ export class RuntimeClient {
   }
 
   sendAudioEnd(attachments: EventPayloadMap['user.audio.completed']['attachments'] = []): void {
+    this.audioTurnSuspended = false
     if (!this.currentAudioTurnId) return
     this.sendEvent('user.audio.completed', {
       attachments: (attachments ?? []).map(({ id, mimeType, width, height, sizeBytes }) => ({

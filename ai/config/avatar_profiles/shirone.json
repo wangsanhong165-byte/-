@@ -145,7 +145,7 @@
     },
     "tail.segment13": {
       "target": "Param_Angle_Rotation_13_ArtMesh571",
-      "scale": 1.0
+      "scale": 1
     },
     "tail.segment14": {
       "target": "Param_Angle_Rotation_14_ArtMesh571",
@@ -232,15 +232,15 @@
     "idle": "Idle"
   },
   "semanticMotionMap": {
-    "greet": "sway",
+    "greet": { "motion": "sway", "intensityScale": 0.92 },
     "wave": "sway",
     "excited": "tail_sweep",
-    "laugh": "nod",
+    "laugh": { "motion": "nod", "expression": "playful", "intensityScale": 1.08 },
     "agree": "nod",
     "disagree": "tilt",
     "think": "thinking",
-    "comfort": "tilt",
-    "shrug": "tilt",
+    "comfort": { "motion": "tilt", "intensityScale": 0.72 },
+    "shrug": { "motion": "tilt", "intensityScale": 0.78 },
     "playful": "ear_flick"
   },
   "nativeMotionChannels": {
@@ -574,12 +574,13 @@
     "cry": "悲伤表情",
     "worried": "worried",
     "angry": "生气表情",
-    "pout": "生气表情",
+    "pout": "pout",
     "surprised": "圈圈眼",
     "confused": "圈圈眼",
     "calm": "重置",
     "blank": "重置",
-    "neutral": "重置"
+    "neutral": "重置",
+    "smile": "happy"
   },
   "speechMouthParams": [
     "Param216"

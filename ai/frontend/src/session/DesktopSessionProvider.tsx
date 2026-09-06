@@ -12,6 +12,7 @@ import {
 import { eventBus } from '../core/event-bus'
 import { RuntimeAdapter } from '../runtime/adapter'
 import { runtimeWebSocketUrl } from '../runtime/client'
+import { configureResidueRequest } from '../character/performance/ResidueIdleTint.ts'
 import { AudioPlayer } from '../audio/player'
 import {
   bytesToBase64,
@@ -78,6 +79,11 @@ export function DesktopSessionWorkspace() {
   const cameraSampleTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const cameraAutoOpenedRef = useRef(false)
   const visualPolicyRef = useRef<VisualPolicy>(DEFAULT_VISUAL_POLICY)
+  // Persisted-settings hydration gate: the WS connect sync must not fire
+  // before /api/settings resolves, or it pushes store DEFAULTS (e.g.
+  // proactive: true) over the user's persisted false — silently re-enabling
+  // backend modules the user turned off.
+  const settingsHydratedRef = useRef(false)
 
   // Initialize Runtime adapter and Audio player
   useEffect(() => {
@@ -91,6 +97,10 @@ export function DesktopSessionWorkspace() {
       finishTimer?: ReturnType<typeof setTimeout>
     } | null = null
     clientRef.current = client
+    // Residue idle tint: the session layer owns the command transport; the
+    // performance engine fires classify_residue on idle entry (no payload —
+    // the backend self-serves the freshest turns from its own recorder).
+    configureResidueRequest((action, params = {}) => client.requestCommand(action, params))
     audioRef.current = audio
     void fetchVisualPolicy().then(policy => { visualPolicyRef.current = policy }).catch(() => {})
 
@@ -98,15 +108,18 @@ export function DesktopSessionWorkspace() {
       actions.setConnection(connected ? 'connected' : 'disconnected')
       if (connected) {
         client.sendCommand('get_histories', {})
-        // Sync proactive settings to backend on reconnect (use ref for latest)
-        const s = settingsRef.current
-        client.sendCommand('set_proactive', { enabled: s.proactive })
-        client.sendCommand('set_proactive_idle', { seconds: s.proactiveIdleTime })
-        client.sendCommand('set_screen_vision', { enabled: s.screenVisionEnabled })
-        client.sendCommand('set_vision_source', { source: 'voice_camera', enabled: s.voiceCameraEnabled })
-        client.sendCommand('set_vision_source', { source: 'voice_screen', enabled: s.voiceScreenEnabled })
-        client.sendCommand('set_vision_source', { source: 'text_camera', enabled: s.textCameraEnabled })
-        client.sendCommand('set_vision_source', { source: 'text_screen', enabled: s.textScreenEnabled })
+        // Sync proactive settings to backend on reconnect (use ref for latest).
+        // Gated on hydration: before /api/settings resolves these values are
+        // store defaults, not the user's persisted choices.
+        if (settingsHydratedRef.current) {
+          const s = settingsRef.current
+          client.sendCommand('set_proactive', { enabled: s.proactive })
+          client.sendCommand('set_proactive_idle', { seconds: s.proactiveIdleTime })
+          client.sendCommand('set_screen_vision', { enabled: s.screenVisionEnabled })
+          // Camera sources are frontend-owned; only screen sources have backend flags.
+          client.sendCommand('set_vision_source', { source: 'voice_screen', enabled: s.voiceScreenEnabled })
+          client.sendCommand('set_vision_source', { source: 'text_screen', enabled: s.textScreenEnabled })
+        }
       }
     })
 
@@ -338,29 +351,21 @@ export function DesktopSessionWorkspace() {
       for (const [key, value] of Object.entries(s)) {
         try { actions.setSetting(key as keyof AppSettings, value) } catch (_) {}
       }
-      // Sync proactive to backend (handles case where WS already connected)
-      if (clientRef.current) {
-        if ('proactive' in s) {
-          clientRef.current.sendCommand('set_proactive', { enabled: s.proactive })
-        }
-        if ('proactiveIdleTime' in s) {
-          clientRef.current.sendCommand('set_proactive_idle', { seconds: s.proactiveIdleTime })
-        }
-        if ('screenVisionEnabled' in s) {
-          clientRef.current.sendCommand('set_screen_vision', { enabled: s.screenVisionEnabled })
-        }
-        if ('voiceCameraEnabled' in s) {
-          clientRef.current.sendCommand('set_vision_source', { source: 'voice_camera', enabled: s.voiceCameraEnabled })
-        }
-        if ('voiceScreenEnabled' in s) {
-          clientRef.current.sendCommand('set_vision_source', { source: 'voice_screen', enabled: s.voiceScreenEnabled })
-        }
-        if ('textCameraEnabled' in s) {
-          clientRef.current.sendCommand('set_vision_source', { source: 'text_camera', enabled: s.textCameraEnabled })
-        }
-        if ('textScreenEnabled' in s) {
-          clientRef.current.sendCommand('set_vision_source', { source: 'text_screen', enabled: s.textScreenEnabled })
-        }
+      // Persisted settings are now authoritative: publish them to the runtime.
+      // Runs here (not only on connection:change) because the WS may have
+      // opened before this fetch resolved — the earlier sync was suppressed
+      // by settingsHydratedRef, and a sendCommand issued while the socket is
+      // still CONNECTING would be silently dropped.
+      settingsHydratedRef.current = true
+      settingsRef.current = { ...settingsRef.current, ...s }
+      const runtimeClient = clientRef.current
+      if (runtimeClient?.connected) {
+        const hydrated = s as Partial<AppSettings>
+        runtimeClient.sendCommand('set_proactive', { enabled: Boolean(hydrated.proactive) })
+        runtimeClient.sendCommand('set_proactive_idle', { seconds: Number(hydrated.proactiveIdleTime ?? 120) })
+        runtimeClient.sendCommand('set_screen_vision', { enabled: Boolean(hydrated.screenVisionEnabled) })
+        runtimeClient.sendCommand('set_vision_source', { source: 'voice_screen', enabled: Boolean(hydrated.voiceScreenEnabled) })
+        runtimeClient.sendCommand('set_vision_source', { source: 'text_screen', enabled: Boolean(hydrated.textScreenEnabled) })
       }
       if ('alwaysOnTop' in s) {
         window.electronAPI?.setAlwaysOnTop(Boolean(s.alwaysOnTop))
@@ -442,6 +447,25 @@ export function DesktopSessionWorkspace() {
       recorder.stop()
       recorderRef.current = null
     }
+  }, [])
+
+  // The runtime drops audio bound to a turn that is no longer active (the
+  // previous turn was still finishing when the mic opened). Stop the capture
+  // cleanly instead of streaming into the void; the next press starts a fresh
+  // session once the runtime is idle again.
+  useEffect(() => {
+    return eventBus.on('audio:turn-stale', ({ turnId }) => {
+      console.warn('[Mic] audio turn rejected by runtime, stopping capture:', turnId)
+      stopCameraSampling()
+      cameraAttachmentsRef.current = []
+      if (cameraAutoOpenedRef.current) {
+        cameraAutoOpenedRef.current = false
+        setCameraWindowOpen(false)
+        cameraSession.stop()
+      }
+      recorderRef.current?.stop()
+      clientRef.current?.sendAudioEnd()
+    })
   }, [])
 
   const stopCameraSampling = useCallback(() => {
@@ -587,15 +611,10 @@ export function DesktopSessionWorkspace() {
     } else if (key === 'screenVisionEnabled') {
       client?.sendCommand('set_screen_vision', { enabled: value })
     } else if (key === 'cameraEnabled') {
+      // Camera capture/upload is frontend-owned; no backend flag to sync.
       if (!value) closeCameraWindow()
-      client?.sendCommand('set_vision_source', { source: 'voice_camera', enabled: Boolean(value) && settings.voiceCameraEnabled })
-      client?.sendCommand('set_vision_source', { source: 'text_camera', enabled: Boolean(value) && settings.textCameraEnabled })
-    } else if (key === 'voiceCameraEnabled') {
-      client?.sendCommand('set_vision_source', { source: 'voice_camera', enabled: value })
     } else if (key === 'voiceScreenEnabled') {
       client?.sendCommand('set_vision_source', { source: 'voice_screen', enabled: value })
-    } else if (key === 'textCameraEnabled') {
-      client?.sendCommand('set_vision_source', { source: 'text_camera', enabled: value })
     } else if (key === 'textScreenEnabled') {
       client?.sendCommand('set_vision_source', { source: 'text_screen', enabled: value })
     } else if (key === 'windowMode') {

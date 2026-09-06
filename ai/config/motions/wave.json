@@ -3,28 +3,120 @@
   "duration": 1500,
   "recoveryMs": 420,
   "keyframes": [
-    {"time": 0, "parameter": "head.z", "value": 0},
-    {"time": 120, "parameter": "head.z", "value": 1.2},
-    {"time": 330, "parameter": "head.z", "value": -6.8},
-    {"time": 650, "parameter": "head.z", "value": 4.6},
-    {"time": 970, "parameter": "head.z", "value": -4.8},
-    {"time": 1230, "parameter": "head.z", "value": 2.0},
-    {"time": 1500, "parameter": "head.z", "value": 0},
-    {"time": 0, "parameter": "head.y", "value": 0},
-    {"time": 240, "parameter": "head.y", "value": -1.2},
-    {"time": 610, "parameter": "head.y", "value": 1.0},
-    {"time": 980, "parameter": "head.y", "value": -0.7},
-    {"time": 1500, "parameter": "head.y", "value": 0},
-    {"time": 0, "parameter": "body.x", "value": 0},
-    {"time": 160, "parameter": "body.x", "value": 0.7},
-    {"time": 390, "parameter": "body.x", "value": -2.7},
-    {"time": 730, "parameter": "body.x", "value": 2.3},
-    {"time": 1080, "parameter": "body.x", "value": -1.8},
-    {"time": 1500, "parameter": "body.x", "value": 0},
-    {"time": 0, "parameter": "body.y", "value": 0},
-    {"time": 360, "parameter": "body.y", "value": 0.9},
-    {"time": 830, "parameter": "body.y", "value": -0.5},
-    {"time": 1220, "parameter": "body.y", "value": 0.4},
-    {"time": 1500, "parameter": "body.y", "value": 0}
+    {
+      "time": 0,
+      "parameter": "head.z",
+      "value": 0
+    },
+    {
+      "time": 80,
+      "parameter": "head.z",
+      "value": 1.2
+    },
+    {
+      "time": 320,
+      "parameter": "head.z",
+      "value": -6.5
+    },
+    {
+      "time": 780,
+      "parameter": "head.z",
+      "value": 3.6
+    },
+    {
+      "time": 1150,
+      "parameter": "head.z",
+      "value": -1.6
+    },
+    {
+      "time": 1350,
+      "parameter": "head.z",
+      "value": 0.6
+    },
+    {
+      "time": 1500,
+      "parameter": "head.z",
+      "value": 0
+    },
+    {
+      "time": 0,
+      "parameter": "head.y",
+      "value": 0
+    },
+    {
+      "time": 170,
+      "parameter": "head.y",
+      "value": -1.2
+    },
+    {
+      "time": 470,
+      "parameter": "head.y",
+      "value": 1
+    },
+    {
+      "time": 1150,
+      "parameter": "head.y",
+      "value": -0.5
+    },
+    {
+      "time": 1500,
+      "parameter": "head.y",
+      "value": 0
+    },
+    {
+      "time": 0,
+      "parameter": "body.x",
+      "value": 0
+    },
+    {
+      "time": 160,
+      "parameter": "body.x",
+      "value": 0.6
+    },
+    {
+      "time": 290,
+      "parameter": "body.x",
+      "value": -2.4
+    },
+    {
+      "time": 780,
+      "parameter": "body.x",
+      "value": 1.6
+    },
+    {
+      "time": 1250,
+      "parameter": "body.x",
+      "value": -1.2
+    },
+    {
+      "time": 1500,
+      "parameter": "body.x",
+      "value": 0
+    },
+    {
+      "time": 0,
+      "parameter": "body.y",
+      "value": 0
+    },
+    {
+      "time": 260,
+      "parameter": "body.y",
+      "value": 0.9
+    },
+    {
+      "time": 830,
+      "parameter": "body.y",
+      "value": -0.5
+    },
+    {
+      "time": 1220,
+      "parameter": "body.y",
+      "value": 0.4
+    },
+    {
+      "time": 1500,
+      "parameter": "body.y",
+      "value": 0
+    }
   ]
 }

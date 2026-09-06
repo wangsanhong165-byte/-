@@ -116,7 +116,10 @@ test('shirone profile exposes only real torso, face, ear, and tail controls', ()
   assert.equal(profile.bindings['arm.right.upper'], undefined)
   assert.equal(profile.bindings['hand.right'], undefined)
   assert.deepEqual(profile.motions, ['nod', 'tilt', 'sway', 'thinking', 'ear_flick', 'tail_sweep'])
-  assert.equal(profile.semanticMotionMap?.greet, 'sway')
+  assert.deepEqual(
+    profile.semanticMotionMap?.greet,
+    { motion: 'sway', intensityScale: 0.92 },
+  )
   assert.equal(profile.semanticMotionMap?.wave, 'sway')
   assert.equal(profile.semanticMotionMap?.excited, 'tail_sweep')
   assert.deepEqual(profile.nativeMotionChannels?.idle, ['secondary'])
@@ -130,6 +133,12 @@ test('shirone profile exposes only real torso, face, ear, and tail controls', ()
   assert.equal(profile.expressionParameterPolicy?.minimumBlendDurationMs, 460)
   assert.equal(profile.expressionMap?.happy, 'happy')
   assert.equal(profile.expressionMap?.joyful, '星星眼')
+  // pout must NOT share angry's face: a sulky pout wearing the full 生气表情
+  // (脸黑+重眉+鼓嘴) reads as "always angry" — the 2026-09-04 separation.
+  // pout resolves to the dedicated preset, angry to the model expression.
+  assert.equal(profile.expressionMap?.pout, 'pout')
+  assert.equal(profile.expressionMap?.angry, '生气表情')
+  assert.notEqual(profile.expressionMap?.pout, profile.expressionMap?.angry)
   const model3 = JSON.parse(readFileSync(
     new URL('../../../models/live2d-models/shirone/shirone.model3.json', import.meta.url),
     'utf8',
@@ -207,12 +216,22 @@ test('shirone keeps the LLM emotion authoritative for neutral greetings', () => 
     new URL('../../../config/live2d_models.json', import.meta.url),
     'utf8',
   )) as Record<string, {
-    behavior_map: Record<string, { motion?: string; expression?: string }>
+    behavior_map?: Record<string, { motion?: string; expression?: string }>
     personality?: { expressionIntensityScale?: number }
   }>
+  const profile = JSON.parse(readFileSync(
+    new URL('../../../config/avatar_profiles/shirone.json', import.meta.url),
+    'utf8',
+  )) as {
+    semanticMotionMap?: Record<string, { motion?: string; expression?: string } | string>
+  }
 
-  assert.equal(configs.shirone.behavior_map.greet.motion, 'sway')
-  assert.equal(configs.shirone.behavior_map.greet.expression, undefined)
+  // behavior_map is retired for shirone (2026-09-05 consolidation into the
+  // profile's semanticMotionMap). The lock survives: greet carries modifiers
+  // but NO expression override — a neutral-emotion greeting never repaints
+  // the LLM's chosen face.
+  assert.equal(configs.shirone.behavior_map, undefined)
+  assert.deepEqual(profile.semanticMotionMap?.greet, { motion: 'sway', intensityScale: 0.92 })
   assert.equal(configs.shirone.personality?.expressionIntensityScale, 1.12)
 })
 

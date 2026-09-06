@@ -64,6 +64,9 @@ interface ActiveMotion {
   }
   preset?: MotionPreset
   nativeName?: string
+  /** Logical plays alternate a left/right mirror so no directional preset
+   *  (thinking glance, tilt, wave) can bias the character to one side. */
+  mirror?: boolean
   startedAt: number
   duration: number
   expiresAt: number
@@ -115,6 +118,7 @@ export class MotionArbiter {
   private nativeMotionChannels: Record<string, MotionChannel[]> = {}
   private nativeFrame: NativeMotionContribution[] = []
   private nativeFallbackReason = ''
+  private mirrorToggle = true
   private readonly clock: () => number
 
   constructor(clock: () => number = () => performance.now()) {
@@ -197,10 +201,12 @@ export class MotionArbiter {
 
     const now = this.clock()
     const duration = input.durationMs ?? preset?.duration ?? 0
+    const mirror = nativeAvailable ? false : (this.mirrorToggle = !this.mirrorToggle)
     this.active.set(request.owner, {
       request,
       preset: nativeAvailable ? undefined : preset,
       nativeName: nativeAvailable ? nativeName : undefined,
+      mirror,
       startedAt: now,
       duration,
       expiresAt: input.timeoutMs === undefined
@@ -316,7 +322,14 @@ export class MotionArbiter {
         ? 0.5 + (value - 0.5) * active.request.intensity
         : value * active.request.intensity,
     ]))
-    return { values, weight: Math.min(fadeInWeight, recoveryWeight) }
+    if (!active.mirror) return { values, weight: Math.min(fadeInWeight, recoveryWeight) }
+    // Mirrored play: negate yaw/roll/turn axes, keep pitch — the same gesture
+    // performed toward the other side.
+    const mirrored = Object.fromEntries(Object.entries(values).map(([parameter, value]) => [
+      parameter,
+      parameter.endsWith('.x') || parameter.endsWith('.z') ? -value : value,
+    ]))
+    return { values: mirrored, weight: Math.min(fadeInWeight, recoveryWeight) }
   }
 
   releaseState(turnId: string): boolean {
@@ -339,6 +352,12 @@ export class MotionArbiter {
 
   clearQueue(): void { this.queue = [] }
   isPlaying(): boolean { return this.active.size > 0 }
+  /** Authored duration of a registered logical preset, in ms. Callers pace
+   *  related effects off the same timeline instead of re-hardcoding the value
+   *  (e.g. the thinking glance mirrors config/motions/thinking.json). */
+  getPresetDuration(name: string): number | undefined {
+    return this.presets[name.toLowerCase()]?.duration
+  }
   ownsChannel(channel: MotionChannel): boolean {
     return [...this.active.values()].some(active =>
       active.request.channels.includes('full') || active.request.channels.includes(channel))

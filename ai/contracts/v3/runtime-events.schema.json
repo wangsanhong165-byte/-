@@ -453,6 +453,18 @@
                 "default": null,
                 "title": "Emotion"
               },
+              "leak": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Leak"
+              },
               "behavior": {
                 "anyOf": [
                   {
@@ -659,6 +671,18 @@
           "emotion": {
             "title": "Emotion",
             "type": "string"
+          },
+          "leak": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Leak"
           },
           "behavior": {
             "title": "Behavior",
@@ -1670,6 +1694,55 @@
     "user.audio.completed": {
       "scope": "turn",
       "payload": {
+        "$defs": {
+          "VisualAttachmentPayload": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "maxLength": 36,
+                "minLength": 36,
+                "title": "Id",
+                "type": "string"
+              },
+              "mimeType": {
+                "enum": [
+                  "image/jpeg",
+                  "image/png",
+                  "image/webp"
+                ],
+                "title": "Mimetype",
+                "type": "string"
+              },
+              "width": {
+                "exclusiveMinimum": 0,
+                "maximum": 8192,
+                "title": "Width",
+                "type": "integer"
+              },
+              "height": {
+                "exclusiveMinimum": 0,
+                "maximum": 8192,
+                "title": "Height",
+                "type": "integer"
+              },
+              "sizeBytes": {
+                "exclusiveMinimum": 0,
+                "maximum": 33554432,
+                "title": "Sizebytes",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "mimeType",
+              "width",
+              "height",
+              "sizeBytes"
+            ],
+            "title": "VisualAttachmentPayload",
+            "type": "object"
+          }
+        },
         "additionalProperties": false,
         "properties": {
           "sampleRate": {
@@ -1684,6 +1757,14 @@
             ],
             "default": null,
             "title": "Samplerate"
+          },
+          "attachments": {
+            "items": {
+              "$ref": "#/$defs/VisualAttachmentPayload"
+            },
+            "maxItems": 16,
+            "title": "Attachments",
+            "type": "array"
           }
         },
         "title": "UserAudioCompletedPayload",

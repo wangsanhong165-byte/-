@@ -742,6 +742,11 @@ class RuntimeManager:
         embedding engine (performance-layer idle residue, E2 motion corpus,
         any future consumer). Read-only; degrades to {"available": False}
         when the vector channel is off.
+
+        Pure cosine by design — the cross-encoder lives behind
+        app.memory.reranker.rerank_ranking for consumers that need precision
+        reranking of a fused head (store/arbitrator/reflection do); wire it
+        here only when a consumer demonstrably needs it.
         """
         from app.memory.embedder import get_embedder
 
@@ -766,7 +771,7 @@ class RuntimeManager:
         scored.sort(key=lambda item: item["score"], reverse=True)
         return {"available": True, "ranking": scored}
 
-    def classify_residue(self, recent_texts: list[str]) -> dict:
+    def classify_residue(self, recent_texts: list[str] | None = None) -> dict:
         """Match recent conversation turns against the residue corpus and
         return the nearest context label with its idle-behavior profile hint
         (config/conversation_residue_prototypes.json). Failure returns
@@ -786,13 +791,32 @@ class RuntimeManager:
             config_path,
             cache_dir=Path(__file__).resolve().parents[2] / "data" / "memory",
         )
-        joined = " ".join(str(text or "") for text in (recent_texts or []) if text)
+        texts = [str(t or "").strip() for t in (recent_texts or []) if str(t or "").strip()]
+        if not texts:
+            # Self-serve fallback: the frontend holds no conversation
+            # transcript, so the idle adapter fires the command with no
+            # payload and we classify the freshest turns from our own
+            # recorder (chronological order, both sides of the exchange).
+            try:
+                from app.runtime.turn_recorder import get_turn_recorder
+
+                turns = get_turn_recorder().list_turns(limit=6)
+            except Exception:
+                turns = []
+            texts = [
+                str(turn.get("summary") or "").strip()
+                for turn in reversed(turns)
+            ]
+            texts = [text for text in texts if text]
+        joined = " ".join(texts)
         if not joined.strip():
             return {"matched": False, "error": "no recent turns"}
-        match = classifier.classify(joined[:800])
-        if match is None:
+        ranked = classifier.rank(joined[:800])
+        if not ranked:
             return {"matched": False}
-        label, score = match
+        label, score = ranked[0]
+        ranking = [{"label": item_label, "score": round(item_score, 4)}
+                   for item_label, item_score in ranked]
         profile = {}
         try:
             data = json.loads(config_path.read_text(encoding="utf-8"))
@@ -808,7 +832,8 @@ class RuntimeManager:
                     profile = entry.get("idle_profile", {})
             except (OSError, json.JSONDecodeError):
                 profile = {}
-        return {"matched": True, "label": label, "score": round(score, 4), "idle_profile": profile}
+        return {"matched": True, "label": label, "score": round(score, 4),
+                "ranking": ranking, "idle_profile": profile}
 
     def get_compiled_memory_view(self) -> dict:
         """Return the active character's compiled memory (the LLM-facing summary)."""

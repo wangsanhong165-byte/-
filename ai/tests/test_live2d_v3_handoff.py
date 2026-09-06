@@ -89,5 +89,7 @@ class TestLive2DV3Handoff(unittest.TestCase):
 
         _run(Live2DStep().run(ctx))
 
-        self.assertEqual(ctx.live2d_intent["motion_plan"]["steps"][0]["primitive"], "tilt_left")
+        # 2026-09-05 slimming: segment/interpreter motion plans are dropped —
+        # beat scheduling belongs to the local director on the frontend.
+        self.assertIsNone(ctx.live2d_intent["motion_plan"])
         self.assertEqual(ctx.live2d_intent["energy"], 0.4)

@@ -427,8 +427,12 @@ def test_idle_behavior_exposes_correlated_body_drift():
     assert "BodySwayController" in idle
     assert "bodyX: number" in idle
     assert "bodyY: number" in idle
-    assert "'body.x': snapshot.bodyX * gain" in ambient
-    assert "'body.y': snapshot.bodyY * gain" in ambient
+    # 2026-09-05 whole-body linkage: torso couples to head rotation (x 32%,
+    # y 18%) instead of drifting alone. F2: the y-coupling is clamped so head
+    # sway overshoot cannot leak a forward body pitch into idle.
+    assert "'body.x': (snapshot.bodyX + snapshot.headX * 0.32) * gain" in ambient
+    assert "'body.y': (snapshot.bodyY + clamp(snapshot.headY * 0.18, -0.3, 0.3)) * gain" in ambient
+    assert "clamp(snapshot.headY * 0.18, -0.3, 0.3)" in ambient
 
 
 def test_idle_action_scheduler_is_capability_aware_and_avoids_repetition():
@@ -872,7 +876,9 @@ def test_idle_and_speech_share_one_smooth_activity_pose():
     ).read_text(encoding="utf-8")
     assert "if (this.activity === 'idle')" in source
     assert "else if (this.activity === 'speaking')" in source
-    assert "this.current = approachPose(this.current, target, delta)" in source
+    # idle and speaking share ONE smooth pose integrator (handoff slows the
+    # release direction after activity switches).
+    assert "this.current = approachPose(this.current, target, delta, handoff)" in source
 
 
 def test_pet_mode_tracks_delayed_idle_timer_and_ignores_duplicate_end():

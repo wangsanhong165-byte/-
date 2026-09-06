@@ -23,6 +23,7 @@ from app.runtime.character_turn import CharacterTurn, TurnInput
 from app.runtime.visual_attachments import (
     VisualAttachmentError,
     VisualAttachmentStore,
+    enforce_image_budget,
     validate_visual_attachment_policy,
 )
 from app.runtime.visual_context import TurnVisualContext
@@ -89,13 +90,20 @@ class RuntimeEventHandler:
         if self._active_task and not self._active_task.done():
             self._active_task.cancel()
 
-    def _resolve_visual_attachments(self, attachments: list) -> tuple[dict, ...]:
-        validate_visual_attachment_policy(count=len(attachments))
+    def _resolve_visual_attachments(
+        self, attachments: list, reserved_extra: dict | None = None,
+    ) -> tuple[dict, ...]:
+        # Budget trim precedes the count gate: camera sampling can out-produce
+        # maxImages and must shed its OLDEST frames instead of failing the
+        # whole turn (the desktop frame keeps its reserved slot).
+        trimmed = enforce_image_budget(list(attachments), reserved_extra)
         store = VisualAttachmentStore()
-        return tuple(
+        resolved = tuple(
             store.resolve(item.attachment_id).to_public_dict()
-            for item in attachments
+            for item in trimmed
         )
+        validate_visual_attachment_policy(count=len(resolved))
+        return resolved
 
     def _screen_frame_for_turn(self, source: str) -> tuple[dict, ...]:
         runtime = getattr(self, "runtime", None)
@@ -125,9 +133,13 @@ class RuntimeEventHandler:
                     store.resolve(item.attachment_id).to_public_dict()
                     for item in payload.attachments
                 )
-                visual_attachments = (
-                    attachments + self._screen_frame_for_turn("text_screen")
-                )
+                screen_frame = self._screen_frame_for_turn("text_screen")
+                # The desktop frame shares the per-request image budget with
+                # manually attached images; drop the oldest images rather than
+                # failing the whole turn at the adapter.
+                visual_attachments = tuple(
+                    enforce_image_budget(list(attachments), screen_frame[0] if screen_frame else None)
+                ) + screen_frame
                 validate_visual_attachment_policy(count=len(visual_attachments))
             except VisualAttachmentError as exc:
                 return [error_envelope(
@@ -179,8 +191,14 @@ class RuntimeEventHandler:
                     turn_id=event.turn_id or "",
                 )]
             try:
+                screen_frame = self._screen_frame_for_turn("voice_screen")
+                # Camera sampling can produce up to LLM_CAMERA_MAX_FRAMES while
+                # the request budget is maxImages; the resolver sheds the
+                # OLDEST camera frames and always keeps the desktop frame
+                # instead of failing the turn.
                 camera_attachments = self._resolve_visual_attachments(
-                    payload.attachments
+                    payload.attachments,
+                    reserved_extra=screen_frame[0] if screen_frame else None,
                 )
             except VisualAttachmentError as exc:
                 self._set_user_input_active(False)
@@ -190,9 +208,7 @@ class RuntimeEventHandler:
                     session_id=event.session_id,
                     turn_id=event.turn_id or "",
                 )]
-            visual_attachments = (
-                camera_attachments + self._screen_frame_for_turn("voice_screen")
-            )
+            visual_attachments = camera_attachments + screen_frame
             return await self._start_or_run_turn(TurnInput(
                 audio=audio,
                 sample_rate=self._sample_rate,

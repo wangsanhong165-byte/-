@@ -335,15 +335,23 @@ export function compileMotionPlanForModel(
 }
 
 function primitiveFrames(primitive: MotionPrimitive): PrimitiveFrame[] {
-  // Peaks restore the Phase-A calibration baseline (docs/live2d-tuning-plan.md,
-  // validated against the video reference) — the earlier +30% overshoot read as
-  // overacted. Shape stays asymmetric: fast attack, settle, no metronome.
+  // 2026-09-05 dynamics classes: the old single profile (fast attack +
+  // overshoot) is right for LIGHT head beats and wrong for MASS moves — a
+  // torso lean with a head-beat attack reads eerie when slow and twitchy
+  // when fast (user report). Three archetypes:
+  //   snappy  — light head/eye accents: fast attack, 12% overshoot, settle
+  //   weighted— torso mass moves: anticipation (~8% reverse), slow-in to a
+  //             .5 peak, long settle; secondary axes (head/gaze) absent from
+  //             early frames stay 0 and therefore LAG the torso for free
+  //   fluid   — gaze/glides: no attack, no overshoot, eyes lead
+  // Peaks keep the Phase-A calibration amplitudes (docs/live2d-tuning-plan.md).
   switch (primitive) {
     case 'nod':
       return [
         { progress: 0, values: { 'head.y': 0 } },
-        { progress: .28, values: { 'head.y': -9 } },
-        { progress: .62, values: { 'head.y': 5 } },
+        { progress: .10, values: { 'head.y': -9 } },
+        { progress: .40, values: { 'head.y': -10 } },
+        { progress: .72, values: { 'head.y': 5 } },
         { progress: 1, values: { 'head.y': 0 } },
       ]
     case 'tilt_left':
@@ -351,24 +359,26 @@ function primitiveFrames(primitive: MotionPrimitive): PrimitiveFrame[] {
     case 'tilt_right':
       return axisFrames('head.z', 12)
     case 'lean_forward':
-      return combinedFrames({ 'body.y': 6, 'head.y': 3 })
+      return weightedFrames({ 'body.y': 6, 'head.y': 3 })
     case 'lean_back':
-      return combinedFrames({ 'body.y': -5, 'head.y': -2 })
+      return weightedFrames({ 'body.y': -5, 'head.y': -2 })
     case 'sway':
       // Asymmetric travel with unequal endpoints: same time and distance
-      // both ways reads as a metronome, not a weight shift.
+      // both ways reads as a metronome, not a weight shift. Lateral twist is
+      // medium mass — soft attack, small overshoot.
       return [
         { progress: 0, values: { 'body.x': 0, 'head.z': 0 } },
-        { progress: .32, values: { 'body.x': -7, 'head.z': -4 } },
-        { progress: .7, values: { 'body.x': 6.4, 'head.z': 3.6 } },
+        { progress: .16, values: { 'body.x': -7, 'head.z': -4 } },
+        { progress: .45, values: { 'body.x': -7.4, 'head.z': -4.2 } },
+        { progress: .78, values: { 'body.x': 6.4, 'head.z': 3.6 } },
         { progress: 1, values: { 'body.x': 0, 'head.z': 0 } },
       ]
     case 'look_left':
-      return combinedFrames({ 'eye.x': -.75, 'head.x': -7 })
+      return fluidLookFrames(-1)
     case 'look_right':
-      return combinedFrames({ 'eye.x': .75, 'head.x': 7 })
+      return fluidLookFrames(1)
     case 'breathe':
-      return axisFrames('body.y', 3.5)
+      return fluidFrames({ 'body.y': 3.5 })
     case 'shrug':
       return combinedFrames({ 'body.y': 3.5, 'head.z': 2.5 })
   }
@@ -380,16 +390,64 @@ function axisFrames(parameter: string, peak: number): PrimitiveFrame[] {
 
 function combinedFrames(values: Record<string, number>): PrimitiveFrame[] {
   const zero = Object.fromEntries(Object.keys(values).map(key => [key, 0]))
-  const settle = Object.fromEntries(
-    Object.keys(values).map(key => [key, values[key] * -0.1]),
+  const overshoot = Object.fromEntries(
+    Object.keys(values).map(key => [key, values[key] * 1.12]),
   )
-  // Fast attack, slow release with a slight counter-sway settle: a symmetric
-  // out-and-back arch reads as canned animation, real beats recoil a little.
+  const settle = Object.fromEntries(
+    Object.keys(values).map(key => [key, values[key] * -0.08]),
+  )
+  return [
+    { progress: 0, values: zero },
+    { progress: .10, values },
+    { progress: .40, values: overshoot },
+    { progress: .85, values: settle },
+    { progress: 1, values: zero },
+  ]
+}
+
+function weightedFrames(values: Record<string, number>): PrimitiveFrame[] {
+  // Only the PRIMARY axis (first key) participates in anticipation — the
+  // secondary axes (head/gaze) are absent from the early frames, and the
+  // compiler treats missing as 0, so they LAG the torso for free.
+  const primary = Object.keys(values)[0]
+  const zero = Object.fromEntries(Object.keys(values).map(key => [key, 0]))
+  const anticipation = { [primary]: values[primary] * -0.08 }
+  const hold = Object.fromEntries(
+    Object.keys(values).map(key => [key, values[key] * 0.9]),
+  )
+  // Mass move: tiny counter-move first (anticipation), slow-in to the .5
+  // peak, long weighted settle.
+  return [
+    { progress: 0, values: zero },
+    { progress: .07, values: anticipation },
+    { progress: .5, values },
+    { progress: .8, values: hold },
+    { progress: 1, values: zero },
+  ]
+}
+
+function fluidFrames(values: Record<string, number>): PrimitiveFrame[] {
+  const zero = Object.fromEntries(Object.keys(values).map(key => [key, 0]))
+  const glide = Object.fromEntries(
+    Object.keys(values).map(key => [key, values[key] * 0.94]),
+  )
   return [
     { progress: 0, values: zero },
     { progress: .3, values },
-    { progress: .82, values: settle },
+    { progress: .75, values: glide },
     { progress: 1, values: zero },
+  ]
+}
+
+function fluidLookFrames(side: -1 | 1): PrimitiveFrame[] {
+  // Eyes lead the glance, head follows late, then both ease back — a look
+  // is never one rigid axis.
+  return [
+    { progress: 0, values: { 'eye.x': 0, 'head.x': 0 } },
+    { progress: .14, values: { 'eye.x': side * .75, 'head.x': 0 } },
+    { progress: .5, values: { 'eye.x': side * .6, 'head.x': side * 7 } },
+    { progress: .85, values: { 'eye.x': side * .18, 'head.x': side * 5.2 } },
+    { progress: 1, values: { 'eye.x': 0, 'head.x': 0 } },
   ]
 }
 

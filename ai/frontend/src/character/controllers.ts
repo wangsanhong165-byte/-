@@ -8,6 +8,7 @@ import { getExpression } from './live2d/expression'
 import { ExpressionController } from './ExpressionController'
 import { MotionArbiter } from './MotionArbiter'
 import { resolveAccessoryParameterState } from './AccessoryState.ts'
+import { cancelLeakArc, scheduleLeakArc, type LeakArcHooks } from './performance/LeakArcScheduler.ts'
 import { CharacterBehaviorResolver, type CharacterBehaviorConfig } from './CharacterBehaviorResolver'
 import { CharacterPerformancePolicy } from './CharacterPerformancePolicy'
 import { shouldStartAuthoredIdle, type AvatarCapabilityProfile } from './AvatarCapabilityProfile'
@@ -15,6 +16,7 @@ import { AvatarParameterResolver } from './AvatarParameterResolver'
 import { ParameterMixer } from './ParameterMixer'
 import { LipSyncController, LIP_SYNC_PRIORITY } from './LipSyncController'
 import { resolveMotionStyle } from './performance/MotionStyle'
+import { enterThinking } from './performance/activity-entries'
 import { VADState } from './performance/VADState'
 import { PrivateEmotionOverlay } from './performance/PrivateEmotionOverlay'
 import type { AmbientPerformanceChannel } from './performance/AmbientPerformanceEngine'
@@ -211,7 +213,13 @@ export class CharacterController {
   attention = new AttentionController()
   frameTiming = new FrameTimingMonitor()
   embodiedTracking = new EmbodiedTrackingController()
-  performanceDirector = new PerformanceDirector()
+  performanceDirector = new PerformanceDirector(undefined, {
+    // Mood pacing: per-segment LLM emotion labels must not flicker the face
+    // clip by clip. 900ms ≈ 2x the 500ms expression fade Live2D defaults to —
+    // long enough to stop A/B/A whiplash, short enough that a one-sentence
+    // mood (~1-1.5s) still shows. Neutral is exempt (see holdEmotion).
+    emotionHoldMs: 900,
+  })
   presentationIngress = new PresentationIngress()
 
   // References set externally by the animation loop
@@ -230,6 +238,7 @@ export class CharacterController {
   private _modelGeneration = 0
   private _profile: AvatarCapabilityProfile | undefined
   private _style = resolveMotionStyle()
+  private _idlePhraseSeq = 0
   private _performanceMode: PerformanceMode = 'enhanced'
   private _parameterGain = 1.45
   private _bodyMotionGain = 1.25
@@ -239,6 +248,13 @@ export class CharacterController {
   private _expressionEmotions: string[] = []
   private _emotionResolution: Record<string, string> = {}
   private _nativeMotions: string[] = []
+  /** Pending dual-emotion leak arc timers (mid-segment true-feeling slips). */
+  private _leakTimers: Array<ReturnType<typeof setTimeout>> | null = null
+  private readonly _leakArcHooks: LeakArcHooks = {
+    apply: (expression, intensity, blendMs) => this.exprCtrl.apply(expression, intensity, blendMs),
+    schedule: (fn, delayMs) => setTimeout(fn, delayMs),
+    cancel: handle => clearTimeout(handle),
+  }
   private _performanceResetTimer: ReturnType<typeof setTimeout> | null = null
   private _audioEndTimer: ReturnType<typeof setTimeout> | null = null
   private _turnCompletionTimer: ReturnType<typeof setTimeout> | null = null
@@ -281,6 +297,24 @@ export class CharacterController {
     this.applyOutputGains()
     this._baseMotionPresets = (window as any).__INITIAL_MODEL_INFO__?.motionPresets ?? {}
     this.refreshMotionPresets()
+    // Idle-phrase bridge: preset-backed idle beats (ear_flick, tail_sweep)
+    // request through the real arbiter path — ownership, fade and release
+    // come free. Source 'idle' ranks below system/ai so any state or LLM
+    // motion preempts a phrase cleanly.
+    this.performanceCoordinator.setPhraseRequest(presetName => {
+      const preset = this._profile?.logicalMotionPresets?.find(
+        candidate => candidate.name === presetName,
+      )
+      if (!preset) return false
+      return this.motionArbiter.request({
+        name: presetName,
+        owner: `idle:phrase:${presetName}:${this._idlePhraseSeq += 1}`,
+        source: 'idle',
+        priority: 10,
+        timeoutMs: preset.duration + (preset.recoveryMs ?? 400) + 200,
+        intensity: 0.8,
+      })
+    })
     this.behaviorResolver.setConfig(config)
     // Per-emotion resolved target: emotionMap → profile expressionMap → '' when
     // the key exists in the vocabulary but resolves to nothing distinctive.
@@ -545,7 +579,7 @@ export class CharacterController {
     )
 
     this.cleanupFns.push(
-      eventBus.on('runtime:character.intent', ({ turnId, emotion, behavior, attention, energy, intensity, durationMs, naturalVAD, contextTags, motionPlan, segments }) => {
+      eventBus.on('runtime:character.intent', ({ turnId, emotion, leak, behavior, attention, energy, intensity, durationMs, naturalVAD, contextTags, motionPlan, segments }) => {
         if (!this.stateMachine.isCurrentTurn(turnId)) return
         // attention arrives as an untyped string over the event bus; fold any
         // value outside the documented target set back to the 'user' default
@@ -554,7 +588,7 @@ export class CharacterController {
           ? attention
           : 'user'
         this.performanceDirector.stage(
-          { turnId, emotion, behavior, attention: intentAttention, energy, intensity, durationMs, naturalVAD, contextTags, motionPlan },
+          { turnId, emotion, leak, behavior, attention: intentAttention, energy, intensity, durationMs, naturalVAD, contextTags, motionPlan },
           segments,
         )
       }),
@@ -583,12 +617,18 @@ export class CharacterController {
         this.presentationIngress.releaseTurn(turnId)
         this.performanceDirector.cancelTurn(turnId)
         this.motionArbiter.cancelTurn(turnId)
+        // A dead turn's leak arc must not flash a stale true-feeling face
+        // seconds after the user interrupted it.
+        cancelLeakArc(this._leakTimers, this._leakArcHooks)
+        this._leakTimers = null
         if (this.stateMachine.isCurrentTurn(turnId)) this.onActivityChange('idle', turnId)
       }),
       eventBus.on('runtime:turn.cancelled', ({ turnId }) => {
         this.presentationIngress.releaseTurn(turnId)
         this.performanceDirector.cancelTurn(turnId)
         this.motionArbiter.cancelTurn(turnId)
+        cancelLeakArc(this._leakTimers, this._leakArcHooks)
+        this._leakTimers = null
         if (this.stateMachine.isCurrentTurn(turnId)) this.onActivityChange('idle', turnId)
       }),
     )
@@ -641,18 +681,13 @@ export class CharacterController {
         break
       case 'thinking':
         this.idleCtrl.setBreathing(true)
-        // Thinking gaze drifts up/away before the answer (Neuro reference:
-        // recall is preceded by a visible gaze-away beat).
-        this.attention.set('away', 2_400)
-        this.motionArbiter.request({
-          name: 'thinking',
-          owner: `state:${turnId || this.stateMachine.turnId || 'local'}`,
-          source: 'system',
-          priority: 55,
-          channels: ['head', 'gaze'],
-          turnId: turnId || this.stateMachine.turnId,
-          intensity: 0.3,
-        })
+        // Glance + state motion live in the shared activity entry so the
+        // pipeline harness executes the exact same thinking entry.
+        enterThinking(
+          this.attention,
+          this.motionArbiter,
+          turnId || this.stateMachine.turnId || undefined,
+        )
         break
       case 'speaking':
         this.idleCtrl.setBreathing(true)
@@ -773,6 +808,16 @@ export class CharacterController {
       } else {
         this.idleCtrl.clearBlinkRateOverride()
       }
+      // 2026-09-05 dual-emotion: the leak shows LATE — the surface face holds
+      // past the midpoint, the true feeling slips through at ~55%, then the
+      // surface face reasserts for the exit. Only on long-enough segments.
+      cancelLeakArc(this._leakTimers, this._leakArcHooks)
+      this._leakTimers = scheduleLeakArc({
+        surface: policy.expression,
+        leak: policy.leakExpression ?? '',
+        surfaceIntensity: policy.expressionIntensity,
+        durationMs: activeIntent.durationMs ?? 0,
+      }, this._leakArcHooks)
     }
     const plannedMotion = intent.motionPlan
       ? compileMotionPlanForModel(
@@ -1211,6 +1256,17 @@ export class CharacterController {
 
     // Step 3: Idle animations
     this.idleCtrl.update(dt)
+    // Sleep breathing: the existing timing dial slowed by drowsiness (the
+    // 3.7s resting cycle stretches toward the 5-6s sleep cycle). Cheap per
+    // frame — setTiming only assigns scalars.
+    const sleepAmount = ambientFrame.idle?.sleepAmount ?? 0
+    if (sleepAmount > 0.01) {
+      this.idleCtrl.setTiming(
+        this._style.blinkRate,
+        this._style.breathRate * (1 - 0.35 * sleepAmount),
+        this._style.breathVariance,
+      )
+    }
 
     // Step 4: Submit per-frame behaviors to mixer
 

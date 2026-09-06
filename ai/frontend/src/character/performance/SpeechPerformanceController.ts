@@ -79,7 +79,7 @@ export class SpeechPerformanceController {
     // breathes with the voice instead of running at a constant volume.
     const envRate = level > this.levelEnvelope ? 3.2 : 1.4
     this.levelEnvelope += (level - this.levelEnvelope) * (1 - Math.exp(-delta * envRate))
-    const swayScale = 0.55 + 0.45 * this.levelEnvelope
+    const swayScale = 0.62 + 0.38 * this.levelEnvelope
     const onsetEnvelope = this.state === 'speaking'
       ? smoothstep(Math.min(1, this.elapsed / 0.22))
       : 0
@@ -91,36 +91,71 @@ export class SpeechPerformanceController {
       : this.state === 'speaking' ? 1 : 0
     if (this.state === 'releasing' && releaseEnvelope <= 0.001) this.state = 'idle'
 
-    // Organic micro-drift: pick a fresh random stance every 1.4-2.6s and let
-    // the spring carry the pose there. No two visits look alike, so nothing
-    // loops.
-    if (this.elapsed >= this.microHoldUntil) {
+    // Organic micro-drift: a fresh head stance every 1.8-3.4s — Neuro
+    // reference (25-tile grids across 2 stream days): the HEAD re-poses
+    // almost every sample (tilts ±10-15deg, chin up/down, turns) while the
+    // TORSO stays put. So head ranges are generous and frequent, body ranges
+    // stay small: motion density lives in the head, not the trunk.
+    // Head re-posing is ACCENT-GATED, not timer-gated: a new head stance is
+    // only picked when the voice energy is rising (a prosodic beat), with a
+    // grace re-pick if silence stretches. Random head motion uncorrelated
+    // with speech reads as baffling twitching; accent-locked motion reads as
+    // the head punctuating the sentence. The 0.03 threshold sits just above
+    // lip-sync noise on a held vowel so ordinary drift alone cannot re-pose
+    // the head, but a genuine onset (any syllable attack) fires instantly.
+    const levelRise = Math.max(0, level - this.previousAudioLevel)
+    if (this.elapsed >= this.microHoldUntil
+      && (levelRise > 0.04 || this.elapsed >= this.microHoldUntil + 1.6)) {
       const pick = (range: number) => (this.random() * 2 - 1) * range
-      this.microTarget['head.x'] = pick(3.5)
-      this.microTarget['head.y'] = pick(0.9)
-      this.microTarget['head.z'] = pick(2.4)
-      this.microTarget['body.x'] = pick(3.2)
-      this.microTarget['body.y'] = pick(1.3)
-      this.microTarget['body.z'] = pick(1.7)
-      this.microFreq = 0.34 + this.random() * 0.12
-      this.microHoldUntil = this.elapsed + 1.4 + this.random() * 1.2
+      // Comfort-gated stance: cap the jump so a re-pose never becomes a whip.
+      // A stance is a leaning, not a snap: when the new target is far from the
+      // current stance, clamp the leap to a reachable band — the spring then
+      // travels the rest through its normal rise, arriving as a glide.
+      const retarget = (axis: string, range: number): number => {
+        const chosen = pick(range)
+        const from = this.micro[axis]
+        const maxLeap = range * 1.1
+        return from + Math.max(-maxLeap, Math.min(maxLeap, chosen - from))
+      }
+      // 2026-09-05 retiering (user-validated live via parameter probe): the
+      // old stances (head.x 3.2, body.x 1.1) sat under the Neuro reference
+      // this controller cites — speech read as "small head drifting". New
+      // daily-speech tier: head re-poses reach the ±10-15deg reference band
+      // (head.x 4.2 x2.6 scale ≈ ±11deg peak), torso is a first-class
+      // channel (±6-7deg peaks); high-arousal energy gain lifts these into
+      // the performance tier. head.y pitch stays small — vertical drift is
+      // the accent channel's job (accentY), not the stance's. Cadence
+      // tightened to 1.5-2.9s so the head re-poses ~2x more often.
+      this.microTarget['head.x'] = retarget('head.x', 4.2)
+      this.microTarget['head.y'] = retarget('head.y', 0.8)
+      this.microTarget['head.z'] = retarget('head.z', 3.0)
+      this.microTarget['body.x'] = retarget('body.x', 3.0)
+      this.microTarget['body.y'] = retarget('body.y', 1.2)
+      this.microTarget['body.z'] = retarget('body.z', 1.6)
+      this.microFreq = 0.48 + this.random() * 0.1
+      this.microHoldUntil = this.elapsed + 1.5 + this.random() * 1.4
     }
     const omega = Math.PI * 2 * this.microFreq
     for (const key of Object.keys(this.micro)) {
+      // Damping 0.85: near-critical. The 0.72 "bounce" tuning measurably
+      // whips the head (120deg/s velocity reversals in adjacent frames at
+      // ±6deg stances — the live "snaps to one side then bounces back"
+      // report). Real head re-poses commit quickly (0.48Hz puts arrival
+      // ~1s out) but never overshoot hard enough to reverse direction
+      // within two frames; they land and settle.
       const acceleration = (this.microTarget[key] - this.micro[key]) * omega * omega
         - 2 * 0.85 * omega * this.microVelocity[key]
       this.microVelocity[key] += acceleration * delta
       this.micro[key] += this.microVelocity[key] * delta
     }
 
-    // Primary sway: phase-accumulator oscillator with a slowly drifting rate
-    // (never a fixed period), guaranteeing visible presence while the random
-    // walk removes exact repetition.
-    const primaryRate = 1.15 + Math.sin(this.elapsed * 0.31) * 0.25
+    // Primary sway: a slow, small presence oscillator — visible only because
+    // everything else is stiller now. Neuro reference: life lives in the face
+    // and voice, not in a constantly swinging torso.
+    const primaryRate = 0.9 + Math.sin(this.elapsed * 0.31) * 0.2
     this.primaryPhase += primaryRate * delta
     const primary = Math.sin(this.primaryPhase)
-    const levelRise = Math.max(0, level - this.previousAudioLevel)
-    const beatRate = 2.15 + Math.sin(this.elapsed * 0.37) * 0.55
+    const beatRate = 1.55 + Math.sin(this.elapsed * 0.37) * 0.4
     this.beatPhase += Math.PI * 2 * beatRate * Math.max(0, dt)
     const beat = Math.max(0, Math.sin(this.beatPhase))
     const accentEnvelope = clamp(levelRise * 2.8 + level * beat * 0.32, 0, 1)
@@ -131,17 +166,23 @@ export class SpeechPerformanceController {
     const weight = this.state === 'speaking'
       ? onsetEnvelope
       : this.state === 'releasing' ? releaseEnvelope : 0
-    const voiceEnergy = 0.72 + level * 0.68
+    // Voice energy uses the SMOOTHED envelope, never the raw frame level:
+    // raw level hops per frame (0.3 -> 0.55 on an accent, back the next
+    // frame) and amplitude-modulating the settled micro stance by it
+    // produced single-frame spikes of ~60deg/s — the live "head whips to
+    // one side and bounces back" report. The envelope (attack 3.2/s,
+    // release 1.4/s) follows prosody at human speed.
+    const voiceEnergy = 0.72 + this.levelEnvelope * 0.68
     const amp = swayScale * voiceEnergy * weight
-    const accentY = accentEnvelope * 3.6
-    const accentBody = accentEnvelope * 1.3
+    const accentY = accentEnvelope * 2.6
+    const accentBody = accentEnvelope * 1.2
     return {
-      headX: (primary * 2.2 + this.micro['head.x'] * 1.5) * amp,
+      headX: (primary * 1.1 + this.micro['head.x'] * 2.6) * amp,
       headY: (this.micro['head.y'] * swayScale + accentY) * weight,
-      headZ: (Math.sin(this.primaryPhase * 0.5 + 1.1) * 1.2 + this.micro['head.z'] * 1.5) * amp,
-      bodyX: (-primary * 1.3 + this.micro['body.x'] * 1.6) * amp,
+      headZ: (Math.sin(this.primaryPhase * 0.5 + 1.1) * 0.6 + this.micro['head.z'] * 1.7) * amp,
+      bodyX: (-primary * 0.55 + this.micro['body.x'] * 2.2) * amp,
       bodyY: (this.micro['body.y'] * swayScale + accentBody) * weight,
-      bodyZ: (-primary * 0.8 + this.micro['body.z'] * 1.2) * amp,
+      bodyZ: (-primary * 0.35 + this.micro['body.z'] * 1.6) * amp,
       weight,
       state: this.state,
     }

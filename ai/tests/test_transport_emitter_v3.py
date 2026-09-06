@@ -49,7 +49,9 @@ def test_success_lifecycle_has_one_canonical_order():
     assert not hasattr(update.payload, "model_id")
     assert not hasattr(update.payload, "expression")
     assert not hasattr(update.payload, "motion")
-    assert update.payload.motion_plan.steps[0].primitive == "nod"
+    # 2026-09-05 slimming: character.intent payloads no longer carry LLM
+    # motion plans — the local director owns beat scheduling.
+    assert update.payload.motion_plan is None
 
 
 def test_failure_lifecycle_is_error_then_idle():
