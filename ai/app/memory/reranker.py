@@ -302,6 +302,14 @@ class LocalReranker:
                     [logits[:, self._false_id], logits[:, self._true_id]], dim=1)
                 log_probs = torch.nn.functional.log_softmax(stacked, dim=1)
                 scores.extend(log_probs[:, 1].exp().tolist())
+            if device.startswith("cuda"):
+                # The caching allocator keeps PEAK activation blocks reserved
+                # (~2.7GB measured) for the life of this long-lived process —
+                # on the 8GB card that alone pushes the desktop into VRAM
+                # spill. We are a low-frequency turn-level scorer: hand the
+                # reserved blocks back after every scoring pass (re-cudaMalloc
+                # next time is microseconds against a multi-second budget).
+                torch.cuda.empty_cache()
             return scores
         except Exception:
             self._failed = True
