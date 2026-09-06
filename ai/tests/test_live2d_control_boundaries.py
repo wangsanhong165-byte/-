@@ -429,10 +429,16 @@ def test_idle_behavior_exposes_correlated_body_drift():
     assert "bodyY: number" in idle
     # 2026-09-05 whole-body linkage: torso couples to head rotation (x 32%,
     # y 18%) instead of drifting alone. F2: the y-coupling is clamped so head
-    # sway overshoot cannot leak a forward body pitch into idle.
+    # sway overshoot cannot leak a forward body pitch into idle. 2026-09-06:
+    # the coupling fades with drowsiness — a sleeping body does not track
+    # head sway.
     assert "'body.x': (snapshot.bodyX + snapshot.headX * 0.32) * gain" in ambient
-    assert "'body.y': (snapshot.bodyY + clamp(snapshot.headY * 0.18, -0.3, 0.3)) * gain" in ambient
-    assert "clamp(snapshot.headY * 0.18, -0.3, 0.3)" in ambient
+    # The body.y statement is line-wrapped in source — assert its two halves
+    # instead of a contiguous substring (the wrap moved once already).
+    assert "'body.y': (snapshot.bodyY" in ambient
+    assert ("+ clamp(snapshot.headY * 0.18 * (1 - snapshot.sleepAmount), -0.3, 0.3)) * gain"
+            in ambient)
+    assert "clamp(snapshot.headY * 0.18 * (1 - snapshot.sleepAmount), -0.3, 0.3)" in ambient
 
 
 def test_idle_action_scheduler_is_capability_aware_and_avoids_repetition():

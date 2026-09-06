@@ -53,6 +53,12 @@ export class IdleBehaviorController {
   // nearly still). Speech, focus or interaction reset immediately.
   private _calmSeconds = 0
   private _sleepAmount = 0
+  // Drowsy time-dilation: idle actions play in slow motion as sleep rises
+  // (真机反馈：快睡着还快速偏头——小幅度快攻在半闭眼下读作抽搐).
+  private _actionClock = 0
+  // Two-stage eyelids (真机反馈：慢慢闭眼没必要): drowsy eases to a half-closed
+  // 酝酿 hold, then the asleep moment CLOSES directly (fast rate).
+  private _lidAmount = 0
   private _sleepSide = createSeededRandom(deriveMotionSeed(this._style.seed, 9))() < 0.5 ? -1 : 1
   private _drowsyAfterSec = 150
   private _asleepAfterSec = 240
@@ -75,6 +81,8 @@ export class IdleBehaviorController {
     this._elapsedMs = 0
     this._calmSeconds = 0
     this._sleepAmount = 0
+    this._actionClock = 0
+    this._lidAmount = 0
     this._snapshot.transitionProgress = 0
     this._bodySway.reset(deriveMotionSeed(this._style.seed, 5))
   }
@@ -175,8 +183,17 @@ export class IdleBehaviorController {
     this._sleepAmount += (sleepTarget - this._sleepAmount)
       * (1 - Math.exp(-dt * (sleepTarget > this._sleepAmount ? 0.35 : 2.6)))
     const sleep = this._sleepAmount
-    const actionAllowed = allowed && focus < 0.08 && sleep < 0.6
-    const action = this._actions.update(seconds, {
+    // Two-stage eyelids: drowsy brews at half-closed, the asleep moment
+    // closes DIRECTLY (fast rate) — no slow-mo eyelid drift (真机反馈).
+    const lidTarget = this._calmSeconds >= this._asleepAfterSec ? 1
+      : this._calmSeconds >= this._drowsyAfterSec ? 0.5 : 0
+    const lidRate = lidTarget === 1 && this._lidAmount < 1 ? 6 : 3
+    this._lidAmount += (lidTarget - this._lidAmount) * (1 - Math.exp(-dt * lidRate))
+    // Drowsy slow-motion: the action clock dilates with sleep so any action
+    // still playing drifts instead of snapping (半闭眼时快速偏头 = 抽搐).
+    this._actionClock += dt * (1 - 0.75 * sleep)
+    const actionAllowed = allowed && focus < 0.08 && sleep < 0.5
+    const action = this._actions.update(this._actionClock, {
       // SoulLink-style interruption: an interaction cancels an idle action
       // instead of letting its hidden phase advance behind pointer tracking.
       allowed: actionAllowed,
@@ -186,6 +203,17 @@ export class IdleBehaviorController {
       vad: this._vad,
       emotion: residuePoolEmotion(this._residueProfile, this._emotion),
     })
+    // 2026-09-05 真机反馈：发困了还在歪头——待机动作随睡意平方淡出，
+    // 深睡期动作自然消失而不是被门控突然掐断。
+    const actionFade = (1 - sleep) * (1 - sleep)
+    action.headX *= actionFade
+    action.headY *= actionFade
+    action.headZ *= actionFade
+    action.eyeX *= actionFade
+    action.eyeY *= actionFade
+    action.bodyX *= actionFade
+    action.bodyY *= actionFade
+    if (action.eyeClose) action.eyeClose *= actionFade
     const actionState = this._actions.getState()
     const microGain = this._legacy ? 1 : this._style.microMotionGain
     const amplitude = this._legacy
@@ -194,24 +222,29 @@ export class IdleBehaviorController {
     // Tracking still owns gaze/head priority, but idle body language keeps
     // most of its weight — a full suppress reads as a statue the instant the
     // pointer moves.
-    const headWeight = weight * (1 - clamp(focusWeights.head, 0, 1) * 0.45) * (1 - 0.55 * sleep)
+    const headWeight = weight * (1 - clamp(focusWeights.head, 0, 1) * 0.45) * (1 - 0.7 * sleep)
     const gazeWeight = weight * (1 - clamp(focusWeights.gaze, 0, 1))
-    const bodyWeight = weight * (1 - clamp(focusWeights.body, 0, 1) * 0.35) * (1 - 0.45 * sleep)
-    // Sleep pose: head settles to one side with a slow breathing bob, the
-    // whole figure quiets, eyelids close. Everything scales with sleepAmount
-    // so waking glides back instead of snapping.
-    const sleepQuiet = 1 - 0.6 * sleep
+    const bodyWeight = weight * (1 - clamp(focusWeights.body, 0, 1) * 0.35) * (1 - 0.6 * sleep)
+    // Sleep pose (2026-09-05 真机反馈重设计：睡姿不好看+眼睛没全闭)：
+    // the head sinks INTO the tilt — deep chin tuck, pronounced side settle,
+    // NO pitching bob (nodding while asleep read as eerie; breathing lives in
+    // the chest dial). Eyelids reach FULL close at sleep=1 (was 0.94 — a
+    // light slit the user flagged).
+    const sleepQuiet = 1 - 0.7 * sleep
     this._snapshot = {
       headX: (sway.headX * sleepQuiet + action.headX + Math.sin(seconds * 0.29 + this._phase) * amplitude.headX * microGain) * headWeight,
       headY: (sway.headY * sleepQuiet + action.headY + Math.sin(seconds * 0.21 + 1.2) * amplitude.headY * microGain) * headWeight
-        - 1.4 * sleep + Math.sin(seconds * 0.32) * 1.1 * sleep,
+        - 4.5 * sleep,
       headZ: (sway.headZ * sleepQuiet + action.headZ + Math.sin(seconds * 0.17 + 0.4) * amplitude.headZ * microGain) * headWeight
-        + this._sleepSide * 4.6 * sleep,
+        + this._sleepSide * 7 * sleep,
       eyeX: (Math.sin(seconds * 0.13 + 2.1) * amplitude.eyeX * microGain + action.eyeX) * gazeWeight * (1 - sleep),
       eyeY: (Math.sin(seconds * 0.09 + 0.8) * amplitude.eyeY * microGain + action.eyeY) * gazeWeight * (1 - sleep),
       bodyX: (sway.bodyX * sleepQuiet + action.bodyX) * bodyWeight,
-      bodyY: (sway.bodyY * sleepQuiet + action.bodyY) * bodyWeight,
-      eyeClose: Math.max(action.eyeClose * gazeWeight, 0.94 * sleep),
+      // 真机反馈"睡着像死了一样"：睡眠呼吸必须可见——body.y 以 5.7s 睡眠
+      // 周期（呼吸拨盘同步）缓慢起伏，均匀规律，加在抑制之后保持幅度。
+      bodyY: (sway.bodyY * sleepQuiet + action.bodyY) * bodyWeight
+        + Math.sin(seconds * 1.1) * 0.5 * sleep,
+      eyeClose: Math.max(action.eyeClose * gazeWeight, this._lidAmount),
       sleepAmount: sleep,
       activeAction: actionState.activeAction,
       actionProgress: actionState.progress,

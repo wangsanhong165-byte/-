@@ -376,14 +376,18 @@ function logicalIdlePose(snapshot: IdleBehaviorSnapshot, gain: number): Record<s
     // Whole-body linkage: torso follows head rotation so the character moves
     // as a connected figure, not a floating head on a static body.
     'body.x': (snapshot.bodyX + snapshot.headX * 0.32) * gain,
-    // F2: clamp the head-pitch coupling so headY sway overshoot cannot leak
-    // a forward body pitch into idle (the 120s no-forward-lean lock).
-    'body.y': (snapshot.bodyY + clamp(snapshot.headY * 0.18, -0.3, 0.3)) * gain,
+    // F2 + 睡眠修正: clamp the head-pitch coupling so headY sway overshoot
+    // cannot leak a forward body pitch into idle — and the coupling RELAXES
+    // with sleep (a sleeping body doesn't follow the tucked head; without
+    // this the breathing bob troughs past the lean line).
+    'body.y': (snapshot.bodyY
+      + clamp(snapshot.headY * 0.18 * (1 - snapshot.sleepAmount), -0.3, 0.3)) * gain,
     'body.z': (-snapshot.bodyX * 0.18 + snapshot.headZ * 0.24 + snapshot.headX * 0.12) * gain,
     // Deep torso output axes (shirone ParamBodyAngleY2/Z2): secondary layers
     // that add depth to the same lean. A fraction of the primary axes so the
     // rig's two torso stages bend together instead of only the first.
-    'body.y2': (snapshot.bodyY + snapshot.headY * 0.18) * 0.6 * gain,
+    'body.y2': (snapshot.bodyY
+      + clamp(snapshot.headY * 0.18 * (1 - snapshot.sleepAmount), -0.3, 0.3)) * 0.6 * gain,
     'body.z2': (-snapshot.bodyX * 0.18 + snapshot.headZ * 0.24 + snapshot.headX * 0.12) * 0.6 * gain,
   }
 }
