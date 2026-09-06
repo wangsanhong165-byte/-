@@ -226,6 +226,7 @@ class LocalReranker:
             ).to(self._device)
             model.eval()
             quantize_targets = os.environ.get("RERANKER_QUANTIZE_TARGETS", "none")
+            did_quantize = False
             if self._device == "cpu" \
                     and os.environ.get("RERANKER_QUANTIZE", "0") not in {"0", "false", "no"} \
                     and quantize_targets != "none":
@@ -244,6 +245,7 @@ class LocalReranker:
                 }
                 if spec:
                     model = quantize_dynamic(model, spec, dtype=torch.qint8)
+                    did_quantize = True
             self._model = model
             self._tokenizer = tokenizer
             self._true_id = tokenizer.convert_tokens_to_ids("yes")
@@ -251,9 +253,8 @@ class LocalReranker:
             self._prefix_ids = tokenizer.encode(_SYSTEM_PREFIX, add_special_tokens=False)
             self._suffix_ids = tokenizer.encode(_ASSISTANT_SUFFIX, add_special_tokens=False)
             self._load_seconds = time.time() - started
-            logger.info("Reranker loaded (int8=%s) in %.1fs",
-                        os.environ.get("RERANKER_QUANTIZE", "1") != "0",
-                        self._load_seconds)
+            logger.info("Reranker loaded (quantized=%s, device=%s) in %.1fs",
+                        did_quantize, self._device, self._load_seconds)
             return True
         except Exception:
             self._failed = True
